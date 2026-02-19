@@ -16,15 +16,15 @@ namespace Sm64DecompLevelViewer.Services
     public class MacroObjectParser
     {
         private static readonly Regex PresetPattern = new Regex(
-            @"\/\*\s*([a-zA-Z0-9_]+)\s*\*\/\s*\{\s*([a-zA-Z0-9_]+),\s*([a-zA-Z0-9_]+),\s*([^}]+)\}",
+            @"\/\*\s*([a-zA-Z0-9_]+)\s*\*\/\s*\{\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^}]+)\}",
             RegexOptions.Compiled);
 
         private static readonly Regex MacroObjectPattern = new Regex(
-            @"MACRO_OBJECT\s*\(\s*/\*preset\*/\s*([^,]+),\s*/\*yaw\*/\s*(-?\d+),\s*/\*pos\*/\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\s*\)",
+            @"MACRO_OBJECT\s*\(\s*(?:/\*.*?\*/\s*)?([^,]+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*\)[\s,]*",
             RegexOptions.Compiled);
 
         private static readonly Regex MacroObjectWithParamPattern = new Regex(
-            @"MACRO_OBJECT_WITH_BHV_PARAM\s*\(\s*/\*preset\*/\s*([^,]+),\s*/\*yaw\*/\s*(-?\d+),\s*/\*pos\*/\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*/\*bhvParam\*/\s*([^)]+)\)",
+            @"MACRO_OBJECT_WITH_BHV_PARAM\s*\(\s*(?:/\*.*?\*/\s*)?([^,]+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?([^)]+)\)[\s,]*",
             RegexOptions.Compiled);
 
         public Dictionary<string, MacroPreset> ParsePresets(string filePath)

@@ -23,6 +23,7 @@ namespace Sm64DecompLevelViewer
         private IntPtr _rendererHwnd = IntPtr.Zero;
         private BehaviorService _behaviorService;
         private string _projectRoot;
+        private int _areaIndex;
 
         [DllImport("user32.dll")]
         static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
@@ -40,10 +41,11 @@ namespace Sm64DecompLevelViewer
         private const int WS_CHILD = 0x40000000;
         private const int WS_VISIBLE = 0x10000000;
 
-        public LevelEditorWindow(List<LevelObject> objects, CollisionMesh collisionMesh, VisualMesh visualMesh, string projectRoot)
+        public LevelEditorWindow(List<LevelObject> objects, CollisionMesh collisionMesh, VisualMesh visualMesh, string projectRoot, int areaIndex)
         {
             InitializeComponent();
             _objects = objects;
+            _areaIndex = areaIndex;
             
             _projectRoot = projectRoot;
             _behaviorService = new BehaviorService(projectRoot);
@@ -302,16 +304,16 @@ namespace Sm64DecompLevelViewer
                     else
                     {
                         // Fallback: try to find script.c or similar based on level path if we had it
-                        // For now, if no template, we might be in trouble unless we know the folder.
-                        // We'll use the first object's source file directory as a guess if needed.
                         var anyTemplate = _objects.FirstOrDefault(o => !string.IsNullOrEmpty(o.SourceFile));
                         if (anyTemplate != null)
                         {
                             string dir = Path.GetDirectoryName(anyTemplate.SourceFile)!;
                             if (newObj.SourceType == ObjectSourceType.Normal) newObj.SourceFile = Path.Combine(dir, "..", "script.c");
                             else if (newObj.SourceType == ObjectSourceType.Macro) newObj.SourceFile = Path.Combine(dir, "macro.inc.c");
+                            else if (newObj.SourceType == ObjectSourceType.Special) newObj.SourceFile = Path.Combine(dir, "collision.inc.c");
                         }
                     }
+                    newObj.AreaIndex = _areaIndex;
 
                     _objects.Add(newObj);
                     PopulateTreeView();

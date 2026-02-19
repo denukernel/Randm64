@@ -35,12 +35,6 @@ public class LevelSaver
                     {
                         int deltaDeleted = -obj.SourceLength;
                         content = content.Remove(obj.SourceIndex, obj.SourceLength);
-                        
-                        foreach (var other in group)
-                        {
-                            if (other != obj && other.SourceIndex > obj.SourceIndex)
-                                other.SourceIndex += deltaDeleted;
-                        }
                         continue;
                     }
 
@@ -58,17 +52,19 @@ public class LevelSaver
                         obj.SourceLength = newMacro.Length;
 
                         // Shift indices for all other objects in THIS file that appear LATER in the file
-                        foreach (var other in group)
-                        {
-                            if (other != obj && other.SourceIndex > obj.SourceIndex)
-                            {
-                                other.SourceIndex += delta;
-                            }
-                        }
+                        // Note: Index shifting is not needed when processing in descending order of SourceIndex.
+                        // However, we update obj.SourceLength and keep the original SourceIndex for earlier objects.
                     }
                 }
 
                 File.WriteAllText(filePath, content);
+                
+                // After saving a collision file, update the SPECIAL_OBJECT count if it exists
+                if (filePath.Contains("collision.inc.c"))
+                {
+                    UpdateSpecialObjectCount(filePath);
+                }
+
                 Console.WriteLine($"Saved changes to {filePath}");
             }
             catch (Exception ex)
@@ -77,7 +73,7 @@ public class LevelSaver
             }
         }
 
-        // Handle new objects that don't have a SourceFile or were explicitly marked as new
+        // Handle new objects
         var newObjects = objects.Where(o => o.IsNew && !o.IsDeleted).ToList();
         foreach (var obj in newObjects)
         {
@@ -91,15 +87,38 @@ public class LevelSaver
                 if (obj.SourceType == ObjectSourceType.Normal)
                 {
                     insertion = $"\n    OBJECT({obj.ModelName}, {obj.X}, {obj.Y}, {obj.Z}, {obj.RX}, {obj.RY}, {obj.RZ}, {obj.Params}, {obj.Behavior}),";
-                    // Find END_AREA() or insert before the last };
-                    int index = content.LastIndexOf("END_AREA");
+                    
+                    int areaStart = -1;
+                    var areaMatches = Regex.Matches(content, @"AREA\s*\(\s*(\d+)");
+                    foreach (Match areaMatch in areaMatches)
+                    {
+                        if (int.Parse(areaMatch.Groups[1].Value) == obj.AreaIndex)
+                        {
+                            areaStart = areaMatch.Index;
+                            break;
+                        }
+                    }
+
+                    int index = -1;
+                    if (areaStart != -1)
+                    {
+                        var allEndAreas = Regex.Matches(content, @"END_AREA\s*\(\s*\)");
+                        foreach (Match m in allEndAreas)
+                        {
+                            if (m.Index > areaStart)
+                            {
+                                index = m.Index;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (index == -1) index = content.LastIndexOf("END_AREA");
                     if (index == -1) index = content.LastIndexOf("};");
                     if (index != -1) content = content.Insert(index, insertion);
                 }
                 else if (obj.SourceType == ObjectSourceType.Macro)
                 {
-                    insertion = $"\n    MACRO_OBJECT(macro_goomba_triplet_formation, {obj.RY}, {obj.X}, {obj.Y}, {obj.Z}),";
-                    // Realistically we need a preset name. For now using a dummy or the ModelName if it looks like a preset.
                     string preset = obj.ModelName.StartsWith("macro_") ? obj.ModelName : "macro_goomba_triplet_formation";
                     insertion = $"\n    MACRO_OBJECT({preset}, {obj.RY}, {obj.X}, {obj.Y}, {obj.Z}),";
                     
@@ -110,18 +129,72 @@ public class LevelSaver
                 else if (obj.SourceType == ObjectSourceType.Special)
                 {
                     insertion = $"\n    SPECIAL_OBJECT({obj.ModelName}, {obj.X}, {obj.Y}, {obj.Z}),";
-                    int index = content.LastIndexOf("SPECIAL_OBJECT_END");
-                    if (index == -1) index = content.LastIndexOf("0x0045"); // Common end marker for special objects
+                    
+                    // Find the last SPECIAL_OBJECT or COL_SPECIAL_INIT and insert after it
+                    var specialMatches = Regex.Matches(content, @"SPECIAL_OBJECT(?:_WITH_YAW(?:_AND_PARAM)?)?");
+                    int index = -1;
+                    if (specialMatches.Count > 0)
+                    {
+                        var lastMatch = specialMatches[specialMatches.Count - 1];
+                        // Find the end of this line (the comma)
+                        index = content.IndexOf(",", lastMatch.Index);
+                        if (index != -1) index++; // After the comma
+                    }
+                    else
+                    {
+                        // Fallback: look for COL_SPECIAL_INIT
+                        var initMatch = Regex.Match(content, @"COL_SPECIAL_INIT\s*\(\s*(\d+)\s*\)");
+                        if (initMatch.Success)
+                        {
+                            index = content.IndexOf(",", initMatch.Index);
+                            if (index != -1) index++;
+                        }
+                    }
+                    
+                    if (index == -1) index = content.LastIndexOf("COL_END");
+                    if (index == -1) index = content.LastIndexOf("};");
+                    
                     if (index != -1) content = content.Insert(index, insertion);
                 }
 
                 File.WriteAllText(obj.SourceFile, content);
-                obj.IsNew = false; // Mark as no longer new
+                
+                if (obj.SourceFile.Contains("collision.inc.c"))
+                {
+                    UpdateSpecialObjectCount(obj.SourceFile);
+                }
+
+                obj.IsNew = false;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Failed to insert new object into {obj.SourceFile}: {ex.Message}");
             }
+        }
+    }
+
+    private void UpdateSpecialObjectCount(string filePath)
+    {
+        try
+        {
+            string content = File.ReadAllText(filePath);
+            
+            // Re-count all special objects
+            int count = Regex.Matches(content, @"SPECIAL_OBJECT(?:_WITH_YAW(?:_AND_PARAM)?)?\s*\(").Count;
+            
+            // Update COL_SPECIAL_INIT(N)
+            var match = Regex.Match(content, @"COL_SPECIAL_INIT\s*\(\s*(\d+)\s*\)");
+            if (match.Success)
+            {
+                string oldLine = match.Value;
+                string newLine = $"COL_SPECIAL_INIT({count})";
+                content = content.Replace(oldLine, newLine);
+                File.WriteAllText(filePath, content);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to update special object count in {filePath}: {ex.Message}");
         }
     }
 
@@ -185,8 +258,8 @@ public class LevelSaver
         // 4. Regular OBJECT (model, x, y, z, rx, ry, rz, params, bhv)
         if (macro.Contains("OBJECT"))
         {
-            // This is the most complex one. We want to preserve the first few args (model, pos, angle) but replace behavior.
-            var pattern = $@"OBJECT(?:_WITH_ACTS)?{ws}\({ws}([^,]+?){ws},{ws}(-?\d+?|[^,]+?){ws},{ws}(-?\d+?|[^,]+?){ws},{ws}(-?\d+?|[^,]+?){ws},{ws}(-?\d+?|[^,]+?){ws},{ws}(-?\d+?|[^,]+?){ws},{ws}(-?\d+?|[^,]+?){ws},{ws}([^,]+?){ws},{ws}([^,)]+?){ws}(?:,{ws}([^)]+?){ws})?\)";
+            // Handle balanced parentheses for arguments like BPARAM1(X) | BPARAM2(Y)
+            var pattern = $@"OBJECT(?:_WITH_ACTS)?{ws}\({ws}([^,]*?(?:\([^)]*?\)[^,]*?)?){ws},{ws}([^,]*?(?:\([^)]*?\)[^,]*?)?){ws},{ws}([^,]*?(?:\([^)]*?\)[^,]*?)?){ws},{ws}([^,]*?(?:\([^)]*?\)[^,]*?)?){ws},{ws}([^,]*?(?:\([^)]*?\)[^,]*?)?){ws},{ws}([^,]*?(?:\([^)]*?\)[^,]*?)?){ws},{ws}([^,]*?(?:\([^)]*?\)[^,]*?)?){ws},{ws}([^,]*?(?:\([^)]*?\)[^,]*?)?){ws},{ws}([^,)]*?(?:\([^)]*?\)[^,)]*?)?){ws}(?:,{ws}([^)]+?){ws})?\)";
             
             return Regex.Replace(macro, pattern, m => {
                 string model = m.Groups[1].Value;

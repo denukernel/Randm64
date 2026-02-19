@@ -30,4 +30,5 @@ public class LevelObject
     public ObjectSourceType SourceType { get; set; }
     public bool IsDeleted { get; set; }
     public bool IsNew { get; set; }
+    public int AreaIndex { get; set; } = -1;
 }

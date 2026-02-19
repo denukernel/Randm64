@@ -517,6 +517,8 @@ public class GeometryRenderer : GameWindow
             for (int i = 0; i < _objects.Count; i++)
             {
                 var obj = _objects[i];
+                if (obj.IsDeleted) continue;
+
                 float cubeSize;
 
                 // Check if this is the selected object
@@ -795,6 +797,8 @@ public class GeometryRenderer : GameWindow
         for (int i = 0; i < _objects!.Count; i++)
         {
             var obj = _objects[i];
+            if (obj.IsDeleted) continue;
+
             Vector3 objCenter = new Vector3(obj.X, obj.Y, obj.Z);
             float halfSize = cubeSize / 2;
 

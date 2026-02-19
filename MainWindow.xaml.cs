@@ -31,17 +31,17 @@ public partial class MainWindow : Window
     private readonly SettingsService _settingsService;
 
     private static readonly Regex SpecialObjectPattern = new Regex(
-        @"SPECIAL_OBJECT\s*\(\s*(?:/\*.*?\*/\s*)?([^,]+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*\)",
+        @"SPECIAL_OBJECT\s*\(\s*(?:/\*.*?\*/\s*)?([^,]+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*\)[\s,]*",
         RegexOptions.Compiled
     );
 
     private static readonly Regex SpecialObjectWithYawPattern = new Regex(
-        @"SPECIAL_OBJECT_WITH_YAW\s*\(\s*(?:/\*.*?\*/\s*)?([^,]+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*\)",
+        @"SPECIAL_OBJECT_WITH_YAW\s*\(\s*(?:/\*.*?\*/\s*)?([^,]+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*\)[\s,]*",
         RegexOptions.Compiled
     );
 
     private static readonly Regex SpecialObjectWithYawAndParamPattern = new Regex(
-        @"SPECIAL_OBJECT_WITH_YAW_AND_PARAM\s*\(\s*(?:/\*.*?\*/\s*)?([^,]+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?([^)]+)\)",
+        @"SPECIAL_OBJECT_WITH_YAW_AND_PARAM\s*\(\s*(?:/\*.*?\*/\s*)?([^,]+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?([^)]+)\)[\s,]*",
         RegexOptions.Compiled
     );
 
@@ -423,14 +423,13 @@ public partial class MainWindow : Window
             }
 
             List<LevelObject> objects = new();
+            int areaIndex = -1;
             if (selectedLevel != null)
             {
                 var scriptPath = Path.Combine(selectedLevel.LevelPath, "script.c");
                 if (File.Exists(scriptPath))
                 {
                     var objectParser = new ObjectParser();
-                    
-                    int areaIndex = -1;
                     if (areaName != null && areaName.StartsWith("Area "))
                     {
                         int.TryParse(areaName.Substring(5), out areaIndex);
@@ -568,7 +567,7 @@ public partial class MainWindow : Window
                 _currentObjects = objects;
                 
                 // Open the new Level Editor window
-                var editor = new LevelEditorWindow(objects, collisionMesh, visualMesh, projectRoot ?? "");
+                var editor = new LevelEditorWindow(objects, collisionMesh, visualMesh, projectRoot ?? "", areaIndex);
                 editor.Show();
             }
         }

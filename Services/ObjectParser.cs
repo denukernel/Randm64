@@ -7,8 +7,8 @@ namespace Sm64DecompLevelViewer.Services;
 public class ObjectParser
 {
     private static readonly Regex ObjectPattern = new Regex(
-        @"OBJECT(?:_WITH_ACTS)?(?:\s|/\*.*?\*/)*\((?:\s|/\*.*?\*/)*([^,]+?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*(-?\d+?|[^,]+?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*(-?\d+?|[^,]+?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*(-?\d+?|[^,]+?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*(-?\d+?|[^,]+?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*(-?\d+?|[^,]+?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*(-?\d+?|[^,]+?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,]+?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,)]+?)(?:\s|/\*.*?\*/)*(?:,(?:\s|/\*.*?\*/)*([^)]+?)(?:\s|/\*.*?\*/)*)?\)",
-        RegexOptions.Compiled | RegexOptions.Multiline
+        @"OBJECT(?:_WITH_ACTS)?(?:\s|/\*.*?\*/)*\((?:\s|/\*.*?\*/)*([^,]*?(?:\([^)]*?\)[^,]*?)?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,]*?(?:\([^)]*?\)[^,]*?)?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,]*?(?:\([^)]*?\)[^,]*?)?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,]*?(?:\([^)]*?\)[^,]*?)?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,]*?(?:\([^)]*?\)[^,]*?)?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,]*?(?:\([^)]*?\)[^,]*?)?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,]*?(?:\([^)]*?\)[^,]*?)?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,]*?(?:\([^)]*?\)[^,]*?)?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,)]*?(?:\([^)]*?\)[^,)]*?)?)(?:\s|/\*.*?\*/)*(?:,(?:\s|/\*.*?\*/)*([^)]+?)(?:\s|/\*.*?\*/)*)?\)[\s,]*",
+        RegexOptions.Compiled
     );
 
     private static readonly Regex MarioPosPattern = new Regex(
@@ -100,7 +100,7 @@ public class ObjectParser
             }
 
             // Function to recursively or iteratively parse content and its jumps
-            void ParseContent(string currentContent, HashSet<string> visitedScripts)
+            void ParseContent(string currentContent, int baseOffset, int areaIndex, HashSet<string> visitedScripts)
             {
                 // Parse direct objects
                 var matches = ObjectPattern.Matches(currentContent);
@@ -119,9 +119,10 @@ public class ObjectParser
                             RZ = int.TryParse(match.Groups[7].Value, out int rz) ? rz : 0,
                             Behavior = match.Groups[9].Value.Trim(),
                             SourceFile = filePath,
-                            SourceIndex = match.Index,
+                            SourceIndex = baseOffset + match.Index,
                             SourceLength = match.Length,
-                            SourceType = ObjectSourceType.Normal
+                            SourceType = ObjectSourceType.Normal,
+                            AreaIndex = areaIndex
                         };
 
                         string paramsStr = match.Groups[8].Value.Trim();
@@ -147,12 +148,33 @@ public class ObjectParser
                     if (scriptBlocks.TryGetValue(scriptName, out string? jumpContent) && !visitedScripts.Contains(scriptName))
                     {
                         visitedScripts.Add(scriptName);
-                        ParseContent(jumpContent, visitedScripts);
+                        // Find the actual offset of jumpContent in the file
+                        int blockOffset = content.IndexOf($"const LevelScript {scriptName}[]");
+                        if (blockOffset != -1)
+                        {
+                            int contentStart = content.IndexOf('{', blockOffset) + 1;
+                            ParseContent(jumpContent, contentStart, areaIndex, visitedScripts);
+                        }
                     }
                 }
             }
 
-            ParseContent(contentToParse, new HashSet<string>());
+            int parseOffset = 0;
+            if (targetArea != -1)
+            {
+                // Find target area block
+                var areaMatches = AreaPattern.Matches(content);
+                foreach (Match areaMatch in areaMatches)
+                {
+                    if (int.Parse(areaMatch.Groups[1].Value) == targetArea)
+                    {
+                        parseOffset = areaMatch.Index;
+                        break;
+                    }
+                }
+            }
+
+            ParseContent(contentToParse, parseOffset, targetArea, new HashSet<string>());
 
             // Mario Position (filtered by area if specified)
             var marioMatches = MarioPosPattern.Matches(content);
@@ -172,7 +194,8 @@ public class ObjectParser
                         SourceFile = filePath,
                         SourceIndex = match.Index,
                         SourceLength = match.Length,
-                        SourceType = ObjectSourceType.Mario
+                        SourceType = ObjectSourceType.Mario,
+                        AreaIndex = marioArea
                     });
                 }
             }
