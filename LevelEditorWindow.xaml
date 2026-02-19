@@ -1,0 +1,147 @@
+<Window x:Class="Sm64DecompLevelViewer.LevelEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SM64 Level Editor" Height="768" Width="1024"
+        Background="#1E1E1E" Foreground="#CCCCCC"
+        Icon="Assets/icon.jpg"
+        Closing="Window_Closing">
+    <Window.Resources>
+        <SolidColorBrush x:Key="PanelBackground" Color="#252526"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#3F3F46"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#00A2FF"/>
+        <SolidColorBrush x:Key="HeaderBrush" Color="#569CD6"/>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#CCCCCC"/>
+        </Style>
+    </Window.Resources>
+    
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="250"/> <!-- Sidebar -->
+            <ColumnDefinition Width="*"/>   <!-- 3D View -->
+        </Grid.ColumnDefinitions>
+        
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>     <!-- Main area -->
+            <RowDefinition Height="200"/>   <!-- Details area -->
+        </Grid.RowDefinitions>
+        
+        <!-- Sidebar: Object List -->
+        <Border Grid.Column="0" Grid.Row="0" Grid.RowSpan="2" 
+                Background="{StaticResource PanelBackground}" 
+                BorderBrush="{StaticResource BorderBrush}" 
+                BorderThickness="0,0,1,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                
+                <TextBlock Text="LIST OF OBJECTS" FontWeight="Bold" Margin="10" FontSize="14" Foreground="{StaticResource HeaderBrush}"/>
+                
+                <TreeView Grid.Row="1" x:Name="ObjectTreeView" Background="Transparent" BorderThickness="0"
+                          SelectedItemChanged="ObjectTreeView_SelectedItemChanged">
+                    <TreeView.ItemContainerStyle>
+                        <Style TargetType="TreeViewItem">
+                            <Setter Property="Foreground" Value="#CCCCCC"/>
+                            <Setter Property="Padding" Value="2"/>
+                        </Style>
+                    </TreeView.ItemContainerStyle>
+                    
+                    <TreeViewItem Header="NORMAL" x:Name="NormalObjectsNode" IsExpanded="True"/>
+                    <TreeViewItem Header="MACRO" x:Name="MacroObjectsNode" IsExpanded="True"/>
+                    <TreeViewItem Header="SPECIAL" x:Name="SpecialObjectsNode" IsExpanded="True"/>
+                </TreeView>
+            </Grid>
+        </Border>
+        
+        <!-- 3D Viewer Container -->
+        <Border Grid.Column="1" Grid.Row="0" Background="Black" x:Name="RendererContainer" 
+                MouseDown="RendererContainer_MouseDown" Focusable="True">
+            <!-- This is where the OpenTK window will be hosted or parented -->
+            <Grid x:Name="HostGrid">
+                <TextBlock Text="3D VIEWER" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="24" Opacity="0.3"/>
+            </Grid>
+        </Border>
+        
+        <!-- Bottom Panel: Object Details -->
+        <Border Grid.Column="1" Grid.Row="1" 
+                Background="{StaticResource PanelBackground}" 
+                BorderBrush="{StaticResource BorderBrush}" 
+                BorderThickness="0,1,0,0" Padding="15">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                
+                <TextBlock Text="OBJECT DETAILS" FontWeight="Bold" FontSize="14" Foreground="{StaticResource HeaderBrush}" Margin="0,0,0,10"/>
+                
+                <Grid Grid.Row="1" x:Name="DetailsGrid" Visibility="Hidden">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    
+                    <TextBlock Text="Model:" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,5"/>
+                    <Grid Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,5">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="ModelTextBox" Background="#333333" Foreground="White" BorderThickness="0" Padding="3" TextChanged="Coordinate_TextChanged"/>
+                        <Button Grid.Column="1" Content="..." Width="30" Margin="5,0,0,0"
+                                Background="#3E3E42" Foreground="White" BorderThickness="0"
+                                Click="SelectModelButton_Click"/>
+                    </Grid>
+                    
+                    <TextBlock Text="Position X:" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,5"/>
+                    <TextBox x:Name="PosXTextBox" Grid.Row="1" Grid.Column="1" Background="#333333" Foreground="White" BorderThickness="0" Padding="3" Margin="0,0,10,5" TextChanged="Coordinate_TextChanged"/>
+                    
+                    <TextBlock Text="Position Y:" Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" Margin="0,0,10,5"/>
+                    <TextBox x:Name="PosYTextBox" Grid.Row="1" Grid.Column="3" Background="#333333" Foreground="White" BorderThickness="0" Padding="3" Margin="0,0,0,5" TextChanged="Coordinate_TextChanged"/>
+                    
+                    <TextBlock Text="Position Z:" Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,5"/>
+                    <TextBox x:Name="PosZTextBox" Grid.Row="2" Grid.Column="1" Background="#333333" Foreground="White" BorderThickness="0" Padding="3" Margin="0,0,10,5" TextChanged="Coordinate_TextChanged"/>
+                    
+                    <TextBlock Text="Rotation Y:" Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" Margin="0,0,10,5"/>
+                    <TextBox x:Name="RotYTextBox" Grid.Row="2" Grid.Column="3" Background="#333333" Foreground="White" BorderThickness="0" Padding="3" Margin="0,0,0,5" TextChanged="Coordinate_TextChanged"/>
+
+                    <TextBlock Text="Behavior:" Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                    <Grid Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="BehaviorTextBox" IsReadOnly="True" Background="#333333" Foreground="White" BorderThickness="0" Padding="3"/>
+                        <Button Grid.Column="1" Content="..." Width="30" Margin="5,0,0,0"
+                                Background="#3E3E42" Foreground="White" BorderThickness="0"
+                                Click="SelectBehaviorButton_Click"/>
+                    </Grid>
+                </Grid>
+                
+                <TextBlock x:Name="NoSelectionText" Text="No object selected" FontStyle="Italic" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.5" Grid.Row="1"/>
+            </Grid>
+        </Border>
+        
+        <!-- Save/Actions Floating Panel -->
+        <StackPanel Orientation="Horizontal" Grid.Column="1" Grid.Row="1" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="10">
+            <Button Content="Add Object" Click="AddObject_Click"
+                    Padding="15,5" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0" Margin="0,0,10,0"/>
+            <Button Content="Remove Object" Click="RemoveObject_Click"
+                    Padding="15,5" Background="#DC3545" Foreground="White" BorderThickness="0" Margin="0,0,10,0"/>
+            <Button Content="Show Controls" Click="HelpButton_Click"
+                    Padding="15,5" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0" Margin="0,0,10,0"/>
+            <Button Content="Save Level" Click="SaveButton_Click"
+                    Padding="15,5" Background="#28A745" Foreground="White" BorderThickness="0"/>
+        </StackPanel>
+    </Grid>
+</Window>

@@ -1,0 +1,262 @@
+﻿<Window x:Class="Sm64DecompLevelViewer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:Sm64DecompLevelViewer"
+        mc:Ignorable="d"
+        Title="Randm64" Height="600" Width="1000"
+        Background="#1E1E1E" Foreground="#CCCCCC"
+        Icon="Assets/icon.jpg" Loaded="Window_Loaded">
+    
+    <Window.Resources>
+        <!-- Dark theme colors -->
+        <SolidColorBrush x:Key="BackgroundBrush" Color="#1E1E1E"/>
+        <SolidColorBrush x:Key="PanelBrush" Color="#252526"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#3F3F46"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#CCCCCC"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#00A2FF"/>
+        <SolidColorBrush x:Key="HeaderBrush" Color="#569CD6"/>
+        <SolidColorBrush x:Key="HoverBrush" Color="#2A2D2E"/>
+        
+        <!-- ListBox style -->
+        <Style TargetType="ListBox">
+            <Setter Property="Background" Value="{StaticResource PanelBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        
+        <!-- ListBoxItem style -->
+        <Style TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource HoverBrush}"/>
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+                    <Setter Property="Foreground" Value="White"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        
+        <!-- TextBlock style -->
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+        </Style>
+
+        <!-- ComboBox style -->
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="{StaticResource PanelBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="Padding" Value="5,2"/>
+        </Style>
+
+        <!-- ComboBoxItem style -->
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="Background" Value="{StaticResource PanelBrush}"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource HoverBrush}"/>
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+                    <Setter Property="Foreground" Value="White"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+    
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="300"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Left Panel: Level List -->
+        <Border Grid.Column="0" Grid.Row="0" 
+                Background="{StaticResource PanelBrush}" 
+                BorderBrush="{StaticResource BorderBrush}" 
+                BorderThickness="0,0,1,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                
+                <StackPanel Grid.Row="0" Margin="10">
+                    <TextBlock Text="SM64 Levels" 
+                               FontSize="16" FontWeight="Bold" 
+                               Foreground="{StaticResource HeaderBrush}"
+                               Margin="0,0,0,5"/>
+                    <Button x:Name="SelectFolderButton" 
+                            Content="Select SM64 Project Folder" 
+                            Click="SelectFolderButton_Click"
+                            Padding="5,2"
+                            Background="{StaticResource AccentBrush}"
+                            Foreground="White"
+                            BorderThickness="0"
+                            Cursor="Hand"/>
+                </StackPanel>
+                
+                <ListBox Grid.Row="1" x:Name="LevelListBox" 
+                         SelectionChanged="LevelListBox_SelectionChanged"
+                         Margin="5">
+                    <ListBox.GroupStyle>
+                        <GroupStyle>
+                            <GroupStyle.HeaderTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Name}" 
+                                               FontWeight="Bold" 
+                                               FontSize="12"
+                                               Foreground="{StaticResource HeaderBrush}"
+                                               Margin="0,8,0,4"/>
+                                </DataTemplate>
+                            </GroupStyle.HeaderTemplate>
+                        </GroupStyle>
+                    </ListBox.GroupStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding FullName}"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+        
+        <!-- Right Panel: Level Details -->
+        <Border Grid.Column="1" Grid.Row="0" 
+                Background="{StaticResource PanelBrush}" 
+                Padding="15">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="DetailsPanel">
+                    <TextBlock Text="Level Details" 
+                               FontSize="18" FontWeight="Bold" 
+                               Foreground="{StaticResource HeaderBrush}"
+                               Margin="0,0,0,15"/>
+                    
+                    <TextBlock x:Name="NoSelectionText" 
+                               Text="Select a level to view details" 
+                               FontStyle="Italic" 
+                               Foreground="#888888"/>
+                    
+                    <StackPanel x:Name="LevelDetailsPanel" Visibility="Collapsed">
+                        <!-- Full Name -->
+                        <TextBlock Text="Full Name:" FontWeight="Bold" Margin="0,0,0,5"/>
+                        <TextBlock x:Name="FullNameText" Margin="0,0,0,15"/>
+                        
+                        <!-- Short Name -->
+                        <TextBlock Text="Short Name:" FontWeight="Bold" Margin="0,0,0,5"/>
+                        <TextBlock x:Name="ShortNameText" Margin="0,0,0,15"/>
+                        
+                        <!-- Category -->
+                        <TextBlock Text="Category:" FontWeight="Bold" Margin="0,0,0,5"/>
+                        <TextBlock x:Name="CategoryText" Margin="0,0,0,15"/>
+                        
+                        <!-- Area Count -->
+                        <TextBlock Text="Area Count:" FontWeight="Bold" Margin="0,0,0,5"/>
+                        <TextBlock x:Name="AreaCountText" Margin="0,0,0,15"/>
+                        
+                        <!-- Skybox -->
+                        <TextBlock Text="Skybox:" FontWeight="Bold" Margin="0,0,0,5"/>
+                        <TextBlock x:Name="SkyboxText" Margin="0,0,0,15"/>
+                        
+                        <!-- Texture Bin -->
+                        <TextBlock Text="Texture Bin:" FontWeight="Bold" Margin="0,0,0,5"/>
+                        <TextBlock x:Name="TextureBinText" Margin="0,0,0,15"/>
+                        
+                        <!-- Effects -->
+                        <TextBlock Text="Effects:" FontWeight="Bold" Margin="0,0,0,5"/>
+                        <TextBlock x:Name="EffectsText" Margin="0,0,0,15"/>
+                        
+                        <!-- Objects -->
+                        <TextBlock Text="Objects:" FontWeight="Bold" Margin="0,0,0,5"/>
+                        <TextBlock x:Name="ObjectsText" TextWrapping="Wrap" Margin="0,0,0,15"/>
+                        
+                        <!-- Actor Bins -->
+                        <TextBlock Text="Actor Bins:" FontWeight="Bold" Margin="0,0,0,5"/>
+                        <TextBlock x:Name="ActorBinsText" TextWrapping="Wrap" Margin="0,0,0,15"/>
+                        
+                        <!-- Common Bin -->
+                        <TextBlock Text="Common Bin:" FontWeight="Bold" Margin="0,0,0,5"/>
+                        <TextBlock x:Name="CommonBinText" TextWrapping="Wrap" Margin="0,0,0,15"/>
+                        
+                        <!-- Level Path -->
+                        <TextBlock Text="Level Path:" FontWeight="Bold" Margin="0,0,0,5"/>
+                        <TextBlock x:Name="LevelPathText" TextWrapping="Wrap" Margin="0,0,0,15"/>
+                        
+                        <!-- Collision Data Section -->
+                        <TextBlock Text="Collision Data" 
+                                   FontSize="16" FontWeight="Bold" 
+                                   Foreground="{StaticResource HeaderBrush}"
+                                   Margin="0,10,0,10"/>
+                        
+                        <!-- Area Selector -->
+                        <TextBlock Text="Select Area:" FontWeight="Bold" FontSize="14" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,5"/>
+                        <ComboBox x:Name="AreaComboBox" 
+                                  SelectionChanged="AreaComboBox_SelectionChanged"
+                                  Margin="0,0,0,15"
+                                  Background="{StaticResource PanelBrush}"
+                                  Foreground="{StaticResource TextBrush}"/>
+                        
+                        <!-- Collision Stats -->
+                        <TextBlock x:Name="CollisionStatsText" 
+                                   TextWrapping="Wrap" 
+                                   Margin="0,0,0,15"/>
+                        
+                        <!-- View 3D Button -->
+                        <Button x:Name="View3DButton" 
+                                Content="Open Level Editor" 
+                                Click="View3DButton_Click"
+                                IsEnabled="False"
+                                Padding="10,5"
+                                Background="{StaticResource AccentBrush}"
+                                Foreground="White"
+                                BorderThickness="0"
+                                Cursor="Hand"/>
+
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+        
+        <!-- Status Bar -->
+        <Border Grid.Column="0" Grid.ColumnSpan="2" Grid.Row="1" 
+                Background="{StaticResource AccentBrush}" 
+                BorderBrush="{StaticResource BorderBrush}" 
+                BorderThickness="0,1,0,0"
+                Height="25">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <TextBlock x:Name="StatusText" 
+                           Grid.Column="0"
+                           Text="Ready" 
+                           Foreground="White"
+                           VerticalAlignment="Center" 
+                           Margin="10,0"/>
+                
+                <TextBlock x:Name="ObjectInfoText" 
+                           Grid.Column="1"
+                           Text="" 
+                           Foreground="White"
+                           VerticalAlignment="Center" 
+                           Margin="10,0"
+                           FontWeight="Bold"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
+

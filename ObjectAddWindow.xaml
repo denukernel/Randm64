@@ -1,0 +1,97 @@
+<Window x:Class="Sm64DecompLevelViewer.ObjectAddWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Add New Object" Height="500" Width="450"
+        WindowStartupLocation="CenterOwner"
+        Background="#1E1E1E" Foreground="#CCCCCC"
+        ResizeMode="NoResize" ShowInTaskbar="False">
+    <Window.Resources>
+        <SolidColorBrush x:Key="PanelBackground" Color="#252526"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#3F3F46"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#007ACC"/>
+    </Window.Resources>
+    
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <TextBlock Text="Select Object Type to Add" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="#569CD6"/>
+        
+        <TabControl x:Name="MainTabControl" Grid.Row="1" Background="Transparent" BorderBrush="{StaticResource BorderBrush}">
+            <TabControl.Resources>
+                <Style TargetType="TabItem">
+                    <Setter Property="HeaderTemplate">
+                        <Setter.Value>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" Foreground="#CCCCCC" Padding="10,5"/>
+                            </DataTemplate>
+                        </Setter.Value>
+                    </Setter>
+                    <Style.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter Property="Background" Value="{StaticResource PanelBackground}"/>
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </TabControl.Resources>
+            
+            <TabItem Header="Normal">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    
+                    <TextBlock Text="Model (e.g. MODEL_GOOMBA):" Margin="0,0,0,5"/>
+                    <Grid Grid.Row="1" Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="NormalModelTextBox" Background="#333333" Foreground="White" BorderBrush="{StaticResource BorderBrush}" Padding="3"/>
+                        <Button Grid.Column="1" Content="..." Width="30" Margin="5,0,0,0"
+                                Background="#3E3E42" Foreground="White" BorderThickness="0"
+                                Click="SelectModelButton_Click"/>
+                    </Grid>
+                    
+                    <TextBlock Text="Behavior:" Grid.Row="2" Margin="0,0,0,5"/>
+                    <ListBox x:Name="BehaviorListBox" Grid.Row="3" Background="#333333" Foreground="White" BorderBrush="{StaticResource BorderBrush}"/>
+                </Grid>
+            </TabItem>
+            
+            <TabItem Header="Macro">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="Select Macro Preset:" Margin="0,0,0,5"/>
+                    <ListBox x:Name="MacroListBox" Grid.Row="1" Background="#333333" Foreground="White" BorderBrush="{StaticResource BorderBrush}"/>
+                </Grid>
+            </TabItem>
+            
+            <TabItem Header="Special">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="Select Special Preset:" Margin="0,0,0,5"/>
+                    <ListBox x:Name="SpecialListBox" Grid.Row="1" Background="#333333" Foreground="White" BorderBrush="{StaticResource BorderBrush}"/>
+                </Grid>
+            </TabItem>
+        </TabControl>
+        
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
+            <Button Content="Add Object" Click="AddButton_Click" Width="100" Margin="0,0,10,0"
+                    Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0" Padding="8"/>
+            <Button Content="Cancel" Click="CancelButton_Click" Width="100"
+                    Background="#3E3E42" Foreground="White" BorderThickness="0" Padding="8"/>
+        </StackPanel>
+    </Grid>
+</Window>

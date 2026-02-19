@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\icon.jpg" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="StbImageSharp" Version="2.30.15" />
+    <PackageReference Include="YamlDotNet" Version="16.2.1" />
+    <PackageReference Include="OpenTK" Version="4.8.0" />
+  </ItemGroup>
+
+</Project>
