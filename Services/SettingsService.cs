@@ -7,6 +7,7 @@ namespace Sm64DecompLevelViewer.Services
     public class AppSettings
     {
         public string LastProjectRoot { get; set; } = string.Empty;
+        public string EmulatorPath { get; set; } = string.Empty;
     }
 
     public class SettingsService

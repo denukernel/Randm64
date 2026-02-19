@@ -14,6 +14,7 @@ public enum ObjectSourceType
 public class LevelObject
 {
     public string ModelName { get; set; } = string.Empty;
+    public string PresetName { get; set; } = string.Empty; // For Special/Macro presets
     public int X { get; set; }
     public int Y { get; set; }
     public int Z { get; set; }

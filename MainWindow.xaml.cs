@@ -530,6 +530,7 @@ public partial class MainWindow : Window
                                     objects.Add(new LevelObject 
                                     { 
                                         ModelName = resolvedModelName, 
+                                        PresetName = preset,
                                         Behavior = "(Special Object)", 
                                         X = x, 
                                         Y = y, 

@@ -194,7 +194,67 @@ namespace Sm64DecompLevelViewer
 
             if (dialog.ShowDialog() == true)
             {
-                _selectedObject.Behavior = dialog.SelectedBehavior ?? string.Empty;
+                string newBehavior = dialog.SelectedBehavior ?? string.Empty;
+                if (newBehavior == _selectedObject.Behavior) return;
+
+                // Handle conversion for Macro and Special objects
+                if (_selectedObject.SourceType == ObjectSourceType.Macro || _selectedObject.SourceType == ObjectSourceType.Special)
+                {
+                    var result = MessageBox.Show(
+                        "Converting to Standard Object. This object will be removed from its current file and re-added as a standard OBJECT in script.c to support the new behavior. Proceed?",
+                        "Confirm Conversion",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Question);
+
+                    if (result == MessageBoxResult.Yes)
+                    {
+                        var oldObj = _selectedObject;
+                        
+                        // 1. Create the new standard object
+                        var newObj = new LevelObject
+                        {
+                            ModelName = oldObj.ModelName,
+                            Behavior = newBehavior,
+                            X = oldObj.X,
+                            Y = oldObj.Y,
+                            Z = oldObj.Z,
+                            RY = oldObj.RY,
+                            AreaIndex = oldObj.AreaIndex,
+                            SourceType = ObjectSourceType.Normal,
+                            IsNew = true
+                        };
+
+                            string resolvedScript = ResolveScriptPath(oldObj.SourceFile);
+                            if (!string.IsNullOrEmpty(resolvedScript))
+                            {
+                                newObj.SourceFile = resolvedScript;
+                            }
+
+                        // 3. Delete the old one
+                        oldObj.IsDeleted = true;
+                        
+                        // 4. Update the session
+                        _objects.Add(newObj);
+                        PopulateTreeView();
+                        
+                        if (_renderer != null)
+                        {
+                            _renderer.SetObjects(_objects); // Refresh all
+                            _renderer.SelectObject(_objects.Count - 1);
+                        }
+                        
+                        SelectObjectInUI(_objects.Count - 1);
+                        return;
+                    }
+                    else
+                    {
+                        // User cancelled conversion, don't change behavior
+                        return;
+                    }
+                }
+
+                // Normal object behavior change
+                _selectedObject.Behavior = newBehavior;
                 BehaviorTextBox.Text = _selectedObject.Behavior;
 
                 if (_renderer != null)
@@ -203,6 +263,31 @@ namespace Sm64DecompLevelViewer
                     _renderer.UpdateObject(index, _selectedObject);
                 }
             }
+        }
+
+        private string ResolveScriptPath(string? currentFilePath)
+        {
+            if (string.IsNullOrEmpty(currentFilePath)) return string.Empty;
+
+            try
+            {
+                string dir = Path.GetDirectoryName(currentFilePath)!;
+                
+                // 1. Same directory
+                string path = Path.Combine(dir, "script.c");
+                if (File.Exists(path)) return path;
+
+                // 2. One level up (e.g. levels/castle_grounds/script.c if we are in levels/castle_grounds/areas/1/)
+                path = Path.Combine(dir, "..", "script.c");
+                if (File.Exists(path)) return Path.GetFullPath(path);
+
+                // 3. Two levels up (Standard decomp: levels/bob/areas/1/macro.inc.c -> levels/bob/script.c)
+                path = Path.Combine(dir, "..", "..", "script.c");
+                if (File.Exists(path)) return Path.GetFullPath(path);
+            }
+            catch { }
+
+            return string.Empty;
         }
 
         private void SelectModelButton_Click(object sender, RoutedEventArgs e)
@@ -337,14 +422,17 @@ namespace Sm64DecompLevelViewer
                     }
                     else
                     {
-                        // Fallback: try to find script.c or similar based on level path if we had it
+                        // Fallback: try to find script.c using robust search
                         var anyTemplate = _objects.FirstOrDefault(o => !string.IsNullOrEmpty(o.SourceFile));
                         if (anyTemplate != null)
                         {
-                            string dir = Path.GetDirectoryName(anyTemplate.SourceFile)!;
-                            if (newObj.SourceType == ObjectSourceType.Normal) newObj.SourceFile = Path.Combine(dir, "..", "script.c");
-                            else if (newObj.SourceType == ObjectSourceType.Macro) newObj.SourceFile = Path.Combine(dir, "macro.inc.c");
-                            else if (newObj.SourceType == ObjectSourceType.Special) newObj.SourceFile = Path.Combine(dir, "collision.inc.c");
+                            string resolvedScript = ResolveScriptPath(anyTemplate.SourceFile);
+                            if (!string.IsNullOrEmpty(resolvedScript))
+                            {
+                                if (newObj.SourceType == ObjectSourceType.Normal) newObj.SourceFile = resolvedScript;
+                                else if (newObj.SourceType == ObjectSourceType.Macro) newObj.SourceFile = Path.Combine(Path.GetDirectoryName(resolvedScript)!, "areas", newObj.AreaIndex.ToString(), "macro.inc.c");
+                                else if (newObj.SourceType == ObjectSourceType.Special) newObj.SourceFile = Path.Combine(Path.GetDirectoryName(resolvedScript)!, "areas", newObj.AreaIndex.ToString(), "collision.inc.c");
+                            }
                         }
                     }
                     newObj.AreaIndex = _areaIndex;
@@ -418,8 +506,56 @@ namespace Sm64DecompLevelViewer
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
+            if (_levelSaver.SaveLevel(_objects))
+            {
+                MessageBox.Show("Level saved successfully!", "Saved", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                MessageBox.Show("Some files failed to save. Check the console/logs for details.\n\nThis usually happens if the editor can't find script.c or if files are marked as Read-Only.", 
+                    "Save Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private void TestButton_Click(object sender, RoutedEventArgs e)
+        {
+            // 1. Auto-save first
             _levelSaver.SaveLevel(_objects);
-            MessageBox.Show("Level saved successfully!", "Saved", MessageBoxButton.OK, MessageBoxImage.Information);
+
+            var settingsService = new SettingsService();
+            var settings = settingsService.LoadSettings();
+
+            // 2. Check for emulator path
+            if (string.IsNullOrEmpty(settings.EmulatorPath) || !File.Exists(settings.EmulatorPath))
+            {
+                var result = MessageBox.Show(
+                    "Emulator path not set. Would you like to select your emulator (e.g. Project64.exe) now?",
+                    "Setup Emulator",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+
+                if (result == MessageBoxResult.Yes)
+                {
+                    var dialog = new Microsoft.Win32.OpenFileDialog
+                    {
+                        Filter = "Executable Files (*.exe)|*.exe|All Files (*.*)|*.*",
+                        Title = "Select N64 Emulator"
+                    };
+
+                    if (dialog.ShowDialog() == true)
+                    {
+                        settings.EmulatorPath = dialog.FileName;
+                        settingsService.SaveSettings(settings);
+                    }
+                    else return;
+                }
+                else return;
+            }
+
+            // 3. Launch Build Window
+            var buildWindow = new BuildOutputWindow(_projectRoot, settings.EmulatorPath);
+            buildWindow.Owner = this;
+            buildWindow.ShowDialog();
         }
 
         private void UpdateRendererPosition()

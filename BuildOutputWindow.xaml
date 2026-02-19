@@ -1,0 +1,32 @@
+<Window x:Class="Sm64DecompLevelViewer.BuildOutputWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Build Output" Height="450" Width="800"
+        Background="#1E1E1E" Foreground="#CCCCCC">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <TextBlock Text="BUILDING PROJECT (WSL)..." Foreground="#569CD6" FontWeight="Bold" Margin="10"/>
+        
+        <ScrollViewer Grid.Row="1" x:Name="LogScrollViewer" Background="#0C0C0C" Margin="10,0,10,10">
+            <TextBox x:Name="LogTextBox" 
+                     IsReadOnly="True" 
+                     Background="Transparent" 
+                     Foreground="#D4D4D4" 
+                     BorderThickness="0" 
+                     FontFamily="Consolas" 
+                     TextWrapping="Wrap" 
+                     AcceptsReturn="True"/>
+        </ScrollViewer>
+        
+        <StatusBar Grid.Row="2" x:Name="MainStatusBar" Background="#007ACC" Foreground="White">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" Text="Ready"/>
+            </StatusBarItem>
+        </StatusBar>
+    </Grid>
+</Window>

@@ -100,6 +100,7 @@ namespace Sm64DecompLevelViewer.Services
                         objects.Add(new LevelObject
                         {
                             ModelName = preset.Model,
+                            PresetName = presetName,
                             Behavior = preset.Behavior,
                             X = int.Parse(match.Groups[3].Value),
                             Y = int.Parse(match.Groups[4].Value),
@@ -127,6 +128,7 @@ namespace Sm64DecompLevelViewer.Services
                         objects.Add(new LevelObject
                         {
                             ModelName = preset.Model,
+                            PresetName = presetName,
                             Behavior = preset.Behavior,
                             X = int.Parse(match.Groups[3].Value),
                             Y = int.Parse(match.Groups[4].Value),

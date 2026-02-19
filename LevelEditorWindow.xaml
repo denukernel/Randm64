@@ -140,6 +140,8 @@
                     Padding="15,5" Background="#DC3545" Foreground="White" BorderThickness="0" Margin="0,0,10,0"/>
             <Button Content="Show Controls" Click="HelpButton_Click"
                     Padding="15,5" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0" Margin="0,0,10,0"/>
+            <Button Content="Test Level" Click="TestButton_Click"
+                    Padding="15,5" Background="#FF8C00" Foreground="White" BorderThickness="0" Margin="0,0,10,0"/>
             <Button Content="Save Level" Click="SaveButton_Click"
                     Padding="15,5" Background="#28A745" Foreground="White" BorderThickness="0"/>
         </StackPanel>
