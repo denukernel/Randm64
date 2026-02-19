@@ -49,8 +49,7 @@ Contributions are welcome! Please feel free to submit a Pull Request or open an 
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## Known Bugs
-- Some levels like Inside Castle has no visual at all.
-- Sometimes the GUI doesn't close.
-- 3D Viewer has some screen bugs sometimes
-- Some things might be unfinished.
+## Older Level Editors
+
+### https://github.com/DavidSM64/Quad64 Quad64
+### Toad's Tool 64
