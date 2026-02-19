@@ -562,13 +562,16 @@ public partial class MainWindow : Window
                         }
                     }
                     catch (Exception ex) { Console.WriteLine($"Error loading special objects: {ex.Message}"); }
-                }
 
-                _currentObjects = objects;
-                
-                // Open the new Level Editor window
-                var editor = new LevelEditorWindow(objects, collisionMesh, visualMesh, projectRoot ?? "", areaIndex);
-                editor.Show();
+                    _currentObjects = objects;
+                    
+                    // Parse supported models for safety validation
+                    var supportedModels = objectParser.ParseSupportedModels(selectedLevel.LevelPath, projectRoot ?? "");
+                    
+                    // Open the new Level Editor window
+                    var editor = new LevelEditorWindow(objects, collisionMesh, visualMesh, projectRoot ?? "", areaIndex, supportedModels);
+                    editor.Show();
+                }
             }
         }
         catch (Exception ex) { MessageBox.Show($"Error launching 3D editor:\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error); }

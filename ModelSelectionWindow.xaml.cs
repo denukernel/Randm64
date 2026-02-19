@@ -9,14 +9,23 @@ using System.Windows.Input;
 
 namespace Sm64DecompLevelViewer
 {
+    public class ModelItem
+    {
+        public string Name { get; set; }
+        public bool IsSupported { get; set; }
+        public string Color => IsSupported ? "#4EC9B0" : "#F44747";
+    }
+
     public partial class ModelSelectionWindow : Window
     {
         private List<string> _allModels = new List<string>();
+        private List<string> _supportedModels;
         public string? SelectedModel { get; private set; }
 
-        public ModelSelectionWindow(string projectRoot)
+        public ModelSelectionWindow(string projectRoot, List<string> supportedModels)
         {
             InitializeComponent();
+            _supportedModels = supportedModels;
             LoadModels(projectRoot);
             FilterModels("");
         }
@@ -67,16 +76,15 @@ namespace Sm64DecompLevelViewer
 
         private void FilterModels(string search)
         {
-            if (string.IsNullOrWhiteSpace(search))
+            var filtered = string.IsNullOrWhiteSpace(search)
+                ? _allModels
+                : _allModels.Where(m => m.Contains(search, StringComparison.OrdinalIgnoreCase));
+
+            ModelListBox.ItemsSource = filtered.Select(m => new ModelItem
             {
-                ModelListBox.ItemsSource = _allModels;
-            }
-            else
-            {
-                ModelListBox.ItemsSource = _allModels
-                    .Where(m => m.Contains(search, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-            }
+                Name = m,
+                IsSupported = _supportedModels.Contains(m, StringComparer.OrdinalIgnoreCase)
+            }).ToList();
         }
 
         private void SearchTextBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -86,9 +94,9 @@ namespace Sm64DecompLevelViewer
 
         private void SelectButton_Click(object sender, RoutedEventArgs e)
         {
-            if (ModelListBox.SelectedItem != null)
+            if (ModelListBox.SelectedItem is ModelItem item)
             {
-                SelectedModel = ModelListBox.SelectedItem.ToString();
+                SelectedModel = item.Name;
                 DialogResult = true;
                 Close();
             }

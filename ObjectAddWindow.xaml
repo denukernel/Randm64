@@ -53,11 +53,18 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBox x:Name="NormalModelTextBox" Background="#333333" Foreground="White" BorderBrush="{StaticResource BorderBrush}" Padding="3"/>
+                        <TextBox x:Name="NormalModelTextBox" Background="#333333" Foreground="White" BorderBrush="{StaticResource BorderBrush}" Padding="3" TextChanged="NormalModelTextBox_TextChanged"/>
                         <Button Grid.Column="1" Content="..." Width="30" Margin="5,0,0,0"
                                 Background="#3E3E42" Foreground="White" BorderThickness="0"
                                 Click="SelectModelButton_Click"/>
                     </Grid>
+
+                    <TextBlock x:Name="BuildRequiredWarning" Grid.Row="2" 
+                               Text="⚠ Actors folder not found. Build your project first to enable model validation." 
+                               Foreground="#FF5555" FontSize="11" FontWeight="Bold" Visibility="Collapsed" Margin="0,-5,0,10" TextWrapping="Wrap"/>
+
+                    <TextBlock x:Name="UnsupportedModelWarning" Grid.Row="2" Text="⚠ Model may not be supported in this level." 
+                               Foreground="#D69D56" FontSize="11" FontWeight="Bold" Visibility="Collapsed" Margin="0,-5,0,10"/>
                     
                     <TextBlock Text="Behavior:" Grid.Row="2" Margin="0,0,0,5"/>
                     <ListBox x:Name="BehaviorListBox" Grid.Row="3" Background="#333333" Foreground="White" BorderBrush="{StaticResource BorderBrush}"/>

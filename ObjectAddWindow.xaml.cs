@@ -12,11 +12,13 @@ namespace Sm64DecompLevelViewer
         public LevelObject? NewObject { get; private set; }
         private string _projectRoot;
         private int _initialX, _initialY, _initialZ;
+        private List<string> _supportedModels;
         
-        public ObjectAddWindow(string projectRoot, List<string> behaviors, List<string> macroPresets, List<string> specialPresets, int x = 0, int y = 0, int z = 0)
+        public ObjectAddWindow(string projectRoot, List<string> behaviors, List<string> macroPresets, List<string> specialPresets, List<string> supportedModels, int x = 0, int y = 0, int z = 0)
         {
             InitializeComponent();
             _projectRoot = projectRoot;
+            _supportedModels = supportedModels;
             _initialX = x;
             _initialY = y;
             _initialZ = z;
@@ -26,11 +28,41 @@ namespace Sm64DecompLevelViewer
             
             // Default values
             NormalModelTextBox.Text = "MODEL_NONE";
+            ValidateModel(NormalModelTextBox.Text);
+        }
+
+        private void NormalModelTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            ValidateModel(NormalModelTextBox.Text);
+        }
+
+        private void ValidateModel(string modelName)
+        {
+            if (UnsupportedModelWarning == null || BuildRequiredWarning == null) return;
+
+            // Handle missing actors folder state
+            if (_supportedModels.Contains("MISSING_ACTORS_FOLDER"))
+            {
+                BuildRequiredWarning.Visibility = Visibility.Visible;
+                UnsupportedModelWarning.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            BuildRequiredWarning.Visibility = Visibility.Collapsed;
+
+            if (string.IsNullOrWhiteSpace(modelName) || modelName == "MODEL_NONE")
+            {
+                UnsupportedModelWarning.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            bool isSupported = _supportedModels.Contains(modelName, StringComparer.OrdinalIgnoreCase);
+            UnsupportedModelWarning.Visibility = isSupported ? Visibility.Collapsed : Visibility.Visible;
         }
 
         private void SelectModelButton_Click(object sender, RoutedEventArgs e)
         {
-            var dialog = new ModelSelectionWindow(_projectRoot);
+            var dialog = new ModelSelectionWindow(_projectRoot, _supportedModels);
             dialog.Owner = this;
 
             if (dialog.ShowDialog() == true)

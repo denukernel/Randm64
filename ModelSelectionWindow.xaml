@@ -29,7 +29,7 @@
                  MouseDoubleClick="ModelListBox_MouseDoubleClick">
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <TextBlock Text="{Binding}" Padding="2"/>
+                    <TextBlock Text="{Binding Name}" Foreground="{Binding Color}" Padding="2"/>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>

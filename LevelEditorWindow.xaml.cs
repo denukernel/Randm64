@@ -24,6 +24,7 @@ namespace Sm64DecompLevelViewer
         private BehaviorService _behaviorService;
         private string _projectRoot;
         private int _areaIndex;
+        private List<string> _supportedModels;
 
         [DllImport("user32.dll")]
         static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
@@ -41,11 +42,12 @@ namespace Sm64DecompLevelViewer
         private const int WS_CHILD = 0x40000000;
         private const int WS_VISIBLE = 0x10000000;
 
-        public LevelEditorWindow(List<LevelObject> objects, CollisionMesh collisionMesh, VisualMesh visualMesh, string projectRoot, int areaIndex)
+        public LevelEditorWindow(List<LevelObject> objects, CollisionMesh collisionMesh, VisualMesh visualMesh, string projectRoot, int areaIndex, List<string> supportedModels)
         {
             InitializeComponent();
             _objects = objects;
             _areaIndex = areaIndex;
+            _supportedModels = supportedModels;
             
             _projectRoot = projectRoot;
             _behaviorService = new BehaviorService(projectRoot);
@@ -207,7 +209,7 @@ namespace Sm64DecompLevelViewer
         {
             if (_selectedObject == null) return;
 
-            var dialog = new ModelSelectionWindow(_projectRoot);
+            var dialog = new ModelSelectionWindow(_projectRoot, _supportedModels);
             dialog.Owner = this;
 
             if (dialog.ShowDialog() == true)
@@ -227,23 +229,55 @@ namespace Sm64DecompLevelViewer
         {
             if (_selectedObject == null) return;
 
-            if (MessageBox.Show($"Are you sure you want to remove this object?\n\n{_selectedObject.ModelName}", "Confirm Removal", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
+            // 1. Mario Safety Guard: Mario is essential for level entry.
+            if (_selectedObject.SourceType == ObjectSourceType.Mario || _selectedObject.ModelName == "MODEL_MARIO")
             {
-                _selectedObject.IsDeleted = true;
-                
-                // Hide from renderer
-                if (_renderer != null)
-                {
-                    int index = _objects.IndexOf(_selectedObject);
-                    _renderer.UpdateObject(index, _selectedObject);
-                }
-
-                // Update UI
-                PopulateTreeView();
-                NoSelectionText.Visibility = Visibility.Visible;
-                DetailsGrid.Visibility = Visibility.Hidden;
-                _selectedObject = null;
+                MessageBox.Show("Mario cannot be removed. Every level requires exactly one Mario spawn point to function correctly.", 
+                    "Safety Guard: Mario Required", MessageBoxButton.OK, MessageBoxImage.Stop);
+                return;
             }
+
+            // 2. Warp Safety Guard: Warps are critical for level transitions.
+            bool isWarp = _selectedObject.Behavior.Contains("Warp", System.StringComparison.OrdinalIgnoreCase) || 
+                          _selectedObject.Behavior.Contains("Node", System.StringComparison.OrdinalIgnoreCase);
+
+            if (isWarp)
+            {
+                var result = MessageBox.Show(
+                    "WARNING: This object appears to be a Warp or Node.\n" +
+                    "Removing essential warps can cause the game to crash, softlock, or break level transitions.\n\n" +
+                    "Are you absolutely sure you want to remove it?", 
+                    "Critical Safety Warning", 
+                    MessageBoxButton.YesNo, 
+                    MessageBoxImage.Warning, 
+                    MessageBoxResult.No);
+
+                if (result != MessageBoxResult.Yes) return;
+            }
+            else
+            {
+                // General confirmation for other objects
+                if (MessageBox.Show($"Are you sure you want to remove this object?\n\n{_selectedObject.ModelName}", 
+                    "Confirm Removal", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                {
+                    return;
+                }
+            }
+
+            _selectedObject.IsDeleted = true;
+            
+            // Hide from renderer
+            if (_renderer != null)
+            {
+                int index = _objects.IndexOf(_selectedObject);
+                _renderer.UpdateObject(index, _selectedObject);
+            }
+
+            // Update UI
+            PopulateTreeView();
+            NoSelectionText.Visibility = Visibility.Visible;
+            DetailsGrid.Visibility = Visibility.Hidden;
+            _selectedObject = null;
         }
 
         private void AddObject_Click(object sender, RoutedEventArgs e)
@@ -286,7 +320,7 @@ namespace Sm64DecompLevelViewer
                 spawnZ = (int)target.Z;
             }
 
-            var addWindow = new ObjectAddWindow(_projectRoot, behaviors, macroPresets, specialPresets, spawnX, spawnY, spawnZ);
+            var addWindow = new ObjectAddWindow(_projectRoot, behaviors, macroPresets, specialPresets, _supportedModels, spawnX, spawnY, spawnZ);
             addWindow.Owner = this;
             if (addWindow.ShowDialog() == true)
             {

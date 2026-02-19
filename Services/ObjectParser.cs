@@ -31,6 +31,11 @@ public class ObjectParser
         RegexOptions.Compiled
     );
 
+    private static readonly Regex GeoLayoutNamePattern = new Regex(
+        @"(?:extern\s+const\s+GeoLayout\s+)?([a-zA-Z0-9_]+_geo)(?:\[\])?",
+        RegexOptions.Compiled
+    );
+
     private static readonly Regex JumpLinkPattern = new Regex(
         @"JUMP_LINK\s*\((?:\s|/\*.*?\*/)*([^)]+?)\)",
         RegexOptions.Compiled
@@ -326,5 +331,123 @@ public class ObjectParser
         }
 
         return mapping;
+    }
+    public List<string> ParseSupportedModels(string levelPath, string projectRoot)
+    {
+        var supportedModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // 1. Models explicitly LOADED in script.c
+        string scriptPath = Path.Combine(levelPath, "script.c");
+        var loadedModels = ParseLoadModels(scriptPath);
+        foreach (var model in loadedModels.Keys) supportedModels.Add(model);
+
+        // 2. Find Actors Folder (Multiple possible locations)
+        string[] potentialActorPaths = {
+            Path.Combine(projectRoot, "actors"),
+            Path.Combine(projectRoot, "leveleditor", "actors"),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "actors"),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "leveleditor", "actors")
+        };
+
+        string? actorsPath = potentialActorPaths.FirstOrDefault(Directory.Exists);
+
+        if (actorsPath == null)
+        {
+            // Signal that folder is missing
+            supportedModels.Add("MISSING_ACTORS_FOLDER");
+            supportedModels.Add("MODEL_MARIO"); // At least Mario is always safe
+            return supportedModels.ToList();
+        }
+
+        // 3. Models from level.yaml bins
+        string yamlPath = Path.Combine(levelPath, "level.yaml");
+        var yamlParser = new YamlLevelParser();
+        var metadata = yamlParser.ParseLevelYaml(yamlPath);
+
+        if (metadata != null)
+        {
+            var bins = new List<string>();
+            bins.AddRange(metadata.ActorBins);
+            bins.AddRange(metadata.CommonBin);
+
+            foreach (var bin in bins)
+            {
+                // 1. Check for bin header file (e.g. actors/common0.h)
+                string binHeaderPath = Path.Combine(actorsPath, $"{bin}.h");
+                if (File.Exists(binHeaderPath))
+                {
+                    var modelsInBin = ParseModelsFromHeader(binHeaderPath);
+                    foreach (var model in modelsInBin) supportedModels.Add(model);
+                }
+
+                // 2. Check for bin source file to find included actor folders (e.g. actors/common0.c)
+                // This is crucial because bins like common0 include bobomb, goomba, etc.
+                string binSourcePath = Path.Combine(actorsPath, $"{bin}.c");
+                if (File.Exists(binSourcePath))
+                {
+                    try
+                    {
+                        string sourceContent = File.ReadAllText(binSourcePath);
+                        // Regex to find #include "folder/..."
+                        var includeMatches = Regex.Matches(sourceContent, @"#include\s+""([^/""]+)/");
+                        foreach (Match m in includeMatches)
+                        {
+                            string actorFolder = m.Groups[1].Value;
+                            string actorDirPath = Path.Combine(actorsPath, actorFolder);
+                            if (Directory.Exists(actorDirPath))
+                            {
+                                // Support MODEL_FOLDERNAME
+                                supportedModels.Add("MODEL_" + actorFolder.ToUpper());
+
+                                // Scan headers in that folder
+                                foreach (var hFile in Directory.GetFiles(actorDirPath, "*.h"))
+                                {
+                                    var modelsInHeader = ParseModelsFromHeader(hFile);
+                                    foreach (var mod in modelsInHeader) supportedModels.Add(mod);
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                // 3. Fallback: check for bin subdirectory directly
+                string binDirPath = Path.Combine(actorsPath, bin);
+                if (Directory.Exists(binDirPath))
+                {
+                    supportedModels.Add("MODEL_" + bin.ToUpper());
+                    foreach (var file in Directory.GetFiles(binDirPath, "*.h"))
+                    {
+                        var modelsInHeader = ParseModelsFromHeader(file);
+                        foreach (var model in modelsInHeader) supportedModels.Add(model);
+                    }
+                }
+            }
+        }
+
+        // 4. Always support Mario
+        supportedModels.Add("MODEL_MARIO");
+
+        return supportedModels.OrderBy(m => m).ToList();
+    }
+
+    private List<string> ParseModelsFromHeader(string headerPath)
+    {
+        var models = new List<string>();
+        try
+        {
+            string content = File.ReadAllText(headerPath);
+            var matches = GeoLayoutNamePattern.Matches(content);
+            foreach (Match match in matches)
+            {
+                string geoName = match.Groups[1].Value.Trim();
+                models.Add(geoName);
+                
+                string modelName = "MODEL_" + geoName.Replace("_geo", "").ToUpper();
+                models.Add(modelName);
+            }
+        }
+        catch { }
+        return models;
     }
 }
