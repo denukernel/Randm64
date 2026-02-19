@@ -1,8 +1,13 @@
-# Randm64
+
+# <img width="120" height="120" alt="image" src="https://github.com/user-attachments/assets/79a5ea9a-a0c3-4454-9864-d30afd3448d1" /> Randm64
+
 
 Powerful Level Management for SM64 Decompilation Project, Replacing the Old Level Viewer.
 
-![Feature Preview](https://via.placeholder.com/800x450.png?text=SM64+Decomp+Level+Viewer+Preview)
+<img width="946" height="687" alt="image" src="https://github.com/user-attachments/assets/6e51690d-5f91-4153-85bc-035a39bd6653" />
+<img width="563" height="521" alt="image" src="https://github.com/user-attachments/assets/9cbad077-9ac6-4140-bf38-c445543e0d7f" />
+<img width="1000" height="756" alt="image" src="https://github.com/user-attachments/assets/5e98fc46-fafc-4cbb-9940-99f319fb18d4" />
+
 
 ## Key Features
 
