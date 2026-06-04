@@ -8,142 +8,382 @@
     <Window.Resources>
         <SolidColorBrush x:Key="PanelBackground" Color="#252526"/>
         <SolidColorBrush x:Key="BorderBrush" Color="#3F3F46"/>
-        <SolidColorBrush x:Key="AccentBrush" Color="#00A2FF"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#007ACC" />
         <SolidColorBrush x:Key="HeaderBrush" Color="#569CD6"/>
+        <SolidColorBrush x:Key="ButtonHoverBrush" Color="#3E3E42" />
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="#CCCCCC"/>
+        </Style>
+
+        <Style x:Key="RibbonButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="3">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{StaticResource ButtonHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.3"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+
+        <Style TargetType="TabItem">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="border" Background="#2D2D30" BorderBrush="#3F3F46" BorderThickness="1,1,1,0" Margin="0,0,2,0" CornerRadius="3,3,0,0">
+                            <ContentPresenter x:Name="content" ContentSource="Header" Margin="10,5" RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#3E3E42"/>
+                                <Setter Property="Foreground" Value="#9CDCFE"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="False">
+                                <Setter Property="Foreground" Value="#CCCCCC"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#454549"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Window.Resources>
     
     <Grid>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="250"/> <!-- Sidebar -->
-            <ColumnDefinition Width="*"/>   <!-- 3D View -->
-        </Grid.ColumnDefinitions>
-        
         <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>     <!-- Main area -->
-            <RowDefinition Height="200"/>   <!-- Details area -->
+            <RowDefinition Height="Auto"/> <!-- Ribbon -->
+            <RowDefinition Height="*"/>    <!-- Workspace -->
         </Grid.RowDefinitions>
-        
-        <!-- Sidebar: Object List -->
-        <Border Grid.Column="0" Grid.Row="0" Grid.RowSpan="2" 
-                Background="{StaticResource PanelBackground}" 
-                BorderBrush="{StaticResource BorderBrush}" 
-                BorderThickness="0,0,1,0">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
-                
-                <TextBlock Text="LIST OF OBJECTS" FontWeight="Bold" Margin="10" FontSize="14" Foreground="{StaticResource HeaderBrush}"/>
-                
-                <TreeView Grid.Row="1" x:Name="ObjectTreeView" Background="Transparent" BorderThickness="0"
-                          SelectedItemChanged="ObjectTreeView_SelectedItemChanged">
-                    <TreeView.ItemContainerStyle>
-                        <Style TargetType="TreeViewItem">
-                            <Setter Property="Foreground" Value="#CCCCCC"/>
-                            <Setter Property="Padding" Value="2"/>
-                        </Style>
-                    </TreeView.ItemContainerStyle>
-                    
-                    <TreeViewItem Header="NORMAL" x:Name="NormalObjectsNode" IsExpanded="True"/>
-                    <TreeViewItem Header="MACRO" x:Name="MacroObjectsNode" IsExpanded="True"/>
-                    <TreeViewItem Header="SPECIAL" x:Name="SpecialObjectsNode" IsExpanded="True"/>
-                </TreeView>
-            </Grid>
-        </Border>
-        
-        <!-- 3D Viewer Container -->
-        <Border Grid.Column="1" Grid.Row="0" Background="Black" x:Name="RendererContainer" 
-                MouseDown="RendererContainer_MouseDown" Focusable="True">
-            <!-- This is where the OpenTK window will be hosted or parented -->
-            <Grid x:Name="HostGrid">
-                <TextBlock Text="3D VIEWER" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="24" Opacity="0.3"/>
-            </Grid>
-        </Border>
-        
-        <!-- Bottom Panel: Object Details -->
-        <Border Grid.Column="1" Grid.Row="1" 
-                Background="{StaticResource PanelBackground}" 
-                BorderBrush="{StaticResource BorderBrush}" 
-                BorderThickness="0,1,0,0" Padding="15">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
-                
-                <TextBlock Text="OBJECT DETAILS" FontWeight="Bold" FontSize="14" Foreground="{StaticResource HeaderBrush}" Margin="0,0,0,10"/>
-                
-                <Grid Grid.Row="1" x:Name="DetailsGrid" Visibility="Hidden">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    
-                    <TextBlock Text="Model:" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,5"/>
-                    <Grid Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,5">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBox x:Name="ModelTextBox" Background="#333333" Foreground="White" BorderThickness="0" Padding="3" TextChanged="Coordinate_TextChanged"/>
-                        <Button Grid.Column="1" Content="..." Width="30" Margin="5,0,0,0"
-                                Background="#3E3E42" Foreground="White" BorderThickness="0"
-                                Click="SelectModelButton_Click"/>
-                    </Grid>
-                    
-                    <TextBlock Text="Position X:" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,5"/>
-                    <TextBox x:Name="PosXTextBox" Grid.Row="1" Grid.Column="1" Background="#333333" Foreground="White" BorderThickness="0" Padding="3" Margin="0,0,10,5" TextChanged="Coordinate_TextChanged"/>
-                    
-                    <TextBlock Text="Position Y:" Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" Margin="0,0,10,5"/>
-                    <TextBox x:Name="PosYTextBox" Grid.Row="1" Grid.Column="3" Background="#333333" Foreground="White" BorderThickness="0" Padding="3" Margin="0,0,0,5" TextChanged="Coordinate_TextChanged"/>
-                    
-                    <TextBlock Text="Position Z:" Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,5"/>
-                    <TextBox x:Name="PosZTextBox" Grid.Row="2" Grid.Column="1" Background="#333333" Foreground="White" BorderThickness="0" Padding="3" Margin="0,0,10,5" TextChanged="Coordinate_TextChanged"/>
-                    
-                    <TextBlock Text="Rotation Y:" Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" Margin="0,0,10,5"/>
-                    <TextBox x:Name="RotYTextBox" Grid.Row="2" Grid.Column="3" Background="#333333" Foreground="White" BorderThickness="0" Padding="3" Margin="0,0,0,5" TextChanged="Coordinate_TextChanged"/>
 
-                    <TextBlock Text="Behavior:" Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                    <Grid Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBox x:Name="BehaviorTextBox" IsReadOnly="True" Background="#333333" Foreground="White" BorderThickness="0" Padding="3"/>
-                        <Button Grid.Column="1" Content="..." Width="30" Margin="5,0,0,0"
-                                Background="#3E3E42" Foreground="White" BorderThickness="0"
-                                Click="SelectBehaviorButton_Click"/>
-                    </Grid>
-                </Grid>
+        <!-- 1. RIBBON MENU -->
+        <Border Grid.Row="0" Background="#2D2D30" BorderBrush="#3F3F46" BorderThickness="0,0,0,1">
+            <TabControl Background="Transparent" BorderThickness="0">
                 
-                <TextBlock x:Name="NoSelectionText" Text="No object selected" FontStyle="Italic" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.5" Grid.Row="1"/>
-            </Grid>
+                <TabItem Header="File">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Click="SaveButton_Click" ToolTip="Save Level" Style="{StaticResource RibbonButtonStyle}">
+                            <StackPanel>
+                                <TextBlock Text="💾" FontSize="20" HorizontalAlignment="Center"/>
+                                <TextBlock Text="Save" HorizontalAlignment="Center" FontSize="11"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Click="LogsButton_Click" ToolTip="View Logs" Style="{StaticResource RibbonButtonStyle}">
+                            <StackPanel>
+                                <TextBlock Text="📋" FontSize="20" HorizontalAlignment="Center"/>
+                                <TextBlock Text="Logs" HorizontalAlignment="Center" FontSize="11"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </TabItem>
+                
+                <TabItem Header="Objects">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Click="AddObject_Click" ToolTip="Add Normal Object" Style="{StaticResource RibbonButtonStyle}">
+                            <StackPanel>
+                                <TextBlock Text="➕" FontSize="20" HorizontalAlignment="Center"/>
+                                <TextBlock Text="Object" HorizontalAlignment="Center" FontSize="11"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Click="PerformCopy" ToolTip="Copy Object" Style="{StaticResource RibbonButtonStyle}">
+                            <StackPanel>
+                                <TextBlock Text="📄" FontSize="20" HorizontalAlignment="Center"/>
+                                <TextBlock Text="Copy" HorizontalAlignment="Center" FontSize="11"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Click="PerformPaste" ToolTip="Paste Object" Style="{StaticResource RibbonButtonStyle}">
+                            <StackPanel>
+                                <TextBlock Text="📋" FontSize="20" HorizontalAlignment="Center"/>
+                                <TextBlock Text="Paste" HorizontalAlignment="Center" FontSize="11"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Click="RemoveObject_Click" ToolTip="Delete Selected" Style="{StaticResource RibbonButtonStyle}">
+                            <StackPanel>
+                                <TextBlock Text="🗑️" FontSize="20" HorizontalAlignment="Center"/>
+                                <TextBlock Text="Delete" HorizontalAlignment="Center" FontSize="11"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </TabItem>
+
+                <TabItem Header="Tools">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Click="TestButton_Click" ToolTip="Test Level (Requires Emulator)" Style="{StaticResource RibbonButtonStyle}">
+                            <StackPanel>
+                                <TextBlock Text="🚀" FontSize="20" HorizontalAlignment="Center" Foreground="#B5CEA8"/>
+                                <TextBlock Text="Test" HorizontalAlignment="Center" FontSize="11"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Click="HelpButton_Click" ToolTip="Editor Help" Style="{StaticResource RibbonButtonStyle}">
+                            <StackPanel>
+                                <TextBlock Text="❓" FontSize="20" HorizontalAlignment="Center" Foreground="#DCDCAA"/>
+                                <TextBlock Text="Help" HorizontalAlignment="Center" FontSize="11"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </TabItem>
+            </TabControl>
         </Border>
-        
-        <!-- Save/Actions Floating Panel -->
-        <StackPanel Orientation="Horizontal" Grid.Column="1" Grid.Row="1" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="10">
-            <Button Content="Add Object" Click="AddObject_Click"
-                    Padding="15,5" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0" Margin="0,0,10,0"/>
-            <Button Content="Remove Object" Click="RemoveObject_Click"
-                    Padding="15,5" Background="#DC3545" Foreground="White" BorderThickness="0" Margin="0,0,10,0"/>
-            <Button Content="Show Controls" Click="HelpButton_Click"
-                    Padding="15,5" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0" Margin="0,0,10,0"/>
-            <Button Content="Test Level" Click="TestButton_Click"
-                    Padding="15,5" Background="#FF8C00" Foreground="White" BorderThickness="0" Margin="0,0,10,0"/>
-            <Button Content="Save Level" Click="SaveButton_Click"
-                    Padding="15,5" Background="#28A745" Foreground="White" BorderThickness="0"/>
-        </StackPanel>
+
+        <!-- 2. MAIN WORKSPACE -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300"/> <!-- Sidebar -->
+                <ColumnDefinition Width="*"/>   <!-- Viewport + Controls -->
+            </Grid.ColumnDefinitions>
+
+            <!-- SIDEBAR -->
+            <Border Grid.Column="0" Background="{StaticResource PanelBackground}" BorderBrush="#3F3F46" BorderThickness="0,0,1,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/> <!-- Search -->
+                        <RowDefinition Height="2*"/>   <!-- Object List -->
+                        <RowDefinition Height="3*"/>   <!-- Property Grid -->
+                    </Grid.RowDefinitions>
+
+                    <!-- Search -->
+                    <Border Background="#333333" Margin="5" CornerRadius="3" Padding="5">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="🔍" VerticalAlignment="Center" Opacity="0.5" Margin="0,0,5,0"/>
+                            <TextBox Grid.Column="1" Background="Transparent" Foreground="White" BorderThickness="0" 
+                                     Text="Search objects..." FontSize="12" Opacity="0.8" Name="SearchBox"
+                                     TextChanged="SearchBox_TextChanged"
+                                     GotFocus="SearchBox_GotFocus" LostFocus="SearchBox_LostFocus"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Object/Warp List -->
+                    <TabControl Grid.Row="1" Margin="0,5">
+                        <TabItem Header="Objects">
+                            <TreeView x:Name="ObjectTreeView" Background="Transparent" BorderThickness="0"
+                                      SelectedItemChanged="ObjectTreeView_SelectedItemChanged" Margin="0,5">
+                                <TreeView.ItemContainerStyle>
+                                    <Style TargetType="TreeViewItem">
+                                        <Setter Property="Foreground" Value="#CCCCCC"/>
+                                        <Setter Property="Padding" Value="2"/>
+                                    </Style>
+                                </TreeView.ItemContainerStyle>
+                                <TreeViewItem Header="NORMAL" x:Name="NormalObjectsNode" IsExpanded="True" Foreground="#569CD6"/>
+                                <TreeViewItem Header="MACRO" x:Name="MacroObjectsNode" IsExpanded="True" Foreground="#6A9955"/>
+                                <TreeViewItem Header="SPECIAL" x:Name="SpecialObjectsNode" IsExpanded="True" Foreground="#DCDCAA"/>
+                            </TreeView>
+                        </TabItem>
+                        <TabItem Header="Warps">
+                            <TextBlock Text="Warp list coming soon..." Margin="10" Opacity="0.5" FontStyle="Italic"/>
+                        </TabItem>
+                    </TabControl>
+
+                    <!-- Property Grid -->
+                    <Border Grid.Row="2" BorderBrush="#3F3F46" BorderThickness="0,1,0,0" Padding="5">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="Properties" Foreground="White" FontWeight="Bold" Margin="0,0,0,5"/>
+                            
+                            <Grid Grid.Row="1">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <StackPanel x:Name="PropertyStack" Visibility="Collapsed">
+                                        <Expander IsExpanded="True" Foreground="White">
+                                            <Expander.Header>
+                                                <TextBlock Text="GENERAL" FontWeight="Bold" Foreground="#9CDCFE"/>
+                                            </Expander.Header>
+                                            <Grid Margin="5">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                </Grid.RowDefinitions>
+                                                <TextBlock Text="Model" Grid.Row="0" VerticalAlignment="Center" Margin="0,0,5,5" Foreground="{StaticResource HeaderBrush}"/>
+                                                <Grid Grid.Row="0" Grid.Column="1" Margin="0,0,0,5">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBox x:Name="ModelTextBox" Background="#333333" Foreground="White" BorderThickness="1" BorderBrush="#3F3F46" TextChanged="Coordinate_TextChanged" VerticalAlignment="Center" Padding="2"/>
+                                                    <Button Grid.Column="1" Content="..." Width="25" Margin="5,0,0,0" Background="#3E3E42" Foreground="White" BorderThickness="0" Click="SelectModelButton_Click"/>
+                                                </Grid>
+                                                
+                                                <TextBlock Text="Behavior" Grid.Row="1" VerticalAlignment="Center" Margin="0,0,5,0" Foreground="{StaticResource HeaderBrush}"/>
+                                                <Grid Grid.Row="1" Grid.Column="1">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBox x:Name="BehaviorTextBox" IsReadOnly="True" Background="#333333" Foreground="White" BorderThickness="1" BorderBrush="#3F3F46" MouseDoubleClick="BehaviorTextBox_MouseDoubleClick" VerticalAlignment="Center" Padding="2"/>
+                                                    <Button Grid.Column="1" Content="..." Width="25" Margin="5,0,0,0" Background="#3E3E42" Foreground="White" BorderThickness="0" Click="SelectBehaviorButton_Click"/>
+                                                </Grid>
+                                            </Grid>
+                                        </Expander>
+
+                                        <Expander IsExpanded="False" Foreground="White" Margin="0,5,0,0">
+                                            <Expander.Header>
+                                                <TextBlock Text="DATA" FontWeight="Bold" Foreground="#9CDCFE"/>
+                                            </Expander.Header>
+                                            <Grid Margin="5">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                </Grid.RowDefinitions>
+                                                <TextBlock Text="Address" Grid.Row="0" Margin="0,0,5,5" Foreground="{StaticResource HeaderBrush}"/>
+                                                <TextBox x:Name="AddressTextBox" Grid.Row="0" Grid.Column="1" IsReadOnly="True" Background="#2D2D30" Foreground="#DCDCAA" BorderThickness="0" Margin="0,0,0,5" Padding="2"/>
+                                                
+                                                <TextBlock Text="Params" Grid.Row="1" Margin="0,0,5,0" Foreground="{StaticResource HeaderBrush}"/>
+                                                <TextBox x:Name="ParamsTextBox" Grid.Row="1" Grid.Column="1" Background="#333333" Foreground="#B5CEA8" BorderThickness="1" BorderBrush="#3F3F46" TextChanged="Coordinate_TextChanged" Padding="2"/>
+                                            </Grid>
+                                        </Expander>
+
+                                        <Expander IsExpanded="True" Foreground="White" Margin="0,5,0,0">
+                                            <Expander.Header>
+                                                <TextBlock Text="TRANSFORM" FontWeight="Bold" Foreground="#9CDCFE"/>
+                                            </Expander.Header>
+                                            <Grid Margin="5">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                </Grid.RowDefinitions>
+
+                                                <TextBlock Text="X" Margin="0,0,5,5" Foreground="{StaticResource HeaderBrush}"/>
+                                                <TextBox x:Name="PosXTextBox" Grid.Column="1" Background="#333333" Foreground="White" Margin="0,0,5,5" TextChanged="Coordinate_TextChanged" BorderThickness="1" BorderBrush="#3F3F46" Padding="2"/>
+                                                <TextBlock Text="Y" Grid.Column="2" Margin="0,0,5,5" Foreground="{StaticResource HeaderBrush}"/>
+                                                <TextBox x:Name="PosYTextBox" Grid.Column="3" Background="#333333" Foreground="White" Margin="0,0,0,5" TextChanged="Coordinate_TextChanged" BorderThickness="1" BorderBrush="#3F3F46" Padding="2"/>
+
+                                                <TextBlock Text="Z" Grid.Row="1" Margin="0,0,5,0" Foreground="{StaticResource HeaderBrush}"/>
+                                                <TextBox x:Name="PosZTextBox" Grid.Row="1" Grid.Column="1" Background="#333333" Foreground="White" Margin="0,0,5,0" TextChanged="Coordinate_TextChanged" BorderThickness="1" BorderBrush="#3F3F46" Padding="2"/>
+                                                <TextBlock Text="RY" Grid.Row="1" Grid.Column="2" Margin="0,0,5,0" Foreground="{StaticResource HeaderBrush}"/>
+                                                <TextBox x:Name="RotYTextBox" Grid.Row="1" Grid.Column="3" Background="#333333" Foreground="White" TextChanged="Coordinate_TextChanged" BorderThickness="1" BorderBrush="#3F3F46" Padding="2"/>
+                                            </Grid>
+                                        </Expander>
+                                    </StackPanel>
+                                </ScrollViewer>
+                                
+                                <TextBlock x:Name="NoSelectionText" Text="No object selected" FontStyle="Italic" 
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.5" 
+                                           Foreground="White" Margin="0,50,0,0"/>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- RIGHT WORKSPACE (Viewport + Controls) -->
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Viewport Container -->
+                <Border Background="Black" x:Name="RendererContainer" MouseDown="RendererContainer_MouseDown" Focusable="True">
+                    <Grid x:Name="HostGrid">
+                        <TextBlock Text="3D VIEWER" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="24" Opacity="0.3"/>
+                    </Grid>
+                </Border>
+
+                <!-- BOTTOM CONTROLS -->
+                <Border Grid.Row="1" Background="#1E1E1E" BorderBrush="#3F3F46" BorderThickness="0,1,0,0" Padding="10">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/> <!-- Movement Gizmos -->
+                            <ColumnDefinition Width="*"/>    <!-- Sliders -->
+                            <ColumnDefinition Width="Auto"/> <!-- Camera Mode -->
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Gizmos -->
+                        <StackPanel Orientation="Horizontal">
+                            <StackPanel Margin="0,0,20,0">
+                                <TextBlock Text="Movement" Foreground="{StaticResource HeaderBrush}" HorizontalAlignment="Center" Margin="0,0,0,5"/>
+                                <Grid Width="80" Height="80">
+                                    <Button Content="▲" Margin="0,0,0,54" Width="24" Height="24" Background="#DC3545" Foreground="White" Click="GizmoMove_Click" BorderThickness="0"/>
+                                    <Button Content="▼" Margin="0,54,0,0" Width="24" Height="24" Background="#DC3545" Foreground="White" Click="GizmoMove_Click" BorderThickness="0"/>
+                                    <Button Content="◀" Margin="0,0,54,0" Width="24" Height="24" Background="#28A745" Foreground="White" Click="GizmoMove_Click" BorderThickness="0"/>
+                                    <Button Content="▶" Margin="54,0,0,0" Width="24" Height="24" Background="#28A745" Foreground="White" Click="GizmoMove_Click" BorderThickness="0"/>
+                                </Grid>
+                            </StackPanel>
+
+                            <StackPanel>
+                                <TextBlock Text="Height" Foreground="{StaticResource HeaderBrush}" HorizontalAlignment="Center" Margin="0,0,0,5"/>
+                                <Button Content="➕" Width="24" Height="24" Background="#00A2FF" Foreground="White" Margin="0,0,0,5" Click="GizmoMove_Click" BorderThickness="0"/>
+                                <Button Content="➖" Width="24" Height="24" Background="#00A2FF" Foreground="White" Click="GizmoMove_Click" BorderThickness="0"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Sliders -->
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="40,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="120"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="40"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="MOVE SPEED" VerticalAlignment="Center" Foreground="#CE9178" FontWeight="Bold" FontSize="11"/>
+                                <Slider Grid.Column="1" Value="100" Minimum="10" Maximum="500" Margin="10,0" ValueChanged="MoveSpeedSlider_ValueChanged" Foreground="{StaticResource AccentBrush}"/>
+                                <TextBlock Grid.Column="2" x:Name="MoveSpeedText" Text="100%" VerticalAlignment="Center" Foreground="White"/>
+                            </Grid>
+                            <Grid Margin="0,10,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="120"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="40"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="CAMERA SPEED" VerticalAlignment="Center" Foreground="#CE9178" FontWeight="Bold" FontSize="11"/>
+                                <Slider Grid.Column="1" Value="100" Minimum="10" Maximum="500" Margin="10,0" ValueChanged="CameraSpeedSlider_ValueChanged" Foreground="{StaticResource AccentBrush}"/>
+                                <TextBlock Grid.Column="2" x:Name="CameraSpeedText" Text="100%" VerticalAlignment="Center" Foreground="White"/>
+                            </Grid>
+                        </StackPanel>
+
+                        <!-- Mode & Drop -->
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                            <Button Content="Drop To Ground" Padding="10,5" Margin="0,0,0,5" Background="#3E3E42" Foreground="White" BorderThickness="0" Click="DropToGround_Click"/>
+                            <ComboBox SelectedIndex="0" Width="120" Background="#333333" Foreground="White" BorderThickness="1" BorderBrush="#3F3F46">
+                                <ComboBox.Resources>
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#333333" />
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="White" />
+                                </ComboBox.Resources>
+                                <ComboBoxItem Content="Fly Mode" Background="#333333" Foreground="White"/>
+                                <ComboBoxItem Content="Orbit Mode" Background="#333333" Foreground="White"/>
+                            </ComboBox>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
     </Grid>
 </Window>

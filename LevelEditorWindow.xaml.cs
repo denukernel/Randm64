@@ -10,6 +10,7 @@ using Sm64DecompLevelViewer.Rendering;
 using System.Runtime.InteropServices;
 using System.Windows.Interop;
 using OpenTK.Windowing.GraphicsLibraryFramework;
+using System.Windows.Media;
 
 namespace Sm64DecompLevelViewer
 {
@@ -25,6 +26,8 @@ namespace Sm64DecompLevelViewer
         private string _projectRoot;
         private int _areaIndex;
         private List<string> _supportedModels;
+        private LevelObject? _clipboard;
+        private AppSettings _settings;
 
         [DllImport("user32.dll")]
         static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
@@ -42,12 +45,13 @@ namespace Sm64DecompLevelViewer
         private const int WS_CHILD = 0x40000000;
         private const int WS_VISIBLE = 0x10000000;
 
-        public LevelEditorWindow(List<LevelObject> objects, CollisionMesh collisionMesh, VisualMesh visualMesh, string projectRoot, int areaIndex, List<string> supportedModels)
+        public LevelEditorWindow(List<LevelObject> objects, CollisionMesh collisionMesh, VisualMesh visualMesh, string projectRoot, int areaIndex, List<string> supportedModels, AppSettings settings)
         {
             InitializeComponent();
             _objects = objects;
             _areaIndex = areaIndex;
             _supportedModels = supportedModels;
+            _settings = settings;
             
             _projectRoot = projectRoot;
             _behaviorService = new BehaviorService(projectRoot);
@@ -61,7 +65,20 @@ namespace Sm64DecompLevelViewer
 
             // Forward keys to renderer if not typing in a textbox
             this.PreviewKeyDown += (s, e) => {
-                if (!(System.Windows.Input.Keyboard.FocusedElement is TextBox) && _rendererHwnd != IntPtr.Zero)
+                // 1. Copy (F1)
+                if (e.Key == System.Windows.Input.Key.F1)
+                {
+                    PerformCopy();
+                    e.Handled = true;
+                }
+                // 2. Paste (F2)
+                else if (e.Key == System.Windows.Input.Key.F2)
+                {
+                    PerformPaste();
+                    e.Handled = true;
+                }
+                // 3. Fallback: focus renderer
+                else if (!(System.Windows.Input.Keyboard.FocusedElement is TextBox) && _rendererHwnd != IntPtr.Zero)
                 {
                     SetFocus(_rendererHwnd);
                 }
@@ -88,6 +105,10 @@ namespace Sm64DecompLevelViewer
             MacroObjectsNode.Items.Clear();
             SpecialObjectsNode.Items.Clear();
 
+            var normalBrush = (SolidColorBrush)new BrushConverter().ConvertFrom("#569CD6");
+            var macroBrush = (SolidColorBrush)new BrushConverter().ConvertFrom("#6A9955");
+            var specialBrush = (SolidColorBrush)new BrushConverter().ConvertFrom("#DCDCAA");
+
             for (int i = 0; i < _objects.Count; i++)
             {
                 var obj = _objects[i];
@@ -99,12 +120,21 @@ namespace Sm64DecompLevelViewer
                     Tag = obj
                 };
 
-                if (obj.Behavior == "(Special Object)")
+                if (obj.Behavior == "(Special Object)" || obj.SourceType == ObjectSourceType.Special)
+                {
+                    item.Foreground = specialBrush;
                     SpecialObjectsNode.Items.Add(item);
+                }
                 else if (obj.SourceType == ObjectSourceType.Macro)
+                {
+                    item.Foreground = macroBrush;
                     MacroObjectsNode.Items.Add(item);
+                }
                 else
+                {
+                    item.Foreground = normalBrush;
                     NormalObjectsNode.Items.Add(item);
+                }
             }
         }
 
@@ -127,13 +157,22 @@ namespace Sm64DecompLevelViewer
             var rendererThread = new System.Threading.Thread(() =>
             {
                 _renderer = new GeometryRenderer(gameWindowSettings, nativeWindowSettings, _behaviorService.ProjectRoot);
+                _renderer.CameraMoveSpeed = _settings.CameraMoveSpeed;
+                _renderer.CameraRotationSensitivity = _settings.CameraRotationSpeed;
                 _renderer.LoadMesh(colMesh);
                 if (visMesh != null) _renderer.LoadVisualMesh(visMesh);
                 _renderer.SetObjects(_objects);
                 
-                _renderer.ObjectSelected += (objIndex) => 
-                {
-                    Dispatcher.Invoke(() => SelectObjectInUI(objIndex));
+                _renderer.ObjectSelected += (index) => {
+                    Dispatcher.Invoke(() => SelectObjectInUI(index));
+                };
+
+                _renderer.CopyRequested += () => {
+                    Dispatcher.Invoke(() => PerformCopy());
+                };
+
+                _renderer.PasteRequested += () => {
+                    Dispatcher.Invoke(() => PerformPaste());
                 };
 
                 // Capture HWND and embed
@@ -169,10 +208,6 @@ namespace Sm64DecompLevelViewer
             // Find in TreeView
             FindAndSelectInTreeView(obj);
 
-            // Update Details
-            NoSelectionText.Visibility = Visibility.Collapsed;
-            DetailsGrid.Visibility = Visibility.Visible;
-            
             ModelTextBox.Text = obj.ModelName;
             PosXTextBox.Text = obj.X.ToString();
             PosYTextBox.Text = obj.Y.ToString();
@@ -180,8 +215,97 @@ namespace Sm64DecompLevelViewer
             RotYTextBox.Text = obj.RY.ToString();
             
             BehaviorTextBox.Text = obj.Behavior;
+            AddressTextBox.Text = obj.SourceIndex >= 0 ? $"0x{obj.SourceIndex:X8}" : "N/A";
+            ParamsTextBox.Text = obj.Params.ToString("X8");
+
+            NoSelectionText.Visibility = Visibility.Collapsed;
+            PropertyStack.Visibility = Visibility.Visible;
+
+            UpdatePropertyGrid(obj);
 
             _isUpdatingFromCode = false;
+        }
+
+        private void UpdatePropertyGrid(LevelObject obj)
+        {
+            // Future: Dynamically generate or update property grid based on object type
+            // For now, the XAML bindings (if any) or manual updates in SelectObjectInUI are enough
+        }
+
+        public void PerformCopy(object? sender = null, RoutedEventArgs? e = null)
+        {
+            if (_selectedObject != null)
+            {
+                _clipboard = new LevelObject
+                {
+                    ModelName = _selectedObject.ModelName,
+                    Behavior = _selectedObject.Behavior,
+                    X = _selectedObject.X,
+                    Y = _selectedObject.Y,
+                    Z = _selectedObject.Z,
+                    RY = _selectedObject.RY,
+                    AreaIndex = _selectedObject.AreaIndex,
+                    Params = _selectedObject.Params,
+                    PresetName = _selectedObject.PresetName,
+                    SourceType = _selectedObject.SourceType
+                };
+                Console.WriteLine($"Copied: {_clipboard.ModelName} (Type: {_clipboard.SourceType})");
+            }
+        }
+
+        public void PerformPaste(object? sender = null, RoutedEventArgs? e = null)
+        {
+            if (_clipboard != null)
+            {
+                var newObj = new LevelObject
+                {
+                    ModelName = _clipboard.ModelName,
+                    Behavior = _clipboard.Behavior,
+                    X = _clipboard.X + 250, // Slightly larger offset to make it VERY obvious
+                    Y = _clipboard.Y,
+                    Z = _clipboard.Z + 250,
+                    RY = _clipboard.RY,
+                    AreaIndex = _clipboard.AreaIndex,
+                    Params = _clipboard.Params,
+                    PresetName = _clipboard.PresetName,
+                    SourceType = _clipboard.SourceType,
+                    IsNew = true
+                };
+
+                // Assign source file
+                var template = _objects.FirstOrDefault(o => o.SourceType == newObj.SourceType && !string.IsNullOrEmpty(o.SourceFile));
+                if (template != null)
+                {
+                    newObj.SourceFile = template.SourceFile;
+                }
+                else
+                {
+                    // Fallback: try to find script.c using robust search
+                    var anyTemplate = _objects.FirstOrDefault(o => !string.IsNullOrEmpty(o.SourceFile));
+                    if (anyTemplate != null)
+                    {
+                        string resolvedScript = ResolveScriptPath(anyTemplate.SourceFile);
+                        if (!string.IsNullOrEmpty(resolvedScript))
+                        {
+                            if (newObj.SourceType == ObjectSourceType.Normal) newObj.SourceFile = resolvedScript;
+                            else if (newObj.SourceType == ObjectSourceType.Macro) newObj.SourceFile = Path.Combine(Path.GetDirectoryName(resolvedScript)!, "areas", newObj.AreaIndex.ToString(), "macro.inc.c");
+                            else if (newObj.SourceType == ObjectSourceType.Special) newObj.SourceFile = Path.Combine(Path.GetDirectoryName(resolvedScript)!, "areas", newObj.AreaIndex.ToString(), "collision.inc.c");
+                        }
+                    }
+                }
+
+                _objects.Add(newObj);
+                PopulateTreeView();
+
+                if (_renderer != null)
+                {
+                    _renderer.SetObjects(_objects); // Refresh all
+                    _renderer.SelectObject(_objects.Count - 1);
+                }
+
+                SelectObjectInUI(_objects.Count - 1);
+                Console.WriteLine($"Pasted: {newObj.ModelName}");
+            }
         }
 
         private void SelectBehaviorButton_Click(object sender, RoutedEventArgs e)
@@ -361,7 +485,7 @@ namespace Sm64DecompLevelViewer
             // Update UI
             PopulateTreeView();
             NoSelectionText.Visibility = Visibility.Visible;
-            DetailsGrid.Visibility = Visibility.Hidden;
+            PropertyStack.Visibility = Visibility.Collapsed;
             _selectedObject = null;
         }
 
@@ -494,6 +618,7 @@ namespace Sm64DecompLevelViewer
                 else if (sender == PosYTextBox) _selectedObject.Y = int.Parse(PosYTextBox.Text);
                 else if (sender == PosZTextBox) _selectedObject.Z = int.Parse(PosZTextBox.Text);
                 else if (sender == RotYTextBox) _selectedObject.RY = int.Parse(RotYTextBox.Text);
+                else if (sender == ParamsTextBox) _selectedObject.Params = uint.Parse(ParamsTextBox.Text, System.Globalization.NumberStyles.HexNumber);
                 
                 if (_renderer != null)
                 {
@@ -512,8 +637,33 @@ namespace Sm64DecompLevelViewer
             }
             else
             {
-                MessageBox.Show("Some files failed to save. Check the console/logs for details.\n\nThis usually happens if the editor can't find script.c or if files are marked as Read-Only.", 
+                string logPath = LogService.GetLogPath();
+                MessageBox.Show($"Some files failed to save.\n\nDetailed errors have been written to:\n{logPath}\n\nClick 'View Logs' in the editor to open this file.", 
                     "Save Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private void LogsButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string path = LogService.GetLogPath();
+                if (File.Exists(path))
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = path,
+                        UseShellExecute = true
+                    });
+                }
+                else
+                {
+                    MessageBox.Show("Log file not found yet. Nothing has been logged this session.", "Logs", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to open logs: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -596,9 +746,125 @@ namespace Sm64DecompLevelViewer
                               "OBJECT MANIPULATION:\n\n" +
                               "Move Object: [Arrow Keys] / [PageUp][PageDown]\n" +
                               "Rotate Object (Y): [Q][E]\n" +
+                              "Copy Object: [F1]\n" +
+                              "Paste Object: [F2]\n" +
                               "Select: [Left-Click] in 3D or in Sidebar";
 
             MessageBox.Show(helpText, "Editor Controls", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        // --- NEW UI HANDLERS ---
+
+        private void GizmoMove_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedObject == null || _renderer == null) return;
+            
+            var btn = sender as Button;
+            string direction = btn?.Content.ToString() ?? "";
+            
+            int amount = 100;
+            if (System.Windows.Input.Keyboard.IsKeyDown(System.Windows.Input.Key.LeftShift)) amount = 10;
+            
+            switch (direction)
+            {
+                case "▲": _selectedObject.Z -= amount; break;
+                case "▼": _selectedObject.Z += amount; break;
+                case "◀": _selectedObject.X -= amount; break;
+                case "▶": _selectedObject.X += amount; break;
+                case "➕": _selectedObject.Y += amount; break;
+                case "➖": _selectedObject.Y -= amount; break;
+            }
+            
+            UpdateUIFromObject(_selectedObject);
+            int index = _objects.IndexOf(_selectedObject);
+            _renderer.UpdateObject(index, _selectedObject);
+        }
+
+        private void UpdateUIFromObject(LevelObject obj)
+        {
+            _isUpdatingFromCode = true;
+            PosXTextBox.Text = obj.X.ToString();
+            PosYTextBox.Text = obj.Y.ToString();
+            PosZTextBox.Text = obj.Z.ToString();
+            RotYTextBox.Text = obj.RY.ToString();
+            _isUpdatingFromCode = false;
+        }
+
+        private void MoveSpeedSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_renderer != null)
+            {
+                _renderer.ObjectMoveSpeed = (float)e.NewValue * 5f; // 100% = 500 units/sec
+            }
+            if (MoveSpeedText != null)
+            {
+                MoveSpeedText.Text = $"{(int)e.NewValue}%";
+            }
+        }
+
+        private void CameraSpeedSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_renderer != null)
+            {
+                _renderer.CameraMoveSpeed = (float)e.NewValue * 10f; // 100% = 1000 units/sec
+            }
+            if (CameraSpeedText != null)
+            {
+                CameraSpeedText.Text = $"{(int)e.NewValue}%";
+            }
+        }
+
+        private void SearchBox_GotFocus(object sender, RoutedEventArgs e)
+        {
+            if (SearchBox.Text == "Search objects...")
+            {
+                SearchBox.Text = "";
+                SearchBox.Opacity = 1.0;
+            }
+        }
+
+        private void SearchBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(SearchBox.Text))
+            {
+                SearchBox.Text = "Search objects...";
+                SearchBox.Opacity = 0.5;
+                
+                // Reset filtering
+                FilterTreeView(NormalObjectsNode, "");
+                FilterTreeView(MacroObjectsNode, "");
+                FilterTreeView(SpecialObjectsNode, "");
+            }
+        }
+
+        private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            string query = SearchBox.Text.ToLower();
+            if (query == "search objects...") return;
+            
+            FilterTreeView(NormalObjectsNode, query);
+            FilterTreeView(MacroObjectsNode, query);
+            FilterTreeView(SpecialObjectsNode, query);
+        }
+
+        private void FilterTreeView(TreeViewItem category, string query)
+        {
+            foreach (TreeViewItem item in category.Items)
+            {
+                bool visible = string.IsNullOrEmpty(query) || item.Header.ToString()!.ToLower().Contains(query);
+                item.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private void DropToGround_Click(object sender, RoutedEventArgs e)
+        {
+            // Future: Implement raycasting to drop object to nearest floor
+            MessageBox.Show("Raycasting for 'Drop to Ground' is not yet implemented in this build.", "Feature Not Ready");
+        }
+
+        private void BehaviorTextBox_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            SelectBehaviorButton_Click(sender, e);
         }
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)

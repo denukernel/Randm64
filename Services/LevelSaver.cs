@@ -31,6 +31,7 @@ public class LevelSaver
             try
             {
                 string content = File.ReadAllText(filePath);
+                var allFileObjects = objects.Where(o => o.SourceFile == filePath).ToList();
                 
                 // Track insertions/deletions to update other objects in the same file if needed
                 // But since we order descending, deletions/updates of higher indices don't affect lower ones.
@@ -40,6 +41,13 @@ public class LevelSaver
                     if (obj.IsDeleted)
                     {
                         content = content.Remove(obj.SourceIndex, obj.SourceLength);
+                        foreach (var otherObj in allFileObjects)
+                        {
+                            if (otherObj != obj && otherObj.SourceIndex > obj.SourceIndex)
+                            {
+                                otherObj.SourceIndex -= obj.SourceLength;
+                            }
+                        }
                         continue;
                     }
 
@@ -48,16 +56,24 @@ public class LevelSaver
                     
                     if (oldMacro != newMacro)
                     {
+                        int diff = newMacro.Length - oldMacro.Length;
                         content = content.Remove(obj.SourceIndex, obj.SourceLength)
                                          .Insert(obj.SourceIndex, newMacro);
                         
                         obj.SourceLength = newMacro.Length;
+                        foreach (var otherObj in allFileObjects)
+                        {
+                            if (otherObj != obj && otherObj.SourceIndex > obj.SourceIndex)
+                            {
+                                otherObj.SourceIndex += diff;
+                            }
+                        }
                     }
                 }
 
                 File.WriteAllText(filePath, content);
                 
-                if (filePath.Contains("collision.inc.c")) UpdateSpecialObjectCount(filePath);
+                if (filePath.Contains("collision.inc.c")) UpdateSpecialObjectCount(filePath, objects);
             }
             catch (Exception ex)
             {
@@ -80,6 +96,7 @@ public class LevelSaver
             {
                 string content = File.ReadAllText(filePath);
                 var fileNewObjects = group.ToList();
+                var allFileObjects = objects.Where(o => o.SourceFile == filePath).ToList();
 
                 foreach (var obj in fileNewObjects)
                 {
@@ -147,11 +164,19 @@ public class LevelSaver
                         obj.SourceIndex = index;
                         obj.SourceLength = insertion.Length;
                         obj.IsNew = false;
+
+                        foreach (var otherObj in allFileObjects)
+                        {
+                            if (otherObj != obj && otherObj.SourceIndex >= index)
+                            {
+                                otherObj.SourceIndex += insertion.Length;
+                            }
+                        }
                     }
                 }
 
                 File.WriteAllText(filePath, content);
-                if (filePath.Contains("collision.inc.c")) UpdateSpecialObjectCount(filePath);
+                if (filePath.Contains("collision.inc.c")) UpdateSpecialObjectCount(filePath, objects);
             }
             catch (Exception ex)
             {
@@ -163,7 +188,7 @@ public class LevelSaver
         return allSaved;
     }
 
-    private void UpdateSpecialObjectCount(string filePath)
+    private void UpdateSpecialObjectCount(string filePath, List<LevelObject> objects)
     {
         try
         {
@@ -172,8 +197,22 @@ public class LevelSaver
             var match = Regex.Match(content, @"COL_SPECIAL_INIT\s*\(\s*(\d+)\s*\)");
             if (match.Success)
             {
-                content = content.Replace(match.Value, $"COL_SPECIAL_INIT({count})");
-                File.WriteAllText(filePath, content);
+                string newValue = $"COL_SPECIAL_INIT({count})";
+                if (match.Value != newValue)
+                {
+                    int diff = newValue.Length - match.Value.Length;
+                    content = content.Replace(match.Value, newValue);
+                    File.WriteAllText(filePath, content);
+                    
+                    var allFileObjects = objects.Where(o => o.SourceFile == filePath).ToList();
+                    foreach (var otherObj in allFileObjects)
+                    {
+                        if (otherObj.SourceIndex > match.Index)
+                        {
+                            otherObj.SourceIndex += diff;
+                        }
+                    }
+                }
             }
         }
         catch { }

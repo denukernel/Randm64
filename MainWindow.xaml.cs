@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel;
 using System.IO;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Data;
 using System.Text.RegularExpressions;
@@ -124,6 +125,13 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OptionsButton_Click(object sender, RoutedEventArgs e)
+    {
+        var settingsWindow = new SettingsWindow();
+        settingsWindow.Owner = this;
+        settingsWindow.ShowDialog();
+    }
+
     private void LoadLevels()
     {
         if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
@@ -158,6 +166,7 @@ public partial class MainWindow : Window
             groupedLevels.GroupDescriptions.Add(new PropertyGroupDescription("Category"));
             
             LevelListBox.ItemsSource = groupedLevels;
+            OpenLevelsFolderButton.IsEnabled = true;
 
             StatusText.Text = $"{_levels.Count} levels loaded";
         }
@@ -570,12 +579,18 @@ public partial class MainWindow : Window
                     var supportedModels = objectParser.ParseSupportedModels(selectedLevel.LevelPath, projectRoot ?? "");
                     
                     // Open the new Level Editor window
-                    var editor = new LevelEditorWindow(objects, collisionMesh, visualMesh, projectRoot ?? "", areaIndex, supportedModels);
+                    var settings = _settingsService.LoadSettings();
+                    var editor = new LevelEditorWindow(objects, collisionMesh, visualMesh, projectRoot ?? "", areaIndex, supportedModels, settings);
                     editor.Show();
                 }
             }
         }
         catch (Exception ex) { MessageBox.Show($"Error launching 3D editor:\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error); }
+    }
+
+    private void WorkshopButton_Click(object sender, RoutedEventArgs e)
+    {
+        MessageBox.Show("The Level Workshop feature is currently under development and will be available in a future update.", "Coming Soon", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void OnObjectSelected(int index)
@@ -640,6 +655,30 @@ public partial class MainWindow : Window
         }
 
         return null;
+    }
+
+    private void OpenLevelsFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath)) return;
+
+        try
+        {
+            var levelsDir = Path.Combine(_projectRootPath, "levels");
+            if (!Directory.Exists(levelsDir)) levelsDir = Path.Combine(_projectRootPath, "howtomake", "levels");
+
+            if (Directory.Exists(levelsDir))
+            {
+                Process.Start("explorer.exe", levelsDir);
+            }
+            else
+            {
+                MessageBox.Show("Could not find the levels folder in this project.", "Folder Not Found", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Error opening folder: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 }
 
