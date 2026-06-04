@@ -8,6 +8,8 @@ namespace Sm64DecompLevelViewer.Services
     {
         public string LastProjectRoot { get; set; } = string.Empty;
         public string EmulatorPath { get; set; } = string.Empty;
+        public float CameraMoveSpeed { get; set; } = 800f;
+        public float CameraRotationSpeed { get; set; } = 0.02f;
     }
 
     public class SettingsService

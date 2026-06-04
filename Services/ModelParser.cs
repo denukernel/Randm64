@@ -312,10 +312,14 @@ public class ModelParser
                 var subAreaDirectories = Directory.GetDirectories(areaDir);
                 foreach (var subAreaDir in subAreaDirectories)
                 {
-                    var modelFilePath = Path.Combine(subAreaDir, "model.inc.c");
-                    if (File.Exists(modelFilePath))
+                    var files = Directory.GetFiles(subAreaDir, "*.inc.c");
+                    foreach (var file in files)
                     {
-                        areaModelFiles.Add(modelFilePath);
+                        var fileName = Path.GetFileName(file);
+                        if (fileName == "collision.inc.c" || fileName == "geo.inc.c" || fileName == "macro.inc.c" || fileName == "movtext.inc.c")
+                            continue;
+
+                        areaModelFiles.Add(file);
                     }
                 }
                 

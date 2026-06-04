@@ -23,7 +23,7 @@ public class LevelSaver
 
             if (!File.Exists(filePath))
             {
-                Console.WriteLine($"File not found: {filePath}");
+                LogService.Log($"File not found: {filePath}");
                 allSaved = false;
                 continue;
             }
@@ -31,7 +31,10 @@ public class LevelSaver
             try
             {
                 string content = File.ReadAllText(filePath);
-
+                
+                // Track insertions/deletions to update other objects in the same file if needed
+                // But since we order descending, deletions/updates of higher indices don't affect lower ones.
+                
                 foreach (var obj in fileObjects)
                 {
                     if (obj.IsDeleted)
@@ -58,108 +61,101 @@ public class LevelSaver
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to save to {filePath}: {ex.Message}");
+                LogService.Log($"Failed to save to {filePath}: {ex.Message}");
                 allSaved = false;
             }
         }
 
-        // 2. Handle new objects and UPDATE their metadata so they are "existing" next time
-        var newObjects = objects.Where(o => o.IsNew && !o.IsDeleted).ToList();
-        foreach (var obj in newObjects)
+        // 2. Handle new objects by grouping by file to avoid multiple reads/writes
+        var newObjectsByFile = objects.Where(o => o.IsNew && !o.IsDeleted)
+            .GroupBy(o => o.SourceFile)
+            .ToList();
+
+        foreach (var group in newObjectsByFile)
         {
-            if (string.IsNullOrEmpty(obj.SourceFile)) continue;
+            string filePath = group.Key!;
+            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) continue;
 
             try
             {
-                string content = File.ReadAllText(obj.SourceFile);
-                string insertion = "";
+                string content = File.ReadAllText(filePath);
+                var fileNewObjects = group.ToList();
 
-                if (obj.SourceType == ObjectSourceType.Normal)
+                foreach (var obj in fileNewObjects)
                 {
-                    insertion = $"\n    OBJECT({obj.ModelName}, {obj.X}, {obj.Y}, {obj.Z}, {obj.RX}, {obj.RY}, {obj.RZ}, {obj.Params}, {obj.Behavior}),";
-                    
+                    string insertion = "";
                     int index = -1;
-                    int areaStart = -1;
-                    var areaMatches = Regex.Matches(content, @"AREA\s*\(\s*(\d+)");
-                    foreach (Match areaMatch in areaMatches)
+
+                    if (obj.SourceType == ObjectSourceType.Normal)
                     {
-                        if (int.Parse(areaMatch.Groups[1].Value) == obj.AreaIndex)
+                        insertion = $"\n    OBJECT({obj.ModelName}, {obj.X}, {obj.Y}, {obj.Z}, {obj.RX}, {obj.RY}, {obj.RZ}, {obj.Params}, {obj.Behavior}),";
+                        
+                        int areaStart = -1;
+                        var areaMatches = Regex.Matches(content, @"AREA\s*\(\s*(\d+)");
+                        foreach (Match areaMatch in areaMatches)
                         {
-                            areaStart = areaMatch.Index;
-                            break;
+                            if (int.Parse(areaMatch.Groups[1].Value) == obj.AreaIndex)
+                            {
+                                areaStart = areaMatch.Index;
+                                break;
+                            }
                         }
-                    }
 
-                    if (areaStart != -1)
-                    {
-                        var m = Regex.Match(content.Substring(areaStart), @"END_AREA\s*\(\s*\)");
-                        if (m.Success) index = areaStart + m.Index;
-                    }
-
-                    if (index == -1) index = content.LastIndexOf("END_AREA");
-                    if (index == -1) index = content.LastIndexOf("};");
-                    
-                    if (index != -1)
-                    {
-                        content = content.Insert(index, insertion);
-                        obj.SourceIndex = index + 1; // +1 for the newline
-                    }
-                }
-                else if (obj.SourceType == ObjectSourceType.Macro)
-                {
-                    string macroName = string.IsNullOrEmpty(obj.PresetName) ? obj.ModelName : obj.PresetName;
-                    insertion = $"\n    MACRO_OBJECT({macroName}, {obj.RY}, {obj.X}, {obj.Y}, {obj.Z}),";
-                    int index = content.LastIndexOf("MACRO_OBJECT_END");
-                    if (index == -1) index = content.LastIndexOf("};");
-                    if (index != -1)
-                    {
-                        content = content.Insert(index, insertion);
-                        obj.SourceIndex = index + 1;
-                    }
-                }
-                else if (obj.SourceType == ObjectSourceType.Special)
-                {
-                    string presetName = string.IsNullOrEmpty(obj.PresetName) ? obj.ModelName : obj.PresetName;
-                    insertion = $"\n    SPECIAL_OBJECT({presetName}, {obj.X}, {obj.Y}, {obj.Z}),";
-                    int index = -1;
-                    var specialMatches = Regex.Matches(content, @"SPECIAL_OBJECT(?:_WITH_YAW(?:_AND_PARAM)?)?");
-                    if (specialMatches.Count > 0)
-                    {
-                        var lastMatch = specialMatches[specialMatches.Count - 1];
-                        index = content.IndexOf(",", lastMatch.Index);
-                        if (index != -1) index++;
-                    }
-                    else
-                    {
-                        var initMatch = Regex.Match(content, @"COL_SPECIAL_INIT\s*\(\s*(\d+)\s*\)");
-                        if (initMatch.Success)
+                        if (areaStart != -1)
                         {
-                            index = content.IndexOf(",", initMatch.Index);
-                            if (index != -1) index++;
+                            var m = Regex.Match(content.Substring(areaStart), @"END_AREA\s*\(\s*\)");
+                            if (m.Success) index = areaStart + m.Index;
                         }
+
+                        if (index == -1) index = content.LastIndexOf("END_AREA");
+                        if (index == -1) index = content.LastIndexOf("};");
                     }
-                    
-                    if (index == -1) index = content.LastIndexOf("COL_END");
-                    if (index == -1) index = content.LastIndexOf("};");
+                    else if (obj.SourceType == ObjectSourceType.Macro)
+                    {
+                        string macroName = string.IsNullOrEmpty(obj.PresetName) ? obj.ModelName : obj.PresetName;
+                        insertion = $"\n    MACRO_OBJECT({macroName}, {obj.RY}, {obj.X}, {obj.Y}, {obj.Z}),";
+                        index = content.LastIndexOf("MACRO_OBJECT_END");
+                        if (index == -1) index = content.LastIndexOf("};");
+                    }
+                    else if (obj.SourceType == ObjectSourceType.Special)
+                    {
+                        string presetName = string.IsNullOrEmpty(obj.PresetName) ? obj.ModelName : obj.PresetName;
+                        insertion = $"\n    SPECIAL_OBJECT({presetName}, {obj.X}, {obj.Y}, {obj.Z}),";
+                        var specialMatches = Regex.Matches(content, @"SPECIAL_OBJECT(?:_WITH_YAW(?:_AND_PARAM)?)?\s*\([^)]*\)[\s,]*");
+                        if (specialMatches.Count > 0)
+                        {
+                            var lastMatch = specialMatches[specialMatches.Count - 1];
+                            index = lastMatch.Index + lastMatch.Length;
+                        }
+                        else
+                        {
+                            var initMatch = Regex.Match(content, @"COL_SPECIAL_INIT\s*\(\s*(\d+)\s*\)");
+                            if (initMatch.Success)
+                            {
+                                index = content.IndexOf(",", initMatch.Index);
+                                if (index != -1) index++;
+                            }
+                        }
+                        
+                        if (index == -1) index = content.LastIndexOf("COL_END");
+                        if (index == -1) index = content.LastIndexOf("};");
+                    }
+
                     if (index != -1)
                     {
                         content = content.Insert(index, insertion);
-                        obj.SourceIndex = index + 1;
+                        obj.SourceIndex = index;
+                        obj.SourceLength = insertion.Length;
+                        obj.IsNew = false;
                     }
                 }
 
-                if (obj.SourceIndex > 0)
-                {
-                    obj.SourceLength = insertion.Trim().Length;
-                    File.WriteAllText(obj.SourceFile, content);
-                    obj.IsNew = false; // It's now a persistent object
-                    
-                    if (obj.SourceFile.Contains("collision.inc.c")) UpdateSpecialObjectCount(obj.SourceFile);
-                }
+                File.WriteAllText(filePath, content);
+                if (filePath.Contains("collision.inc.c")) UpdateSpecialObjectCount(filePath);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to insert object: {ex.Message}");
+                LogService.Log($"Failed to save new objects to {filePath}: {ex.Message}");
                 allSaved = false;
             }
         }

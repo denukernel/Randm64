@@ -22,6 +22,21 @@ public class CollisionParser
             }
 
             var fileContent = File.ReadAllText(collisionFilePath);
+
+            // Extract only the first valid collision block to avoid merging JP/US/Object versions
+            int initIndex = fileContent.IndexOf("COL_INIT()");
+            if (initIndex != -1)
+            {
+                int stopIndex = fileContent.IndexOf("COL_TRI_STOP()", initIndex);
+                if (stopIndex == -1) stopIndex = fileContent.IndexOf("COL_END()", initIndex);
+                
+                if (stopIndex != -1)
+                {
+                    // Update content to only include the isolated block
+                    fileContent = fileContent.Substring(initIndex, stopIndex - initIndex + 10); // + padding
+                }
+            }
+
             var mesh = new CollisionMesh
             {
                 AreaName = areaName,

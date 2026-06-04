@@ -68,6 +68,12 @@ public class GeometryRenderer : GameWindow
     private List<DrawCall> _drawCalls = new();
 
     public event Action<int>? ObjectSelected;
+    public event Action? CopyRequested;
+    public event Action? PasteRequested;
+
+    public float CameraMoveSpeed { get; set; } = 800f;
+    public float ObjectMoveSpeed { get; set; } = 500f;
+    public float CameraRotationSensitivity { get; set; } = 0.02f;
 
     public GeometryRenderer(GameWindowSettings gameWindowSettings, NativeWindowSettings nativeWindowSettings, string projectRoot)
         : base(gameWindowSettings, nativeWindowSettings)
@@ -884,7 +890,6 @@ public class GeometryRenderer : GameWindow
             }
         }
 
-        float moveSpeed = 4000f; // Units per second (increased from 100)
         float deltaTime = (float)args.Time;
 
         // WASD camera movement
@@ -893,31 +898,31 @@ public class GeometryRenderer : GameWindow
 
         if (KeyboardState.IsKeyDown(Keys.W))
         {
-            _cameraTarget += forward * moveSpeed * deltaTime;
+            _cameraTarget += forward * CameraMoveSpeed * deltaTime;
         }
         if (KeyboardState.IsKeyDown(Keys.S))
         {
-            _cameraTarget -= forward * moveSpeed * deltaTime;
+            _cameraTarget -= forward * CameraMoveSpeed * deltaTime;
         }
         if (KeyboardState.IsKeyDown(Keys.A))
         {
-            _cameraTarget -= right * moveSpeed * deltaTime;
+            _cameraTarget -= right * CameraMoveSpeed * deltaTime;
         }
         if (KeyboardState.IsKeyDown(Keys.D))
         {
-            _cameraTarget += right * moveSpeed * deltaTime;
+            _cameraTarget += right * CameraMoveSpeed * deltaTime;
         }
 
         // Handle camera rotation with RIGHT mouse button
         if (MouseState.IsButtonDown(MouseButton.Right))
         {
-            _cameraYaw += MouseState.Delta.X * 0.2f;
-            _cameraPitch -= MouseState.Delta.Y * 0.2f;
+            _cameraYaw += MouseState.Delta.X * CameraRotationSensitivity;
+            _cameraPitch -= MouseState.Delta.Y * CameraRotationSensitivity;
             _cameraPitch = Math.Clamp(_cameraPitch, -89f, 89f);
         }
 
         // Handle zoom with mouse wheel
-        _cameraDistance -= MouseState.ScrollDelta.Y * 200f;
+        _cameraDistance -= MouseState.ScrollDelta.Y * 50f;
         _cameraDistance = Math.Clamp(_cameraDistance, 100f, 50000f);
 
         // Toggle controls
@@ -933,11 +938,22 @@ public class GeometryRenderer : GameWindow
             Console.WriteLine($"Visual mesh: {(_showVisual ? "ON" : "OFF")}");
         }
 
+        // F1/F2 Copy/Paste passthrough
+        if (KeyboardState.IsKeyPressed(Keys.F1))
+        {
+            CopyRequested?.Invoke();
+        }
+
+        if (KeyboardState.IsKeyPressed(Keys.F2))
+        {
+            PasteRequested?.Invoke();
+        }
+
         // Object transformation
         if (_selectedObject != null)
         {
             bool modified = false;
-            float objMoveSpeed = 500f * deltaTime; // Units per second
+            float objMoveSpeed = ObjectMoveSpeed * deltaTime; // Units per second
             int moveStep = 10; // Basic unit step for snapping or just movement
 
             // Movement: Up/Down/Left/Right/PageUp/PageDown
