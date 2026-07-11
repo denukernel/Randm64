@@ -1,0 +1,274 @@
+<Window x:Class="Sm64DecompLevelViewer.LevelMeshEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Level Mesh Geometry Editor" Height="680" Width="960"
+        Background="#1E1E1E" Foreground="#CCCCCC"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    
+    <Window.Resources>
+        <SolidColorBrush x:Key="PanelBackground" Color="#252526"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#3F3F46"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#007ACC" />
+        <SolidColorBrush x:Key="HeaderBrush" Color="#569CD6"/>
+        <SolidColorBrush x:Key="ButtonHoverBrush" Color="#3E3E42" />
+        
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#CCCCCC"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#3F3F46"/>
+            <Setter Property="Padding" Value="4"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="Black"/>
+            <Setter Property="BorderBrush" Value="#3F3F46"/>
+            <Setter Property="Padding" Value="4"/>
+        </Style>
+        
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        
+        <Style TargetType="TabItem">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="border" Background="#2D2D30" BorderBrush="#3F3F46" BorderThickness="1,1,1,0" Margin="0,0,2,0" CornerRadius="3,3,0,0">
+                            <ContentPresenter x:Name="content" ContentSource="Header" Margin="12,6" RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#3E3E42"/>
+                                <Setter Property="Foreground" Value="#9CDCFE"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="False">
+                                <Setter Property="Foreground" Value="#CCCCCC"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="DataGrid">
+            <Setter Property="Background" Value="#1E1E1E"/>
+            <Setter Property="RowBackground" Value="#252526"/>
+            <Setter Property="AlternatingRowBackground" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#3F3F46"/>
+            <Setter Property="GridLinesVisibility" Value="All"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="#3F3F46"/>
+            <Setter Property="VerticalGridLinesBrush" Value="#3F3F46"/>
+        </Style>
+
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="#569CD6"/>
+            <Setter Property="Padding" Value="6"/>
+            <Setter Property="BorderBrush" Value="#3F3F46"/>
+            <Setter Property="BorderThickness" Value="0,0,1,1"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Selectors -->
+            <RowDefinition Height="*"/>    <!-- Workspace -->
+            <RowDefinition Height="Auto"/> <!-- Status & Actions -->
+        </Grid.RowDefinitions>
+
+        <!-- 1. SELECTORS -->
+        <Border Grid.Row="0" Background="{StaticResource PanelBackground}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="10" Margin="0,0,0,10">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Area:" Margin="0,0,8,0" FontWeight="Bold"/>
+                <ComboBox x:Name="AreaComboBox" Width="120" SelectionChanged="AreaComboBox_SelectionChanged" Margin="0,0,20,0"/>
+
+                <TextBlock x:Name="VisualModelLabel" Text="Model File:" Margin="0,0,8,0" FontWeight="Bold" Visibility="Collapsed"/>
+                <ComboBox x:Name="VisualModelComboBox" Width="200" SelectionChanged="VisualModelComboBox_SelectionChanged" Margin="0,0,20,0" Visibility="Collapsed"/>
+
+                <TextBlock x:Name="VisualArrayLabel" Text="Vertex Array:" Margin="0,0,8,0" FontWeight="Bold" Visibility="Collapsed"/>
+                <ComboBox x:Name="VisualArrayComboBox" Width="240" SelectionChanged="VisualArrayComboBox_SelectionChanged" Visibility="Collapsed"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 2. WORKSPACE -->
+        <Grid Grid.Row="1" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>         <!-- Active Geometry Table -->
+                <ColumnDefinition Width="250"/>       <!-- Utilities Panel -->
+            </Grid.ColumnDefinitions>
+
+            <!-- Active Geometry TabControl -->
+            <TabControl Grid.Column="0" x:Name="MeshTabControl" SelectionChanged="MeshTabControl_SelectionChanged" Margin="0,0,10,0">
+                <TabItem Header="Collision Vertices">
+                    <Grid Background="#252526" Margin="0,5,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <DataGrid x:Name="ColVertexGrid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" SelectionChanged="ColVertexGrid_SelectionChanged">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Index" Binding="{Binding Index}" IsReadOnly="True" Width="80"/>
+                                <DataGridTextColumn Header="X" Binding="{Binding X, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                <DataGridTextColumn Header="Y" Binding="{Binding Y, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                <DataGridTextColumn Header="Z" Binding="{Binding Z, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="5" HorizontalAlignment="Left">
+                            <Button Content="➕ Add Vertex" Click="AddColVertex_Click" Background="#3F3F46" Foreground="White" BorderThickness="0" Padding="8,4" Margin="0,0,8,0"/>
+                            <Button Content="🗑️ Delete Selected" Click="DeleteColVertex_Click" Background="#D13438" Foreground="White" BorderThickness="0" Padding="8,4"/>
+                        </StackPanel>
+                    </Grid>
+                </TabItem>
+
+                <TabItem Header="Collision Triangles">
+                    <Grid Background="#252526" Margin="0,5,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <DataGrid x:Name="ColTriangleGrid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" SelectionChanged="ColTriangleGrid_SelectionChanged">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Index" Binding="{Binding Index}" IsReadOnly="True" Width="80"/>
+                                <DataGridTextColumn Header="V1" Binding="{Binding V1, UpdateSourceTrigger=PropertyChanged}" Width="100"/>
+                                <DataGridTextColumn Header="V2" Binding="{Binding V2, UpdateSourceTrigger=PropertyChanged}" Width="100"/>
+                                <DataGridTextColumn Header="V3" Binding="{Binding V3, UpdateSourceTrigger=PropertyChanged}" Width="100"/>
+                                <DataGridComboBoxColumn x:Name="ColSurfaceColumn" Header="Surface Type" SelectedValueBinding="{Binding SurfaceType, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                <DataGridTextColumn Header="Special Param" Binding="{Binding SpecialParam, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="5" HorizontalAlignment="Left">
+                            <Button Content="➕ Add Triangle" Click="AddColTriangle_Click" Background="#3F3F46" Foreground="White" BorderThickness="0" Padding="8,4" Margin="0,0,8,0"/>
+                            <Button Content="🗑️ Delete Selected" Click="DeleteColTriangle_Click" Background="#D13438" Foreground="White" BorderThickness="0" Padding="8,4"/>
+                        </StackPanel>
+                    </Grid>
+                </TabItem>
+
+                <TabItem Header="Visual Vertices">
+                    <Grid Background="#252526" Margin="0,5,0,0">
+                        <DataGrid x:Name="VisualVertexGrid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" SelectionChanged="VisualVertexGrid_SelectionChanged">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Index" Binding="{Binding Index}" IsReadOnly="True" Width="60"/>
+                                <DataGridTextColumn Header="X" Binding="{Binding X, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                <DataGridTextColumn Header="Y" Binding="{Binding Y, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                <DataGridTextColumn Header="Z" Binding="{Binding Z, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                <DataGridTextColumn Header="U (S)" Binding="{Binding S, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                <DataGridTextColumn Header="V (T)" Binding="{Binding T, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                <DataGridTextColumn Header="R / NX" Binding="{Binding NX}" Width="65"/>
+                                <DataGridTextColumn Header="G / NY" Binding="{Binding NY}" Width="65"/>
+                                <DataGridTextColumn Header="B / NZ" Binding="{Binding NZ}" Width="65"/>
+                                <DataGridTextColumn Header="A / Alpha" Binding="{Binding Alpha}" Width="65"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </TabItem>
+
+                <TabItem Header="Water Boxes">
+                    <Grid Background="#252526" Margin="0,5,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <DataGrid x:Name="WaterBoxGrid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" SelectionChanged="WaterBoxGrid_SelectionChanged">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="ID" Binding="{Binding Id, UpdateSourceTrigger=PropertyChanged}" Width="80"/>
+                                <DataGridTextColumn Header="X1" Binding="{Binding X1, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                <DataGridTextColumn Header="Z1" Binding="{Binding Z1, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                <DataGridTextColumn Header="X2" Binding="{Binding X2, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                <DataGridTextColumn Header="Z2" Binding="{Binding Z2, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                <DataGridTextColumn Header="Y" Binding="{Binding Y, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="5" HorizontalAlignment="Left">
+                            <Button Content="➕ Add Water Box" Click="AddWaterBox_Click" Background="#3F3F46" Foreground="White" BorderThickness="0" Padding="8,4" Margin="0,0,8,0"/>
+                            <Button Content="🗑️ Delete Selected" Click="DeleteWaterBox_Click" Background="#D13438" Foreground="White" BorderThickness="0" Padding="8,4"/>
+                        </StackPanel>
+                    </Grid>
+                </TabItem>
+            </TabControl>
+
+            <!-- Bulk Utilities Panel -->
+            <Border Grid.Column="1" Background="{StaticResource PanelBackground}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="10">
+                <StackPanel>
+                    <TextBlock Text="BULK OPERATIONS" FontSize="12" FontWeight="Bold" Foreground="{StaticResource HeaderBrush}" Margin="0,0,0,10"/>
+                    
+                    <TextBlock Text="Target Selection:" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="BulkTargetComboBox" Margin="0,0,0,15">
+                        <ComboBoxItem Content="Collision Mesh" IsSelected="True"/>
+                        <ComboBoxItem Content="Visual Mesh (Active Array)"/>
+                        <ComboBoxItem Content="Visual Mesh (All Arrays)"/>
+                    </ComboBox>
+
+                    <!-- Translate (Offset) -->
+                    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Translate (Offset)" FontWeight="Bold" Margin="0,0,0,8"/>
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="20"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="20"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="20"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="X:" Grid.Column="0" VerticalAlignment="Center"/>
+                                <TextBox x:Name="OffsetXText" Text="0" Grid.Column="1" Margin="2,0"/>
+                                <TextBlock Text="Y:" Grid.Column="2" VerticalAlignment="Center"/>
+                                <TextBox x:Name="OffsetYText" Text="0" Grid.Column="3" Margin="2,0"/>
+                                <TextBlock Text="Z:" Grid.Column="4" VerticalAlignment="Center"/>
+                                <TextBox x:Name="OffsetZText" Text="0" Grid.Column="5" Margin="2,0"/>
+                            </Grid>
+                            <Button Content="Apply Translation" Click="ApplyTranslation_Click" Background="#007ACC" Foreground="White" BorderThickness="0" Padding="10,6" Margin="0,4,0,15"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Scale -->
+                    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Scale Factor" FontWeight="Bold" Margin="0,0,0,8"/>
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="20"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="20"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="20"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="X:" Grid.Column="0" VerticalAlignment="Center"/>
+                                <TextBox x:Name="ScaleXText" Text="1.0" Grid.Column="1" Margin="2,0"/>
+                                <TextBlock Text="Y:" Grid.Column="2" VerticalAlignment="Center"/>
+                                <TextBox x:Name="ScaleYText" Text="1.0" Grid.Column="3" Margin="2,0"/>
+                                <TextBlock Text="Z:" Grid.Column="4" VerticalAlignment="Center"/>
+                                <TextBox x:Name="ScaleZText" Text="1.0" Grid.Column="5" Margin="2,0"/>
+                            </Grid>
+                            <Button Content="Apply Scale" Click="ApplyScale_Click" Background="#007ACC" Foreground="White" BorderThickness="0" Padding="10,6" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- 3. ACTIONS -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="StatusBarText" Text="Ready" VerticalAlignment="Center" FontSize="11" Opacity="0.7"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button Content="💾 Save Changes" Click="SaveButton_Click" Background="#007ACC" Foreground="White" BorderThickness="0" Padding="15,6" Margin="0,0,10,0" FontSize="12" FontWeight="Bold"/>
+                <Button Content="Close" Click="CloseButton_Click" Background="#3F3F46" Foreground="White" BorderThickness="0" Padding="15,6" FontSize="12"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

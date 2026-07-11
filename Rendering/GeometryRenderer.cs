@@ -15,6 +15,7 @@ public struct DrawCall
     public int StartIndex;
     public int VertexCount;
     public int TextureId;
+    public Vector3? Color;
 }
 
 public class GeometryRenderer : GameWindow
@@ -60,6 +61,8 @@ public class GeometryRenderer : GameWindow
     private bool _showVisual = true;
     private bool _showObjects = true;
     private bool _needsObjectUpload = false;
+    private bool _needsVisualMeshUpload = false;
+    private bool _needsTextureReload = false;
     private bool _isLoaded = false;
     private readonly object _objectLock = new object();
     private HashSet<int> _hiddenSubModels = new(); // Track which sub-models are hidden
@@ -67,13 +70,80 @@ public class GeometryRenderer : GameWindow
     private string _projectRoot;
     private List<DrawCall> _drawCalls = new();
 
+    // Skeletal animation fields
+    private MarioAnimation? _activeAnimation;
+    private int _currentFrame = 0;
+    private float _frameTimer = 0f;
+
+    public void SetActiveAnimation(MarioAnimation? anim)
+    {
+        _activeAnimation = anim;
+        _currentFrame = 0;
+        _frameTimer = 0f;
+
+        // If animation is cleared, restore reference pose coords
+        if (anim == null && _visualMesh != null)
+        {
+            foreach (var v in _visualMesh.Vertices)
+            {
+                v.X = v.RefX;
+                v.Y = v.RefY;
+                v.Z = v.RefZ;
+            }
+            _needsVisualMeshUpload = true;
+        }
+    }
+
+    // Spline path editing fields
+    public List<Services.SplinePoint>? EditSplinePoints;
+    public int SelectedSplinePointIndex = -1;
+    public event Action? SplinePointModified;
+    private int _splineVao;
+    private int _splineVbo;
+    private int _splineVertexCount;
+
     public event Action<int>? ObjectSelected;
+    public event Action<int>? CollisionTriangleSelected;
+    public event Action<int>? VisualVertexSelected;
     public event Action? CopyRequested;
     public event Action? PasteRequested;
 
     public float CameraMoveSpeed { get; set; } = 800f;
+    public bool IsPlayingPreview { get; set; } = false;
     public float ObjectMoveSpeed { get; set; } = 500f;
     public float CameraRotationSensitivity { get; set; } = 0.02f;
+
+    private Vector3? _selectedMeshPoint;
+    public Vector3? SelectedMeshPoint
+    {
+        get => _selectedMeshPoint;
+        set
+        {
+            _selectedMeshPoint = value;
+            _needsObjectUpload = true;
+        }
+    }
+
+    public void FocusOnPoint(Vector3 point)
+    {
+        Vector3 currentOffset = _cameraPosition - _cameraTarget;
+        if (currentOffset.LengthSquared < 10)
+        {
+            currentOffset = new Vector3(0, 1000, 2000);
+        }
+        else
+        {
+            currentOffset = Vector3.Normalize(currentOffset) * 1500;
+        }
+
+        _cameraTarget = point;
+        _cameraPosition = point + currentOffset;
+
+        Vector3 dir = Vector3.Normalize(_cameraTarget - _cameraPosition);
+        _cameraDistance = (_cameraTarget - _cameraPosition).Length;
+        _cameraYaw = (float)MathHelper.RadiansToDegrees(Math.Atan2(dir.Z, dir.X));
+        _cameraPitch = (float)MathHelper.RadiansToDegrees(Math.Asin(dir.Y));
+    }
 
     public GeometryRenderer(GameWindowSettings gameWindowSettings, NativeWindowSettings nativeWindowSettings, string projectRoot)
         : base(gameWindowSettings, nativeWindowSettings)
@@ -96,6 +166,17 @@ public class GeometryRenderer : GameWindow
     {
         _visualMesh = mesh;
         if (_isLoaded) UploadVisualMeshData();
+    }
+
+    public void LoadVisualMeshThreadSafe(VisualMesh mesh)
+    {
+        _visualMesh = mesh;
+        _needsVisualMeshUpload = true;
+    }
+
+    public void ReloadTexturesThreadSafe()
+    {
+        _needsTextureReload = true;
     }
 
     public void SetObjects(List<LevelObject> objects)
@@ -125,6 +206,17 @@ public class GeometryRenderer : GameWindow
         return _cameraTarget;
     }
 
+    public void SetCameraPositionAndTarget(Vector3 position, Vector3 target)
+    {
+        _cameraPosition = position;
+        _cameraTarget = target;
+        
+        Vector3 dir = Vector3.Normalize(target - position);
+        _cameraDistance = (target - position).Length;
+        _cameraYaw = (float)MathHelper.RadiansToDegrees(Math.Atan2(dir.Z, dir.X));
+        _cameraPitch = (float)MathHelper.RadiansToDegrees(Math.Asin(dir.Y));
+    }
+
     public void UpdateObject(int index, LevelObject obj)
     {
         lock (_objectLock)
@@ -137,11 +229,58 @@ public class GeometryRenderer : GameWindow
         }
     }
 
+    private float _clearR = 0.1f;
+    private float _clearG = 0.1f;
+    private float _clearB = 0.15f;
+
+    public void SetSkyboxBackground(string? skyboxBin)
+    {
+        float r = 0.1f, g = 0.1f, b = 0.15f; // default dark gray-blue
+        
+        if (skyboxBin != null)
+        {
+            switch (skyboxBin.ToLower())
+            {
+                case "water":
+                case "clouds":
+                case "cloud_floor":
+                case "ccm":
+                case "wdw":
+                    // Sky blue (matches Quad64 clear color)
+                    r = 0.4f; g = 0.6f; b = 1.0f;
+                    break;
+                case "bitfs":
+                case "bits":
+                    // Dark reddish black
+                    r = 0.12f; g = 0.05f; b = 0.05f;
+                    break;
+                case "ssl":
+                    // Sandy yellow
+                    r = 0.8f; g = 0.65f; b = 0.5f;
+                    break;
+                case "bbh":
+                case "spooky":
+                    // Pitch black
+                    r = 0.0f; g = 0.0f; b = 0.0f;
+                    break;
+            }
+        }
+
+        _clearR = r;
+        _clearG = g;
+        _clearB = b;
+
+        if (_isLoaded)
+        {
+            GL.ClearColor(r, g, b, 1.0f);
+        }
+    }
+
     protected override void OnLoad()
     {
         base.OnLoad();
 
-        GL.ClearColor(0.1f, 0.1f, 0.15f, 1.0f);
+        GL.ClearColor(_clearR, _clearG, _clearB, 1.0f);
         GL.Enable(EnableCap.DepthTest);
         GL.Enable(EnableCap.Blend);
         GL.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
@@ -226,6 +365,8 @@ public class GeometryRenderer : GameWindow
             uniform vec3 uLightDir;
             uniform sampler2D uTexture;
             uniform bool uUseTexture;
+            uniform vec3 uFallbackColor;
+            uniform bool uUseFallbackColor;
             
             out vec4 FragColor;
             
@@ -238,7 +379,8 @@ public class GeometryRenderer : GameWindow
                 float ambient = 0.3;
                 float lighting = ambient + diff * 0.7;
                 
-                vec4 texColor = uUseTexture ? texture(uTexture, vTexCoord) : vec4(0.7, 0.7, 0.8, 1.0);
+                vec4 texColor = uUseTexture ? texture(uTexture, vTexCoord) : 
+                                (uUseFallbackColor ? vec4(uFallbackColor, 1.0) : vec4(0.7, 0.7, 0.8, 1.0));
                 if (texColor.a < 0.1) discard;
 
                 vec3 color = texColor.rgb * lighting;
@@ -434,16 +576,26 @@ public class GeometryRenderer : GameWindow
                     if (currentDrawCall != null) _drawCalls.Add(currentDrawCall.Value);
 
                     int textureId = 0;
-                    if (tri.TextureName != null && _visualMesh.TexturePaths.TryGetValue(tri.TextureName, out string? relativePath))
+                    Vector3? fallbackColor = null;
+
+                    if (tri.TextureName != null)
                     {
-                        textureId = _textureLoader?.LoadTexture(relativePath) ?? 0;
+                        if (_visualMesh.TexturePaths.TryGetValue(tri.TextureName, out string? relativePath))
+                        {
+                            textureId = _textureLoader?.LoadTexture(relativePath) ?? 0;
+                        }
+                        else if (_visualMesh.LightGroupColors.TryGetValue(tri.TextureName, out var col))
+                        {
+                            fallbackColor = col;
+                        }
                     }
 
                     currentDrawCall = new DrawCall
                     {
                         StartIndex = vertices.Count / 8,
                         VertexCount = 0,
-                        TextureId = textureId
+                        TextureId = textureId,
+                        Color = fallbackColor
                     };
                     lastTexture = tri.TextureName;
                 }
@@ -466,7 +618,8 @@ public class GeometryRenderer : GameWindow
                 { 
                     StartIndex = currentDrawCall.Value.StartIndex,
                     VertexCount = currentDrawCall.Value.VertexCount + 3,
-                    TextureId = currentDrawCall.Value.TextureId
+                    TextureId = currentDrawCall.Value.TextureId,
+                    Color = currentDrawCall.Value.Color
                 };
             }
 
@@ -507,12 +660,59 @@ public class GeometryRenderer : GameWindow
         }
     }
 
-    private void UploadObjectData()
+    public void UploadSplineData()
     {
-        if (_objects == null || _objects.Count == 0)
+        if (EditSplinePoints == null || EditSplinePoints.Count == 0)
+        {
+            _splineVertexCount = 0;
+            return;
+        }
+
+        List<float> vertices = new List<float>();
+        for (int i = 0; i < EditSplinePoints.Count - 1; i++)
+        {
+            var p1 = EditSplinePoints[i];
+            var p2 = EditSplinePoints[i + 1];
+
+            // Start point (position + color)
+            vertices.Add(p1.X); vertices.Add(p1.Y); vertices.Add(p1.Z);
+            vertices.Add(0.0f); vertices.Add(1.0f); vertices.Add(1.0f); // Cyan line
+
+            // End point (position + color)
+            vertices.Add(p2.X); vertices.Add(p2.Y); vertices.Add(p2.Z);
+            vertices.Add(0.0f); vertices.Add(1.0f); vertices.Add(1.0f); // Cyan line
+        }
+
+        _splineVertexCount = vertices.Count / 6;
+
+        if (_splineVao == 0)
+        {
+            _splineVao = GL.GenVertexArray();
+            _splineVbo = GL.GenBuffer();
+        }
+
+        GL.BindVertexArray(_splineVao);
+        GL.BindBuffer(BufferTarget.ArrayBuffer, _splineVbo);
+        GL.BufferData(BufferTarget.ArrayBuffer, vertices.Count * sizeof(float), vertices.ToArray(), BufferUsageHint.StaticDraw);
+
+        // Position attribute (location = 0)
+        GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 6 * sizeof(float), 0);
+        GL.EnableVertexAttribArray(0);
+
+        // Color attribute (location = 1)
+        GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, 6 * sizeof(float), 3 * sizeof(float));
+        GL.EnableVertexAttribArray(1);
+
+        GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
+        GL.BindVertexArray(0);
+    }
+
+    public void UploadObjectData()
+    {
+        if ((_objects == null || _objects.Count == 0) && (EditSplinePoints == null || EditSplinePoints.Count == 0) && !SelectedMeshPoint.HasValue)
         {
             _objectVertexCount = 0;
-            Console.WriteLine("No objects to upload");
+            Console.WriteLine("No objects, splines, or selected mesh point to upload");
             return;
         }
 
@@ -520,62 +720,150 @@ public class GeometryRenderer : GameWindow
         {
             List<float> vertices = new List<float>();
 
-            for (int i = 0; i < _objects.Count; i++)
+            if (_objects != null)
             {
-                var obj = _objects[i];
-                if (obj.IsDeleted) continue;
-
-                float cubeSize;
-
-                // Check if this is the selected object
-                bool isSelected = (i == _selectedObjectIndex);
-
-                // Color and size based on selection or model type
-                Vector3 color;
-                if (isSelected)
+                for (int i = 0; i < _objects.Count; i++)
                 {
-                    cubeSize = VISUAL_OBJECT_SIZE * 1.5f; // Bigger for selected
-                    color = new Vector3(1.0f, 1.0f, 1.0f); // White for selected object
-                }
-                else
-                {
-                    cubeSize = VISUAL_OBJECT_SIZE;
-                    string modelName = obj.ModelName ?? "";
-                    color = modelName.Contains("MODEL_NONE") ? new Vector3(1.0f, 1.0f, 0.0f) : // Yellow for invisible objects
-                           modelName.Contains("BUTTERFLY") ? new Vector3(1.0f, 0.5f, 1.0f) :  // Pink for butterflies
-                           modelName.Contains("BOBOMB") ? new Vector3(1.0f, 0.0f, 0.0f) :     // Red for bob-ombs
-                           new Vector3(0.0f, 1.0f, 1.0f); // Cyan for others
-                }
-                
-                float x = obj.X;
-                float y = obj.Y;
-                float z = obj.Z;
-                float s = cubeSize / 2;
+                    var obj = _objects[i];
+                    if (obj.IsDeleted) continue;
 
-                // Define 8 vertices of cube relative to origin, then rotate and translate
+                    float cubeSize;
+                    bool isSelected = (i == _selectedObjectIndex);
+                    Vector3 color;
+
+                    if (isSelected)
+                    {
+                        cubeSize = VISUAL_OBJECT_SIZE * 1.5f;
+                        color = new Vector3(1.0f, 1.0f, 1.0f);
+                    }
+                    else
+                    {
+                        cubeSize = VISUAL_OBJECT_SIZE;
+                        string modelName = obj.ModelName ?? "";
+                        color = modelName.Contains("MODEL_NONE") ? new Vector3(1.0f, 1.0f, 0.0f) :
+                                modelName.Contains("BUTTERFLY") ? new Vector3(1.0f, 0.5f, 1.0f) :
+                                modelName.Contains("BOBOMB") ? new Vector3(1.0f, 0.0f, 0.0f) :
+                                new Vector3(0.0f, 1.0f, 1.0f);
+                    }
+
+                    float x = obj.X;
+                    float y = obj.Y;
+                    float z = obj.Z;
+                    float s = cubeSize / 2;
+
+                    Vector3[] cubeVerts = new Vector3[]
+                    {
+                        new Vector3(-s, -s, -s), new Vector3(s, -s, -s),
+                        new Vector3(s, s, -s), new Vector3(-s, s, -s),
+                        new Vector3(-s, -s, s), new Vector3(s, -s, s),
+                        new Vector3(s, s, s), new Vector3(-s, s, s)
+                    };
+
+                    float rad = MathHelper.DegreesToRadians(obj.RY);
+                    float sin = (float)Math.Sin(rad);
+                    float cos = (float)Math.Cos(rad);
+
+                    for (int j = 0; j < cubeVerts.Length; j++)
+                    {
+                        float rx = cubeVerts[j].X * cos + cubeVerts[j].Z * sin;
+                        float rz = -cubeVerts[j].X * sin + cubeVerts[j].Z * cos;
+                        cubeVerts[j].X = rx + x;
+                        cubeVerts[j].Z = rz + z;
+                        cubeVerts[j].Y += y;
+                    }
+
+                    int[][] faces = new int[][]
+                    {
+                        new int[] {0,1,2}, new int[] {0,2,3}, // Front
+                        new int[] {5,4,7}, new int[] {5,7,6}, // Back
+                        new int[] {4,0,3}, new int[] {4,3,7}, // Left
+                        new int[] {1,5,6}, new int[] {1,6,2}, // Right
+                        new int[] {3,2,6}, new int[] {3,6,7}, // Top
+                        new int[] {4,5,1}, new int[] {4,1,0}  // Bottom
+                    };
+
+                    foreach (var face in faces)
+                    {
+                        foreach (var idx in face)
+                        {
+                            vertices.Add(cubeVerts[idx].X);
+                            vertices.Add(cubeVerts[idx].Y);
+                            vertices.Add(cubeVerts[idx].Z);
+                            vertices.Add(color.X);
+                            vertices.Add(color.Y);
+                            vertices.Add(color.Z);
+                        }
+                    }
+                }
+            }
+
+            if (EditSplinePoints != null)
+            {
+                for (int i = 0; i < EditSplinePoints.Count; i++)
+                {
+                    var p = EditSplinePoints[i];
+                    float cubeSize = 150f;
+                    bool isSelected = (i == SelectedSplinePointIndex);
+
+                    Vector3 color = isSelected ? new Vector3(1.0f, 1.0f, 0.0f) : new Vector3(0.0f, 0.8f, 0.8f);
+                    float s = cubeSize / 2;
+
+                    Vector3[] cubeVerts = new Vector3[]
+                    {
+                        new Vector3(-s, -s, -s) + new Vector3(p.X, p.Y, p.Z),
+                        new Vector3(s, -s, -s) + new Vector3(p.X, p.Y, p.Z),
+                        new Vector3(s, s, -s) + new Vector3(p.X, p.Y, p.Z),
+                        new Vector3(-s, s, -s) + new Vector3(p.X, p.Y, p.Z),
+                        new Vector3(-s, -s, s) + new Vector3(p.X, p.Y, p.Z),
+                        new Vector3(s, -s, s) + new Vector3(p.X, p.Y, p.Z),
+                        new Vector3(s, s, s) + new Vector3(p.X, p.Y, p.Z),
+                        new Vector3(-s, s, s) + new Vector3(p.X, p.Y, p.Z)
+                    };
+
+                    int[][] faces = new int[][]
+                    {
+                        new int[] {0,1,2}, new int[] {0,2,3}, // Front
+                        new int[] {5,4,7}, new int[] {5,7,6}, // Back
+                        new int[] {4,0,3}, new int[] {4,3,7}, // Left
+                        new int[] {1,5,6}, new int[] {1,6,2}, // Right
+                        new int[] {3,2,6}, new int[] {3,6,7}, // Top
+                        new int[] {4,5,1}, new int[] {4,1,0}  // Bottom
+                    };
+
+                    foreach (var face in faces)
+                    {
+                        foreach (var idx in face)
+                        {
+                            vertices.Add(cubeVerts[idx].X);
+                            vertices.Add(cubeVerts[idx].Y);
+                            vertices.Add(cubeVerts[idx].Z);
+                            vertices.Add(color.X);
+                            vertices.Add(color.Y);
+                            vertices.Add(color.Z);
+                        }
+                    }
+                }
+            }
+
+            if (SelectedMeshPoint.HasValue)
+            {
+                float indicatorSize = 100f;
+                float s = indicatorSize / 2;
+                var pt = SelectedMeshPoint.Value;
+                Vector3 color = new Vector3(1.0f, 0.2f, 0.0f); // Bright red-orange
+
                 Vector3[] cubeVerts = new Vector3[]
                 {
-                    new Vector3(-s, -s, -s), new Vector3(s, -s, -s),
-                    new Vector3(s, s, -s), new Vector3(-s, s, -s),
-                    new Vector3(-s, -s, s), new Vector3(s, -s, s),
-                    new Vector3(s, s, s), new Vector3(-s, s, s)
+                    new Vector3(-s, -s, -s) + pt,
+                    new Vector3(s, -s, -s) + pt,
+                    new Vector3(s, s, -s) + pt,
+                    new Vector3(-s, s, -s) + pt,
+                    new Vector3(-s, -s, s) + pt,
+                    new Vector3(s, -s, s) + pt,
+                    new Vector3(s, s, s) + pt,
+                    new Vector3(-s, s, s) + pt
                 };
 
-                // Rotate around Y axis
-                float rad = MathHelper.DegreesToRadians(obj.RY);
-                float sin = (float)Math.Sin(rad);
-                float cos = (float)Math.Cos(rad);
-
-                for (int j = 0; j < cubeVerts.Length; j++)
-                {
-                    float rx = cubeVerts[j].X * cos + cubeVerts[j].Z * sin;
-                    float rz = -cubeVerts[j].X * sin + cubeVerts[j].Z * cos;
-                    cubeVerts[j].X = rx + x;
-                    cubeVerts[j].Z = rz + z;
-                    cubeVerts[j].Y += y;
-                }
-
-                // Define 12 triangles (2 per face, 6 faces)
                 int[][] faces = new int[][]
                 {
                     new int[] {0,1,2}, new int[] {0,2,3}, // Front
@@ -600,13 +888,16 @@ public class GeometryRenderer : GameWindow
                 }
             }
 
-            _objectVertexCount = vertices.Count / 6; // 6 floats per vertex (3 pos + 3 color)
+            _objectVertexCount = vertices.Count / 6;
 
             if (_objectVertexCount == 0)
                 return;
 
-            _objectVao = GL.GenVertexArray();
-            _objectVbo = GL.GenBuffer();
+            if (_objectVao == 0)
+            {
+                _objectVao = GL.GenVertexArray();
+                _objectVbo = GL.GenBuffer();
+            }
 
             GL.BindVertexArray(_objectVao);
             GL.BindBuffer(BufferTarget.ArrayBuffer, _objectVbo);
@@ -623,7 +914,7 @@ public class GeometryRenderer : GameWindow
             GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
             GL.BindVertexArray(0);
 
-            Console.WriteLine($"Uploaded {_objects.Count} objects as {_objectVertexCount / 3} triangles");
+            Console.WriteLine($"Uploaded objects/splines/selected mesh points. Total vertices: {_objectVertexCount}");
         }
         catch (Exception ex)
         {
@@ -664,16 +955,29 @@ public class GeometryRenderer : GameWindow
 
             GL.BindVertexArray(_visualVao);
             
+            int useFallbackLocation = GL.GetUniformLocation(_visualShaderProgram, "uUseFallbackColor");
+            int fallbackColorLocation = GL.GetUniformLocation(_visualShaderProgram, "uFallbackColor");
+
             foreach (var drawCall in _drawCalls)
             {
                 if (drawCall.TextureId > 0)
                 {
                     GL.Uniform1(useTexLocation, 1);
+                    GL.Uniform1(useFallbackLocation, 0);
                     GL.BindTexture(TextureTarget.Texture2D, drawCall.TextureId);
                 }
                 else
                 {
                     GL.Uniform1(useTexLocation, 0);
+                    if (drawCall.Color.HasValue)
+                    {
+                        GL.Uniform1(useFallbackLocation, 1);
+                        GL.Uniform3(fallbackColorLocation, drawCall.Color.Value);
+                    }
+                    else
+                    {
+                        GL.Uniform1(useFallbackLocation, 0);
+                    }
                     GL.BindTexture(TextureTarget.Texture2D, 0);
                 }
 
@@ -697,7 +1001,7 @@ public class GeometryRenderer : GameWindow
         }
 
         // Render objects (colored cubes)
-        if (_showObjects && _objects != null && _objectVertexCount > 0)
+        if (_showObjects && _objectVertexCount > 0)
         {
             GL.UseProgram(_objectShaderProgram);
             
@@ -709,11 +1013,41 @@ public class GeometryRenderer : GameWindow
             GL.BindVertexArray(0);
         }
 
+        // Render spline path lines
+        if (EditSplinePoints != null && _splineVertexCount > 0)
+        {
+            GL.UseProgram(_objectShaderProgram);
+            
+            int mvpLocation = GL.GetUniformLocation(_objectShaderProgram, "uMVP");
+            GL.UniformMatrix4(mvpLocation, false, ref mvp);
+
+            GL.BindVertexArray(_splineVao);
+            GL.DrawArrays(PrimitiveType.Lines, 0, _splineVertexCount);
+            GL.BindVertexArray(0);
+        }
+
         SwapBuffers();
+    }
+
+    public void StopPreview()
+    {
+        IsPlayingPreview = false;
+        
+        // Sync orbital variables to current state so user controls resume smoothly
+        Vector3 dir = Vector3.Normalize(_cameraPosition - _cameraTarget);
+        _cameraDistance = (_cameraPosition - _cameraTarget).Length;
+        _cameraYaw = (float)MathHelper.RadiansToDegrees(Math.Atan2(dir.Z, dir.X));
+        _cameraPitch = (float)MathHelper.RadiansToDegrees(Math.Asin(dir.Y));
     }
 
     private void UpdateCamera()
     {
+        if (IsPlayingPreview)
+        {
+            _view = Matrix4.LookAt(_cameraPosition, _cameraTarget, Vector3.UnitY);
+            return;
+        }
+
         float radYaw = MathHelper.DegreesToRadians(_cameraYaw);
         float radPitch = MathHelper.DegreesToRadians(_cameraPitch);
 
@@ -731,6 +1065,125 @@ public class GeometryRenderer : GameWindow
         Focus(); // Request focus when clicked
 
         Console.WriteLine($"Mouse button pressed: {e.Button}");
+
+        bool isControlDown = KeyboardState.IsKeyDown(Keys.LeftControl) || KeyboardState.IsKeyDown(Keys.RightControl);
+
+        if (e.Button == MouseButton.Left && isControlDown)
+        {
+            var mouseState = MouseState;
+            Vector2 mousePos = new Vector2(mouseState.X, mouseState.Y);
+
+            // Compute ray direction from screen position
+            float ndcX = (2.0f * mousePos.X) / Size.X - 1.0f;
+            float ndcY = 1.0f - (2.0f * mousePos.Y) / Size.Y;
+
+            Vector4 nearPointNDC = new Vector4(ndcX, ndcY, -1.0f, 1.0f);
+            Vector4 farPointNDC = new Vector4(ndcX, ndcY, 1.0f, 1.0f);
+            Matrix4 invViewProj = Matrix4.Invert(_view * _projection);
+            Vector4 nearPointWorld = nearPointNDC * invViewProj;
+            Vector4 farPointWorld = farPointNDC * invViewProj;
+            Vector3 nearPoint = nearPointWorld.Xyz / nearPointWorld.W;
+            Vector3 farPoint = farPointWorld.Xyz / farPointWorld.W;
+
+            Vector3 rayOrigin = nearPoint;
+            Vector3 rayDir = Vector3.Normalize(farPoint - nearPoint);
+
+            float closestColDist = float.MaxValue;
+            int closestColTri = GetClosestCollisionTriangle(rayOrigin, rayDir, out closestColDist);
+
+            float closestVisDist = float.MaxValue;
+            int closestVisTri = GetClosestVisualTriangle(rayOrigin, rayDir, out closestVisDist);
+
+            if (closestColTri >= 0 && closestColDist < closestVisDist)
+            {
+                CollisionTriangleSelected?.Invoke(closestColTri);
+                
+                var tri = _collisionMesh!.Triangles[closestColTri];
+                var v0 = _collisionMesh.Vertices[tri.V1];
+                SelectedMeshPoint = new Vector3(v0.X, v0.Y, v0.Z);
+            }
+            else if (closestVisTri >= 0)
+            {
+                Vector3 intersectionPoint = rayOrigin + rayDir * closestVisDist;
+                int closestVertexIndex = -1;
+                float closestVertexDist = float.MaxValue;
+
+                if (_visualMesh != null)
+                {
+                    if (_visualMesh.SubMeshes.Count > 0)
+                    {
+                        int globalVertexIndex = 0;
+                        for (int s = 0; s < _visualMesh.SubMeshes.Count; s++)
+                        {
+                            var sub = _visualMesh.SubMeshes[s];
+                            if (!sub.IsVisible)
+                            {
+                                globalVertexIndex += sub.Vertices.Count;
+                                continue;
+                            }
+                            for (int v = 0; v < sub.Vertices.Count; v++)
+                            {
+                                var vert = sub.Vertices[v];
+                                float d = Vector3.Distance(intersectionPoint, new Vector3(vert.X, vert.Y, vert.Z));
+                                if (d < closestVertexDist)
+                                {
+                                    closestVertexDist = d;
+                                    closestVertexIndex = globalVertexIndex;
+                                }
+                                globalVertexIndex++;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        for (int v = 0; v < _visualMesh.Vertices.Count; v++)
+                        {
+                            var vert = _visualMesh.Vertices[v];
+                            float d = Vector3.Distance(intersectionPoint, new Vector3(vert.X, vert.Y, vert.Z));
+                            if (d < closestVertexDist)
+                            {
+                                closestVertexDist = d;
+                                closestVertexIndex = v;
+                            }
+                        }
+                    }
+                }
+
+                if (closestVertexIndex >= 0)
+                {
+                    VisualVertexSelected?.Invoke(closestVertexIndex);
+                    
+                    if (_visualMesh != null)
+                    {
+                        if (_visualMesh.SubMeshes.Count > 0)
+                        {
+                            int globalVertexIndex = 0;
+                            ModelVertex? selectedVert = null;
+                            for (int s = 0; s < _visualMesh.SubMeshes.Count; s++)
+                            {
+                                var sub = _visualMesh.SubMeshes[s];
+                                if (closestVertexIndex >= globalVertexIndex && closestVertexIndex < globalVertexIndex + sub.Vertices.Count)
+                                {
+                                    selectedVert = sub.Vertices[closestVertexIndex - globalVertexIndex];
+                                    break;
+                                }
+                                globalVertexIndex += sub.Vertices.Count;
+                            }
+                            if (selectedVert != null)
+                            {
+                                SelectedMeshPoint = new Vector3(selectedVert.X, selectedVert.Y, selectedVert.Z);
+                            }
+                        }
+                        else if (closestVertexIndex < _visualMesh.Vertices.Count)
+                        {
+                            var selectedVert = _visualMesh.Vertices[closestVertexIndex];
+                            SelectedMeshPoint = new Vector3(selectedVert.X, selectedVert.Y, selectedVert.Z);
+                        }
+                    }
+                }
+            }
+            return;
+        }
 
         if (e.Button == MouseButton.Left && _objects != null && _objects.Count > 0)
         {
@@ -867,6 +1320,159 @@ public class GeometryRenderer : GameWindow
         return true;
     }
 
+    private bool RayIntersectsTriangle(Vector3 rayOrigin, Vector3 rayDir, Vector3 v0, Vector3 v1, Vector3 v2, out float distance)
+    {
+        distance = 0f;
+        const float epsilon = 0.000001f;
+
+        Vector3 edge1 = v1 - v0;
+        Vector3 edge2 = v2 - v0;
+
+        Vector3 h = Vector3.Cross(rayDir, edge2);
+        float a = Vector3.Dot(edge1, h);
+
+        if (a > -epsilon && a < epsilon)
+            return false; // Ray is parallel to the triangle.
+
+        float f = 1.0f / a;
+        Vector3 s = rayOrigin - v0;
+        float u = f * Vector3.Dot(s, h);
+
+        if (u < 0.0f || u > 1.0f)
+            return false;
+
+        Vector3 q = Vector3.Cross(s, edge1);
+        float v = f * Vector3.Dot(rayDir, q);
+
+        if (v < 0.0f || u + v > 1.0f)
+            return false;
+
+        // At this stage we can compute t to find out where the intersection point is on the line.
+        float t = f * Vector3.Dot(edge2, q);
+
+        if (t > epsilon) // ray intersection
+        {
+            distance = t;
+            return true;
+        }
+
+        return false;
+    }
+
+    private int GetClosestCollisionTriangle(Vector3 rayOrigin, Vector3 rayDir, out float closestDist)
+    {
+        closestDist = float.MaxValue;
+        int closestTriIndex = -1;
+
+        if (_collisionMesh == null || _collisionMesh.Triangles.Count == 0)
+            return -1;
+
+        for (int i = 0; i < _collisionMesh.Triangles.Count; i++)
+        {
+            var tri = _collisionMesh.Triangles[i];
+            if (tri.V1 >= _collisionMesh.Vertices.Count || tri.V2 >= _collisionMesh.Vertices.Count || tri.V3 >= _collisionMesh.Vertices.Count)
+                continue;
+
+            var v0Raw = _collisionMesh.Vertices[tri.V1];
+            var v1Raw = _collisionMesh.Vertices[tri.V2];
+            var v2Raw = _collisionMesh.Vertices[tri.V3];
+
+            Vector3 v0 = new Vector3(v0Raw.X, v0Raw.Y, v0Raw.Z);
+            Vector3 v1 = new Vector3(v1Raw.X, v1Raw.Y, v1Raw.Z);
+            Vector3 v2 = new Vector3(v2Raw.X, v2Raw.Y, v2Raw.Z);
+
+            if (RayIntersectsTriangle(rayOrigin, rayDir, v0, v1, v2, out float dist))
+            {
+                if (dist < closestDist)
+                {
+                    closestDist = dist;
+                    closestTriIndex = i;
+                }
+            }
+        }
+
+        return closestTriIndex;
+    }
+
+    private int GetClosestVisualTriangle(Vector3 rayOrigin, Vector3 rayDir, out float closestDist)
+    {
+        closestDist = float.MaxValue;
+        int closestTriIndex = -1;
+
+        if (_visualMesh == null || (_visualMesh.Vertices.Count == 0 && _visualMesh.SubMeshes.Count == 0))
+            return -1;
+
+        if (_visualMesh.SubMeshes.Count > 0)
+        {
+            int globalTriIndex = 0;
+            for (int s = 0; s < _visualMesh.SubMeshes.Count; s++)
+            {
+                var subMesh = _visualMesh.SubMeshes[s];
+                if (!subMesh.IsVisible) 
+                {
+                    globalTriIndex += subMesh.Triangles.Count;
+                    continue;
+                }
+
+                for (int t = 0; t < subMesh.Triangles.Count; t++)
+                {
+                    var tri = subMesh.Triangles[t];
+                    if (tri.V1 >= subMesh.Vertices.Count || tri.V2 >= subMesh.Vertices.Count || tri.V3 >= subMesh.Vertices.Count)
+                    {
+                        globalTriIndex++;
+                        continue;
+                    }
+
+                    var v0Raw = subMesh.Vertices[tri.V1];
+                    var v1Raw = subMesh.Vertices[tri.V2];
+                    var v2Raw = subMesh.Vertices[tri.V3];
+
+                    Vector3 v0 = new Vector3(v0Raw.X, v0Raw.Y, v0Raw.Z);
+                    Vector3 v1 = new Vector3(v1Raw.X, v1Raw.Y, v1Raw.Z);
+                    Vector3 v2 = new Vector3(v2Raw.X, v2Raw.Y, v2Raw.Z);
+
+                    if (RayIntersectsTriangle(rayOrigin, rayDir, v0, v1, v2, out float dist))
+                    {
+                        if (dist < closestDist)
+                        {
+                            closestDist = dist;
+                            closestTriIndex = globalTriIndex;
+                        }
+                    }
+                    globalTriIndex++;
+                }
+            }
+        }
+        else if (_visualMesh.Triangles.Count > 0)
+        {
+            for (int i = 0; i < _visualMesh.Triangles.Count; i++)
+            {
+                var tri = _visualMesh.Triangles[i];
+                if (tri.V1 >= _visualMesh.Vertices.Count || tri.V2 >= _visualMesh.Vertices.Count || tri.V3 >= _visualMesh.Vertices.Count)
+                    continue;
+
+                var v0Raw = _visualMesh.Vertices[tri.V1];
+                var v1Raw = _visualMesh.Vertices[tri.V2];
+                var v2Raw = _visualMesh.Vertices[tri.V3];
+
+                Vector3 v0 = new Vector3(v0Raw.X, v0Raw.Y, v0Raw.Z);
+                Vector3 v1 = new Vector3(v1Raw.X, v1Raw.Y, v1Raw.Z);
+                Vector3 v2 = new Vector3(v2Raw.X, v2Raw.Y, v2Raw.Z);
+
+                if (RayIntersectsTriangle(rayOrigin, rayDir, v0, v1, v2, out float dist))
+                {
+                    if (dist < closestDist)
+                    {
+                        closestDist = dist;
+                        closestTriIndex = i;
+                    }
+                }
+            }
+        }
+
+        return closestTriIndex;
+    }
+
     private void UpdateProjection()
     {
         _projection = Matrix4.CreatePerspectiveFieldOfView(
@@ -881,6 +1487,35 @@ public class GeometryRenderer : GameWindow
     {
         base.OnUpdateFrame(args);
 
+        // Process skeletal animations frame-by-frame
+        if (_activeAnimation != null && _visualMesh != null && _visualMesh.Joints.Count > 0)
+        {
+            _frameTimer += (float)args.Time * 30.0f; // 30 FPS SM64 default
+            if (_frameTimer >= 1.0f)
+            {
+                int framesToAdvance = (int)_frameTimer;
+                _frameTimer -= framesToAdvance;
+                _currentFrame = (_currentFrame + framesToAdvance) % _activeAnimation.FrameCount;
+
+                var parser = new Services.AnimationParser();
+                var jointMatrices = parser.GetFrameTransforms(_activeAnimation, _currentFrame, _visualMesh.Joints);
+
+                foreach (var v in _visualMesh.Vertices)
+                {
+                    if (v.JointIndex >= 0 && jointMatrices.TryGetValue(v.JointIndex, out var mat))
+                    {
+                        var refPos = new Vector3(v.RefX, v.RefY, v.RefZ);
+                        var animPos = Vector3.TransformPosition(refPos, mat);
+                        v.X = (int)animPos.X;
+                        v.Y = (int)animPos.Y;
+                        v.Z = (int)animPos.Z;
+                    }
+                }
+
+                _needsVisualMeshUpload = true;
+            }
+        }
+
         if (_needsObjectUpload)
         {
             lock (_objectLock)
@@ -888,6 +1523,20 @@ public class GeometryRenderer : GameWindow
                 UploadObjectData();
                 _needsObjectUpload = false;
             }
+        }
+
+        if (_needsVisualMeshUpload)
+        {
+            UploadVisualMeshData();
+            _needsVisualMeshUpload = false;
+        }
+
+        if (_needsTextureReload)
+        {
+            _textureLoader?.Dispose();
+            _textureLoader = new TextureLoader(_projectRoot);
+            if (_visualMesh != null) UploadVisualMeshData();
+            _needsTextureReload = false;
         }
 
         float deltaTime = (float)args.Time;
@@ -977,6 +1626,28 @@ public class GeometryRenderer : GameWindow
             }
         }
 
+        // Spline point keyboard transformation
+        if (EditSplinePoints != null && SelectedSplinePointIndex >= 0 && SelectedSplinePointIndex < EditSplinePoints.Count)
+        {
+            var p = EditSplinePoints[SelectedSplinePointIndex];
+            bool modified = false;
+            float moveSpeed = ObjectMoveSpeed * deltaTime;
+
+            if (KeyboardState.IsKeyDown(Keys.Up)) { p.X += (int)(forward.X * moveSpeed + 0.5f); p.Z += (int)(forward.Z * moveSpeed + 0.5f); modified = true; }
+            if (KeyboardState.IsKeyDown(Keys.Down)) { p.X -= (int)(forward.X * moveSpeed + 0.5f); p.Z -= (int)(forward.Z * moveSpeed + 0.5f); modified = true; }
+            if (KeyboardState.IsKeyDown(Keys.Left)) { p.X -= (int)(right.X * moveSpeed + 0.5f); p.Z -= (int)(right.Z * moveSpeed + 0.5f); modified = true; }
+            if (KeyboardState.IsKeyDown(Keys.Right)) { p.X += (int)(right.X * moveSpeed + 0.5f); p.Z += (int)(right.Z * moveSpeed + 0.5f); modified = true; }
+            if (KeyboardState.IsKeyDown(Keys.PageUp)) { p.Y += (int)(moveSpeed + 0.5f); modified = true; }
+            if (KeyboardState.IsKeyDown(Keys.PageDown)) { p.Y -= (int)(moveSpeed + 0.5f); modified = true; }
+
+            if (modified)
+            {
+                UploadSplineData();
+                UploadObjectData();
+                SplinePointModified?.Invoke();
+            }
+        }
+
         // Sub-model visibility controls (1-9 to toggle hide, 0 to show all)
         if (KeyboardState.IsKeyPressed(Keys.D0) || KeyboardState.IsKeyPressed(Keys.KeyPad0))
         {
@@ -1058,5 +1729,11 @@ public class GeometryRenderer : GameWindow
         
         GL.DeleteVertexArray(_objectVao);
         GL.DeleteBuffer(_objectVbo);
+
+        if (_splineVao != 0)
+        {
+            GL.DeleteVertexArray(_splineVao);
+            GL.DeleteBuffer(_splineVbo);
+        }
     }
 }

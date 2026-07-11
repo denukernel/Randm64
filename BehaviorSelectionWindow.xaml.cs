@@ -58,7 +58,16 @@ namespace Sm64DecompLevelViewer
 
         private void BehaviorListBox_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            ConfirmSelection();
+            DependencyObject? dep = e.OriginalSource as DependencyObject;
+            while (dep != null && !(dep is ListBoxItem))
+            {
+                dep = System.Windows.Media.VisualTreeHelper.GetParent(dep);
+            }
+
+            if (dep is ListBoxItem)
+            {
+                ConfirmSelection();
+            }
         }
 
         private void ConfirmSelection()

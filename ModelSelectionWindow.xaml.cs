@@ -110,7 +110,16 @@ namespace Sm64DecompLevelViewer
 
         private void ModelListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
-            SelectButton_Click(sender, e);
+            DependencyObject? dep = e.OriginalSource as DependencyObject;
+            while (dep != null && !(dep is ListBoxItem))
+            {
+                dep = System.Windows.Media.VisualTreeHelper.GetParent(dep);
+            }
+
+            if (dep is ListBoxItem)
+            {
+                SelectButton_Click(sender, e);
+            }
         }
     }
 }

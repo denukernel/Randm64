@@ -1,3 +1,5 @@
+using OpenTK.Mathematics;
+
 namespace Sm64DecompLevelViewer.Models;
 
 public class SubMesh
@@ -22,6 +24,12 @@ public class VisualMesh
     public string? MainDisplayListName { get; set; } // The first/main display list name found in the file
     public List<string> DisplayListNames { get; set; } = new(); // All display list names found in the file
     public Dictionary<string, string> TexturePaths { get; set; } = new(); // Mapping of texture symbols to PNG paths
+    public Dictionary<string, Vector3> LightGroupColors { get; } = new(); // Mapping of N64 light groups to diffuse colors
+    public string? SkyboxBin { get; set; } // The skybox binary name from level.yaml
+
+    // Skeletal animation support
+    public List<GeoNode> Joints { get; set; } = new();
+    public Dictionary<string, int> DlToJointIndex { get; set; } = new();
 
     public int VertexCount => Vertices.Count;
     public int TriangleCount => Triangles.Count;

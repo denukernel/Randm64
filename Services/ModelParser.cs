@@ -19,11 +19,20 @@ public class ModelParser
     private static readonly Regex Sp2TrianglesPattern = new(@"gsSP2Triangles\(\s*(\d+),\s*(\d+),\s*(\d+),\s*0x[0-9a-fA-F]+,\s*(\d+),\s*(\d+),\s*(\d+),\s*0x[0-9a-fA-F]+\)", RegexOptions.Compiled);
     private static readonly Regex Sp1TrianglePattern = new(@"gsSP1Triangle\(\s*(\d+),\s*(\d+),\s*(\d+),\s*0x[0-9a-fA-F]+\)", RegexOptions.Compiled);
     private static readonly Regex DisplayListPattern = new(@"const\s+Gfx\s+(\w+)\[\]\s*=\s*\{", RegexOptions.Compiled);
-    private static readonly Regex SetTextureImagePattern = new(@"gsDPSetTextureImage\(G_IM_FMT_RGBA,\s*G_IM_SIZ_16b,\s*1,\s*(\w+)\)", RegexOptions.Compiled);
+    private static readonly Regex SetTextureImagePattern = new(@"gsDPSetTextureImage\(\s*[^,]+\s*,\s*[^,]+\s*,\s*[^,]+\s*,\s*(\w+)\)", RegexOptions.Compiled);
     private static readonly Regex TextureSymbolPattern = new(@"ALIGNED8\s+static\s+const\s+Texture\s+(\w+)\[\]\s*=\s*\{", RegexOptions.Compiled);
     private static readonly Regex IncludePattern = new(@"#include\s+""([^""]+)""", RegexOptions.Compiled);
+    private static readonly Regex gdSPLightsPattern = new(
+        @"static\s+const\s+Lights1\s+(\w+)\s*=\s*gdSPDefLights1\(\s*(0x[0-9a-fA-F]{2}|\d+),\s*(0x[0-9a-fA-F]{2}|\d+),\s*(0x[0-9a-fA-F]{2}|\d+),\s*(0x[0-9a-fA-F]{2}|\d+),\s*(0x[0-9a-fA-F]{2}|\d+),\s*(0x[0-9a-fA-F]{2}|\d+)",
+        RegexOptions.Compiled);
+    private static readonly Regex SpLightPattern = new(@"gsSPLight\s*\(\s*&(\w+)\.(?:l(?:\[\d+\])?|a)\s*,\s*\d+\s*\)", RegexOptions.Compiled);
 
-    public VisualMesh? ParseModelFile(string modelFilePath, string areaName, string levelName)
+    public VisualMesh? ParseModelFile(
+        string modelFilePath, 
+        string areaName, 
+        string levelName, 
+        Dictionary<string, Matrix4>? transformations = null,
+        Dictionary<string, int>? dlToJointIndex = null)
     {
         try
         {
@@ -37,12 +46,25 @@ public class ModelParser
             var mesh = new VisualMesh
             {
                 AreaName = areaName,
-                LevelName = levelName
+                LevelName = levelName,
+                DlToJointIndex = dlToJointIndex ?? new()
             };
 
             var vertexArrays = ParseVertexArrays(fileContent);
 
-            ParseDisplayLists(fileContent, vertexArrays, mesh);
+            // Parse all gdSPDefLights1
+            var lightMatches = gdSPLightsPattern.Matches(fileContent);
+            foreach (Match match in lightMatches)
+            {
+                string lightGroupName = match.Groups[1].Value;
+                byte r = ParseByteHelper(match.Groups[5].Value);
+                byte g = ParseByteHelper(match.Groups[6].Value);
+                byte b = ParseByteHelper(match.Groups[7].Value);
+                
+                mesh.LightGroupColors[lightGroupName] = new Vector3(r / 255.0f, g / 255.0f, b / 255.0f);
+            }
+
+            ParseDisplayLists(fileContent, vertexArrays, mesh, transformations);
 
             Console.WriteLine($"Parsed visual mesh: {mesh}");
             return mesh;
@@ -54,7 +76,7 @@ public class ModelParser
         }
     }
 
-    private Dictionary<string, List<ModelVertex>> ParseVertexArrays(string content)
+    public Dictionary<string, List<ModelVertex>> ParseVertexArrays(string content)
     {
         var vertexArrays = new Dictionary<string, List<ModelVertex>>();
 
@@ -105,7 +127,7 @@ public class ModelParser
         return vertexArrays;
     }
 
-    private void ParseDisplayLists(string content, Dictionary<string, List<ModelVertex>> vertexArrays, VisualMesh mesh)
+    private void ParseDisplayLists(string content, Dictionary<string, List<ModelVertex>> vertexArrays, VisualMesh mesh, Dictionary<string, Matrix4>? transformations)
     {
         var dlMatches = DisplayListPattern.Matches(content);
         
@@ -132,20 +154,22 @@ public class ModelParser
 
             string dlContent = content.Substring(startIndex, endIndex - startIndex);
             
-            ProcessDisplayList(dlContent, vertexArrays, mesh);
+            ProcessDisplayList(dlContent, vertexArrays, mesh, dlName, transformations);
         }
     }
 
-    private void ProcessDisplayList(string dlContent, Dictionary<string, List<ModelVertex>> vertexArrays, VisualMesh mesh)
+    private void ProcessDisplayList(string dlContent, Dictionary<string, List<ModelVertex>> vertexArrays, VisualMesh mesh, string dlName, Dictionary<string, Matrix4>? transformations)
     {
         List<ModelVertex>? currentVertexBuffer = null;
         int vertexBufferOffset = 0;
         string? currentTextureSymbol = null;
+        string? currentLightSymbol = null;
 
         var spVertexMatches = SpVertexPattern.Matches(dlContent);
         var sp2TriMatches = Sp2TrianglesPattern.Matches(dlContent);
         var sp1TriMatches = Sp1TrianglePattern.Matches(dlContent);
         var setTexImgMatches = SetTextureImagePattern.Matches(dlContent);
+        var spLightMatches = SpLightPattern.Matches(dlContent);
 
         var commands = new List<(int pos, string type, Match match)>();
         
@@ -157,6 +181,8 @@ public class ModelParser
             commands.Add((m.Index, "tri1", m));
         foreach (Match m in setTexImgMatches)
             commands.Add((m.Index, "texture", m));
+        foreach (Match m in spLightMatches)
+            commands.Add((m.Index, "light", m));
 
         commands.Sort((a, b) => a.pos.CompareTo(b.pos));
 
@@ -165,6 +191,10 @@ public class ModelParser
             if (type == "texture")
             {
                 currentTextureSymbol = match.Groups[1].Value;
+            }
+            else if (type == "light")
+            {
+                currentLightSymbol = match.Groups[1].Value;
             }
             else if (type == "vertex")
             {
@@ -177,9 +207,32 @@ public class ModelParser
                     currentVertexBuffer = vertexArrays[arrayName];
                     vertexBufferOffset = mesh.Vertices.Count;
                     
+                    Matrix4? transform = null;
+                    if (transformations != null && dlName != null && transformations.TryGetValue(dlName, out var trans))
+                    {
+                        transform = trans;
+                    }
+
                     for (int i = 0; i < count && i < currentVertexBuffer.Count; i++)
                     {
-                        mesh.Vertices.Add(currentVertexBuffer[i]);
+                        var v = currentVertexBuffer[i];
+                        var vertex = new ModelVertex(v.X, v.Y, v.Z, v.S, v.T, v.NX, v.NY, v.NZ, v.Alpha)
+                        {
+                            RefX = v.X,
+                            RefY = v.Y,
+                            RefZ = v.Z
+                        };
+
+                        if (mesh.DlToJointIndex != null && dlName != null && mesh.DlToJointIndex.TryGetValue(dlName, out int jointIndex))
+                        {
+                            vertex.JointIndex = jointIndex;
+                        }
+
+                        if (transform.HasValue)
+                        {
+                            vertex = ApplySingleTransform(vertex, transform.Value);
+                        }
+                        mesh.Vertices.Add(vertex);
                     }
                 }
             }
@@ -193,9 +246,10 @@ public class ModelParser
                 int v6 = int.Parse(match.Groups[6].Value);
 
                 int baseIndex = vertexBufferOffset;
+                string? activeSymbol = currentTextureSymbol ?? currentLightSymbol;
                 
-                mesh.Triangles.Add(new ModelTriangle(baseIndex + v1, baseIndex + v2, baseIndex + v3, currentTextureSymbol));
-                mesh.Triangles.Add(new ModelTriangle(baseIndex + v4, baseIndex + v5, baseIndex + v6, currentTextureSymbol));
+                mesh.Triangles.Add(new ModelTriangle(baseIndex + v1, baseIndex + v2, baseIndex + v3, activeSymbol));
+                mesh.Triangles.Add(new ModelTriangle(baseIndex + v4, baseIndex + v5, baseIndex + v6, activeSymbol));
             }
             else if (type == "tri1" && currentVertexBuffer != null)
             {
@@ -204,7 +258,8 @@ public class ModelParser
                 int v3 = int.Parse(match.Groups[3].Value);
 
                 int baseIndex = vertexBufferOffset;
-                mesh.Triangles.Add(new ModelTriangle(baseIndex + v1, baseIndex + v2, baseIndex + v3, currentTextureSymbol));
+                string? activeSymbol = currentTextureSymbol ?? currentLightSymbol;
+                mesh.Triangles.Add(new ModelTriangle(baseIndex + v1, baseIndex + v2, baseIndex + v3, activeSymbol));
             }
         }
     }
@@ -288,6 +343,118 @@ public class ModelParser
         if (File.Exists(rootPath)) return rootPath;
 
         return null;
+    }
+
+    public void ParseActorTextureMapping(string actorDir, string modelFilePath, VisualMesh mesh, string projectRoot)
+    {
+        try
+        {
+            if (!File.Exists(modelFilePath)) return;
+
+            string content = File.ReadAllText(modelFilePath);
+            var symbolMatches = TextureSymbolPattern.Matches(content);
+
+            foreach (Match symbolMatch in symbolMatches)
+            {
+                string symbol = symbolMatch.Groups[1].Value;
+                int startIndex = symbolMatch.Index + symbolMatch.Length;
+                
+                int nextIndex = content.Length;
+                var nextMatch = TextureSymbolPattern.Match(content, startIndex);
+                if (nextMatch.Success) nextIndex = nextMatch.Index;
+
+                string subContent = content.Substring(startIndex, nextIndex - startIndex);
+                var includeMatch = IncludePattern.Match(subContent);
+
+                if (includeMatch.Success)
+                {
+                    string includePath = includeMatch.Groups[1].Value; // e.g., "actors/goomba/goomba_body.rgba16.inc.c"
+                    string pngPath = includePath.Replace(".inc.c", ".png");
+                    
+                    // The png file is inside the actor's directory or project root
+                    string resolvedPath = Path.Combine(projectRoot, pngPath);
+                    if (!File.Exists(resolvedPath))
+                    {
+                        resolvedPath = Path.Combine(actorDir, Path.GetFileName(pngPath));
+                    }
+
+                    if (File.Exists(resolvedPath))
+                    {
+                        mesh.TexturePaths[symbol] = resolvedPath;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error parsing actor texture mapping: {ex.Message}");
+        }
+    }
+
+    public void ResolveSharedTextures(VisualMesh mesh, string textureBin, string projectRoot)
+    {
+        try
+        {
+            // Collect all unique texture symbols referenced by triangles that are not yet resolved
+            var symbolsToResolve = mesh.Triangles
+                .Select(t => t.TextureName)
+                .Where(name => name != null && !mesh.TexturePaths.ContainsKey(name))
+                .Distinct()
+                .ToList();
+
+            foreach (string? symbol in symbolsToResolve)
+            {
+                if (symbol == null) continue;
+
+                // Match segment 9 (e.g. outside_09003800) or segment 2 (e.g. segment2_02000000)
+                var match = System.Text.RegularExpressions.Regex.Match(symbol, @"^(\w+)_0[29]([0-9a-fA-F]{6})$");
+                if (match.Success)
+                {
+                    string prefix = match.Groups[1].Value; // e.g. "outside", "segment2"
+                    string offsetStr = match.Groups[2].Value; // e.g. "003800"
+
+                    // Parse offset
+                    if (int.TryParse(offsetStr, System.Globalization.NumberStyles.HexNumber, null, out int offset))
+                    {
+                        // Formatted offset is normally formatted as a 5-digit hex string
+                        // e.g. 09003800 -> offset 3800 -> "03800"
+                        string hexOffset = (offset & 0xFFFF).ToString("X5");
+
+                        // Determine the texture folder
+                        string folderName = prefix;
+                        if (symbol.Contains("_09") && !string.IsNullOrEmpty(textureBin))
+                        {
+                            folderName = textureBin;
+                        }
+
+                        string folderPath = Path.Combine(projectRoot, "textures", folderName);
+                        if (Directory.Exists(folderPath))
+                        {
+                            // Find files matching *.<hexOffset>.*.png
+                            var files = Directory.GetFiles(folderPath, $"*.{hexOffset}.*.png", SearchOption.TopDirectoryOnly);
+                            if (files.Length > 0)
+                            {
+                                mesh.TexturePaths[symbol] = files[0];
+                                Console.WriteLine($"Resolved shared texture: {symbol} -> {files[0]}");
+                                continue;
+                            }
+                            
+                            // Try general search just in case format suffix is different
+                            files = Directory.GetFiles(folderPath, $"*{hexOffset}*.png", SearchOption.TopDirectoryOnly);
+                            if (files.Length > 0)
+                            {
+                                mesh.TexturePaths[symbol] = files[0];
+                                Console.WriteLine($"Resolved shared texture (fallback): {symbol} -> {files[0]}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error resolving shared textures: {ex.Message}");
+        }
     }
 
     public Dictionary<string, List<string>> FindModelFiles(string levelPath)
@@ -445,23 +612,40 @@ public class ModelParser
     {
         for (int i = 0; i < vertices.Count; i++)
         {
-            var vertex = vertices[i];
-            var pos = new Vector3(vertex.X, vertex.Y, vertex.Z);
-            var transformed = Vector3.TransformPosition(pos, transform);
-            
-            vertices[i] = new ModelVertex(
-                (int)transformed.X,
-                (int)transformed.Y,
-                (int)transformed.Z,
-                vertex.S,
-                vertex.T,
-                vertex.NX,
-                vertex.NY,
-                vertex.NZ,
-                vertex.Alpha
-            );
+            vertices[i] = ApplySingleTransform(vertices[i], transform);
         }
         
         Console.WriteLine($"Applied transformation to {vertices.Count} vertices");
+    }
+
+    private ModelVertex ApplySingleTransform(ModelVertex vertex, Matrix4 transform)
+    {
+        var pos = new Vector3(vertex.X, vertex.Y, vertex.Z);
+        var transformed = Vector3.TransformPosition(pos, transform);
+        
+        return new ModelVertex(
+            (int)transformed.X,
+            (int)transformed.Y,
+            (int)transformed.Z,
+            vertex.S,
+            vertex.T,
+            vertex.NX,
+            vertex.NY,
+            vertex.NZ,
+            vertex.Alpha
+        )
+        {
+            JointIndex = vertex.JointIndex,
+            RefX = vertex.RefX,
+            RefY = vertex.RefY,
+            RefZ = vertex.RefZ
+        };
+    }
+
+    private byte ParseByteHelper(string str)
+    {
+        if (str.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            return Convert.ToByte(str, 16);
+        return byte.Parse(str);
     }
 }

@@ -1,4 +1,4 @@
-﻿<Window x:Class="Sm64DecompLevelViewer.MainWindow"
+<Window x:Class="Sm64DecompLevelViewer.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -69,6 +69,32 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="#1E1E1E"/>
+            <Setter Property="BorderBrush" Value="#3F3F46"/>
+        </Style>
+        <Style TargetType="TabItem">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="#CCCCCC"/>
+            <Setter Property="BorderBrush" Value="#3F3F46"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border Name="Border" BorderThickness="1,1,1,0" BorderBrush="{TemplateBinding BorderBrush}" Background="{TemplateBinding Background}" CornerRadius="3,3,0,0" Margin="1,0">
+                            <ContentPresenter x:Name="ContentSite" VerticalAlignment="Center" HorizontalAlignment="Center" ContentSource="Header" Margin="8,2"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#1E1E1E"/>
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#3F3F46"/>
+                                <Setter Property="Foreground" Value="#00A2FF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
     
     <Grid>
@@ -82,76 +108,212 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         
-        <!-- Left Panel: Level List -->
+        <!-- Left Panel: Levels & Tools Categories -->
         <Border Grid.Column="0" Grid.Row="0" 
                 Background="{StaticResource PanelBrush}" 
                 BorderBrush="{StaticResource BorderBrush}" 
                 BorderThickness="0,0,1,0">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
-                
-                <StackPanel Grid.Row="0" Margin="10">
-                    <TextBlock Text="SM64 Levels" 
-                               FontSize="16" FontWeight="Bold" 
-                               Foreground="{StaticResource HeaderBrush}"
-                               Margin="0,0,0,5"/>
-                    <Button x:Name="SelectFolderButton" 
-                            Content="Select SM64 Project Folder" 
-                            Click="SelectFolderButton_Click"
-                            Padding="5,2"
-                            Background="{StaticResource AccentBrush}"
-                            Foreground="White"
-                            BorderThickness="0"
-                            Cursor="Hand"/>
-                    <Button x:Name="OptionsButton" 
-                            Content="Options" 
-                            Click="OptionsButton_Click"
-                            Padding="5,2"
-                            Background="{StaticResource PanelBrush}"
-                            Foreground="White"
-                            BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1"
-                            Margin="0,5,0,0"
-                            Cursor="Hand"/>
-                    <Button x:Name="OpenLevelsFolderButton" 
-                            Content="Open Levels Folder" 
-                            Click="OpenLevelsFolderButton_Click"
-                            Padding="5,2"
-                            Background="{StaticResource PanelBrush}"
-                            Foreground="White"
-                            BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1"
-                            Margin="0,5,0,0"
-                            IsEnabled="False"
-                            Cursor="Hand"/>
-                </StackPanel>
-                
-                <ListBox Grid.Row="1" x:Name="LevelListBox" 
-                         SelectionChanged="LevelListBox_SelectionChanged"
-                         Margin="5">
-                    <ListBox.GroupStyle>
-                        <GroupStyle>
-                            <GroupStyle.HeaderTemplate>
+            <TabControl Background="#252526" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0">
+                <!-- Tab 1: Levels -->
+                <TabItem Header="Levels">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        
+                        <StackPanel Grid.Row="0" Margin="10">
+                            <TextBlock Text="SM64 Levels" 
+                                       FontSize="15" FontWeight="Bold" 
+                                       Foreground="{StaticResource HeaderBrush}"
+                                       Margin="0,0,0,5"/>
+                            <Button x:Name="SelectFolderButton" 
+                                    Content="Select SM64 Project Folder" 
+                                    Click="SelectFolderButton_Click"
+                                    Padding="5,4"
+                                    Background="{StaticResource AccentBrush}"
+                                    Foreground="White"
+                                    BorderThickness="0"
+                                    Cursor="Hand"/>
+                            <Button x:Name="OpenProjectFolderButton" 
+                                    Content="Open Project Folder" 
+                                    Click="OpenProjectFolderButton_Click"
+                                    Padding="5,4"
+                                    Background="{StaticResource PanelBrush}"
+                                    Foreground="White"
+                                    BorderBrush="{StaticResource BorderBrush}"
+                                    BorderThickness="1"
+                                    Margin="0,5,0,0"
+                                    Cursor="Hand"/>
+                            <Button x:Name="OptionsButton" 
+                                    Content="Options" 
+                                    Click="OptionsButton_Click"
+                                    Padding="5,4"
+                                    Background="{StaticResource PanelBrush}"
+                                    Foreground="White"
+                                    BorderBrush="{StaticResource BorderBrush}"
+                                    BorderThickness="1"
+                                    Margin="0,5,0,0"
+                                    Cursor="Hand"/>
+                            <Button x:Name="OpenLevelsFolderButton" 
+                                    Content="Open Levels Folder" 
+                                    Click="OpenLevelsFolderButton_Click"
+                                    Padding="5,4"
+                                    Background="{StaticResource PanelBrush}"
+                                    Foreground="White"
+                                    BorderBrush="{StaticResource BorderBrush}"
+                                    BorderThickness="1"
+                                    Margin="0,5,0,0"
+                                    IsEnabled="False"
+                                    Cursor="Hand"/>
+                        </StackPanel>
+                        
+                        <ListBox Grid.Row="1" x:Name="LevelListBox" 
+                                 SelectionChanged="LevelListBox_SelectionChanged"
+                                 Margin="5">
+                            <ListBox.GroupStyle>
+                                <GroupStyle>
+                                    <GroupStyle.HeaderTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Name}" 
+                                                       FontWeight="Bold" 
+                                                       FontSize="12"
+                                                       Foreground="{StaticResource HeaderBrush}"
+                                                       Margin="0,8,0,4"/>
+                                        </DataTemplate>
+                                    </GroupStyle.HeaderTemplate>
+                                </GroupStyle>
+                            </ListBox.GroupStyle>
+                            <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding Name}" 
-                                               FontWeight="Bold" 
-                                               FontSize="12"
-                                               Foreground="{StaticResource HeaderBrush}"
-                                               Margin="0,8,0,4"/>
+                                    <TextBlock Text="{Binding FullName}"/>
                                 </DataTemplate>
-                            </GroupStyle.HeaderTemplate>
-                        </GroupStyle>
-                    </ListBox.GroupStyle>
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding FullName}"/>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </Grid>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </TabItem>
+                
+                <!-- Tab 2: Tools -->
+                <TabItem Header="Tools">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="5">
+                        <StackPanel Margin="5">
+                            <TextBlock Text="Decomp Tools Dashboard" 
+                                       FontSize="15" FontWeight="Bold" 
+                                       Foreground="{StaticResource HeaderBrush}"
+                                       Margin="0,0,0,10"/>
+                            
+                            <!-- Standalone Dashboard Button -->
+                            <Button Content="🛠️ Open Tools Dashboard" 
+                                    Click="OpenToolsDashboard_Click"
+                                    Padding="8" Margin="0,0,0,8"
+                                    Background="{StaticResource AccentBrush}" Foreground="White"
+                                    BorderThickness="0" FontWeight="Bold" HorizontalAlignment="Stretch"/>
+
+                            <Separator Background="{StaticResource BorderBrush}" Margin="0,5,0,10"/>
+                            
+                            <!-- Category: Chaos & Audio -->
+                            <TextBlock Text="Chaos &amp; Audio Tools" FontSize="12" FontWeight="SemiBold" Foreground="#888888" Margin="0,0,0,6"/>
+                            <Button Content="🔥 Chaos Engine" Click="ChaosEngineButton_Click" Padding="6" Margin="0,0,0,6" Background="#D32F2F" Foreground="White" BorderThickness="0" HorizontalAlignment="Stretch"/>
+                            <Button Content="🎵 Music Sequence Editor" Click="MusicEditorMain_Click" Padding="6" Margin="0,0,0,6" Background="#2D2D30" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch"/>
+                            <Button Content="🔊 Sound Sample Editor" Click="SoundEditorMain_Click" Padding="6" Margin="0,0,0,12" Background="#2D2D30" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch"/>
+
+                            <!-- Category: Level Modding -->
+                            <TextBlock Text="Level Modding Tools" FontSize="12" FontWeight="SemiBold" Foreground="#888888" Margin="0,0,0,6"/>
+                            <Button Content="📐 Level Mesh Editor" Click="LevelMeshEditorMain_Click" Padding="6" Margin="0,0,0,6" Background="#2D2D30" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch"/>
+                            <Button Content="🌀 Warp Nodes Editor" Click="WarpEditorMain_Click" Padding="6" Margin="0,0,0,6" Background="#2D2D30" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch"/>
+                            <Button Content="🖼️ Castle Painting Editor" Click="PaintingEditorMain_Click" Padding="6" Margin="0,0,0,6" Background="#2D2D30" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch"/>
+                            <Button Content="🧩 Custom Behavior Builder" Click="BehaviorBuilderButton_Click" Padding="6" Margin="0,0,0,12" Background="#2D2D30" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch"/>
+
+                            <!-- Category: Models & System -->
+                            <TextBlock Text="Actors &amp; System Tools" FontSize="12" FontWeight="SemiBold" Foreground="#888888" Margin="0,0,0,6"/>
+                            <Button Content="👤 Actor Viewer / Editor" Click="ActorEditorMain_Click" Padding="6" Margin="0,0,0,6" Background="#2D2D30" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch"/>
+                            
+                            <!-- Category: System & Build -->
+                            <TextBlock Text="System &amp; Build Tools" FontSize="12" FontWeight="SemiBold" Foreground="#888888" Margin="0,0,0,6"/>
+                            <Button Content="⚙️ Build SM64 ROM" Click="BuildRomMain_Click" Padding="6" Margin="0,0,0,6" Background="#007ACC" Foreground="White" BorderThickness="0" FontWeight="SemiBold" HorizontalAlignment="Stretch"/>
+                            <Button Content="🩹 Git / WSL Patches" Click="PatchButtonMain_Click" Padding="6" Margin="0,0,0,6" Background="#2D2D30" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+                
+                <!-- Tab 3: Plugins -->
+                <TabItem Header="Plugins">
+                    <Grid Margin="10">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        
+                        <TextBlock Grid.Row="0" Text="Extensibility Plugins" FontSize="16" FontWeight="Bold" Foreground="White" Margin="0,0,0,5"/>
+                        <TextBlock Grid.Row="1" Text="Drop plugin DLLs inside your Randm64 folder under Documents to load dynamic extensions." FontSize="10" Foreground="#888888" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                        
+                        <ListBox Grid.Row="2" x:Name="PluginsListBox" Background="#252526" BorderBrush="{StaticResource BorderBrush}" Foreground="White">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="3">
+                                        <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="#569CD6"/>
+                                        <TextBlock Text="{Binding Description}" FontSize="10" Foreground="#AAAAAA" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        
+                        <StackPanel Grid.Row="3" Margin="0,10,0,0">
+                            <Button Content="⚡ Execute Selected Plugin" Click="ExecutePlugin_Click" Padding="6" Margin="0,0,0,6" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0" FontWeight="Bold" HorizontalAlignment="Stretch"/>
+                            <DockPanel>
+                                <Button Content="🔄 Reload" Click="ReloadPlugins_Click" Padding="6" Width="90" Background="#2D2D30" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"/>
+                                <Button Content="📁 Plugins Folder" Click="OpenPluginsFolder_Click" Padding="6" Margin="5,0,0,0" Background="#2D2D30" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch"/>
+                            </DockPanel>
+                        </StackPanel>
+                    </Grid>
+                </TabItem>
+                
+                <!-- Tab 3: About -->
+                <TabItem Header="About">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="10">
+                        <StackPanel>
+                            <TextBlock Text="Randm64" 
+                                       FontSize="20" FontWeight="Bold" 
+                                       Foreground="{StaticResource AccentBrush}"
+                                       Margin="0,0,0,2"/>
+                            
+                            <TextBlock Text="Created by KernelV with help with Vibe Coding" 
+                                       FontSize="11" FontStyle="Italic"
+                                       Foreground="#888888"
+                                       Margin="0,0,0,15"/>
+
+                            <TextBlock Text="Randm64 is an advanced, professional modding platform and chaos orchestrator for Super Mario 64 decompilation projects. It goes beyond simple level editing to provide a full suite of low-level ROM corruption, sequence translation, and asset modification engines." 
+                                       TextWrapping="Wrap" Foreground="#CCCCCC" Margin="0,0,0,15"/>
+
+                            <Separator Background="{StaticResource BorderBrush}" Margin="0,0,0,15"/>
+
+                            <TextBlock Text="Key Features &amp; Capabilities" FontSize="13" FontWeight="Bold" Foreground="White" Margin="0,0,0,10"/>
+
+                            <!-- Feature 1 -->
+                            <TextBlock Text="📐 3D Geometry &amp; Level Editor" FontWeight="SemiBold" Foreground="{StaticResource HeaderBrush}" Margin="0,0,0,2"/>
+                            <TextBlock Text="Render level collision boxes, objects, and visual vertices in 3D. Manipulate actors, coordinate rotations, drop items to the ground, and build spline path animations." 
+                                       TextWrapping="Wrap" FontSize="11" Foreground="#AAAAAA" Margin="0,0,0,10"/>
+
+                            <!-- Feature 2 -->
+                            <TextBlock Text="🔥 Chaos Engine &amp; Goddard Corruptor" FontWeight="SemiBold" Foreground="{StaticResource HeaderBrush}" Margin="0,0,0,2"/>
+                            <TextBlock Text="Corrupt Mario's start screen face using 10 crash-safe modes. Shuffle textures, level vertices (including Bowser sky Rainbow World rendering), HUD formats, and text strings." 
+                                       TextWrapping="Wrap" FontSize="11" Foreground="#AAAAAA" Margin="0,0,0,10"/>
+
+                            <!-- Feature 3 -->
+                            <TextBlock Text="🔀 Sound &amp; Instrument Replacer" FontWeight="SemiBold" Foreground="{StaticResource HeaderBrush}" Margin="0,0,0,2"/>
+                            <TextBlock Text="Map SFX sounds and instrument samples dynamically. Supports search, category filters, Ctrl+A selection, and built-in transcode-and-play previews." 
+                                       TextWrapping="Wrap" FontSize="11" Foreground="#AAAAAA" Margin="0,0,0,10"/>
+
+                            <!-- Feature 4 -->
+                            <TextBlock Text="🎵 Sequence &amp; Sound Editor" FontWeight="SemiBold" Foreground="{StaticResource HeaderBrush}" Margin="0,0,0,2"/>
+                            <TextBlock Text="Disassemble, edit, transcode, and preview M64 music tracks, samples, sound banks, and castle paintings." 
+                                       TextWrapping="Wrap" FontSize="11" Foreground="#AAAAAA" Margin="0,0,0,10"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+            </TabControl>
         </Border>
         
         <!-- Right Panel: Level Details -->

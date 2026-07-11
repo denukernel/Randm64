@@ -1,7 +1,7 @@
 <Window x:Class="Sm64DecompLevelViewer.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Editor Settings" Height="300" Width="400"
+        Title="Editor Settings" Height="500" Width="420"
         Background="#1E1E1E" Foreground="#CCCCCC"
         WindowStartupLocation="CenterOwner">
     <Window.Resources>
@@ -12,35 +12,68 @@
     
     <Grid Margin="20">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Text="Camera Settings" FontSize="18" FontWeight="Bold" Foreground="#569CD6" Margin="0,0,0,20"/>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Grid.Row="0" Margin="0,0,0,15">
+            <StackPanel>
+                <TextBlock Text="Editor Configuration" FontSize="18" FontWeight="Bold" Foreground="#569CD6" Margin="0,0,0,20"/>
 
-        <!-- Move Speed -->
-        <StackPanel Grid.Row="1" Margin="0,0,0,15">
-            <DockPanel>
-                <TextBlock Text="Camera Move Speed: " VerticalAlignment="Center"/>
-                <TextBlock Text="{Binding Value, ElementName=MoveSpeedSlider, StringFormat={}{0:F0}}" FontWeight="Bold" DockPanel.Dock="Right"/>
-            </DockPanel>
-            <Slider x:Name="MoveSpeedSlider" Minimum="100" Maximum="5000" TickFrequency="100" IsSnapToTickEnabled="True" Margin="0,5,0,0"/>
+                <!-- Camera Settings Header -->
+                <TextBlock Text="Camera &amp; Viewport" FontSize="14" FontWeight="Bold" Foreground="White" Margin="0,0,0,10"/>
+
+                <!-- Move Speed -->
+                <StackPanel Margin="0,0,0,15">
+                    <DockPanel>
+                        <TextBlock Text="Camera Move Speed: " VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding Value, ElementName=MoveSpeedSlider, StringFormat={}{0:F0}}" FontWeight="Bold" DockPanel.Dock="Right"/>
+                    </DockPanel>
+                    <Slider x:Name="MoveSpeedSlider" Minimum="100" Maximum="5000" TickFrequency="100" IsSnapToTickEnabled="True" Margin="0,5,0,0"/>
+                </StackPanel>
+
+                <!-- Rotation Speed -->
+                <StackPanel Margin="0,0,0,15">
+                    <DockPanel>
+                        <TextBlock Text="Rotation Sensitivity: " VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding Value, ElementName=RotationSlider, StringFormat={}{0:F3}}" FontWeight="Bold" DockPanel.Dock="Right"/>
+                    </DockPanel>
+                    <Slider x:Name="RotationSlider" Minimum="0.005" Maximum="0.1" TickFrequency="0.005" IsSnapToTickEnabled="True" Margin="0,5,0,0"/>
+                </StackPanel>
+
+                <!-- Field of View -->
+                <StackPanel Margin="0,0,0,15">
+                    <DockPanel>
+                        <TextBlock Text="Field of View (FOV): " VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding Value, ElementName=FovSlider, StringFormat={}{0:F0}°}" FontWeight="Bold" DockPanel.Dock="Right"/>
+                    </DockPanel>
+                    <Slider x:Name="FovSlider" Minimum="30" Maximum="120" TickFrequency="5" IsSnapToTickEnabled="True" Margin="0,5,0,0"/>
+                </StackPanel>
+
+                <!-- Render Distance -->
+                <StackPanel Margin="0,0,0,20">
+                    <DockPanel>
+                        <TextBlock Text="Render Distance: " VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding Value, ElementName=DistanceSlider, StringFormat={}{0:F0}}" FontWeight="Bold" DockPanel.Dock="Right"/>
+                    </DockPanel>
+                    <Slider x:Name="DistanceSlider" Minimum="5000" Maximum="100000" TickFrequency="5000" IsSnapToTickEnabled="True" Margin="0,5,0,0"/>
+                </StackPanel>
+
+                <Separator Background="{StaticResource BorderBrush}" Margin="0,5,0,15"/>
+
+                <!-- Rendering Toggles Header -->
+                <TextBlock Text="Rendering Preferences" FontSize="14" FontWeight="Bold" Foreground="White" Margin="0,0,0,10"/>
+
+                <CheckBox x:Name="RenderGridCheckBox" Content="Render Floor Reference Grid" Foreground="#CCCCCC" Margin="0,0,0,10"/>
+                <CheckBox x:Name="FlatShadingCheckBox" Content="Enable Flat Shading (Strip Lighting)" Foreground="#CCCCCC" Margin="0,0,0,20"/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="📁 Open Settings Folder" Click="OpenSettingsFolder_Click"
+                    Padding="15,8" Background="#3E3E42" Foreground="White" BorderThickness="0" Margin="0,0,10,0" Cursor="Hand"/>
+            <Button Content="Save Settings" Click="SaveButton_Click"
+                    Padding="20,8" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0" Cursor="Hand"/>
         </StackPanel>
-
-        <!-- Rotation Speed -->
-        <StackPanel Grid.Row="2" Margin="0,0,0,20">
-            <DockPanel>
-                <TextBlock Text="Rotation Sensitivity: " VerticalAlignment="Center"/>
-                <TextBlock Text="{Binding Value, ElementName=RotationSlider, StringFormat={}{0:F3}}" FontWeight="Bold" DockPanel.Dock="Right"/>
-            </DockPanel>
-            <Slider x:Name="RotationSlider" Minimum="0.005" Maximum="0.1" TickFrequency="0.005" IsSnapToTickEnabled="True" Margin="0,5,0,0"/>
-        </StackPanel>
-
-        <Button Grid.Row="5" Content="Save Settings" Click="SaveButton_Click"
-                Padding="20,8" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0" HorizontalAlignment="Right" Cursor="Hand"/>
     </Grid>
 </Window>

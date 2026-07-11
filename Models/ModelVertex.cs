@@ -14,11 +14,20 @@ public class ModelVertex
     public byte NZ { get; set; }
     public byte Alpha { get; set; }
 
+    // Skeletal animation support
+    public int JointIndex { get; set; } = -1;
+    public int RefX { get; set; }
+    public int RefY { get; set; }
+    public int RefZ { get; set; }
+
     public ModelVertex(int x, int y, int z, int s, int t, byte nx, byte ny, byte nz, byte alpha)
     {
         X = x;
         Y = y;
         Z = z;
+        RefX = x;
+        RefY = y;
+        RefZ = z;
         S = s;
         T = t;
         NX = nx;

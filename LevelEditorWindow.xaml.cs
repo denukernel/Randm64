@@ -28,6 +28,9 @@ namespace Sm64DecompLevelViewer
         private List<string> _supportedModels;
         private LevelObject? _clipboard;
         private AppSettings _settings;
+        private CollisionMesh? _collisionMesh;
+
+        public event EventHandler? RequestReload;
 
         [DllImport("user32.dll")]
         static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
@@ -52,6 +55,7 @@ namespace Sm64DecompLevelViewer
             _areaIndex = areaIndex;
             _supportedModels = supportedModels;
             _settings = settings;
+            _collisionMesh = collisionMesh;
             
             _projectRoot = projectRoot;
             _behaviorService = new BehaviorService(projectRoot);
@@ -160,7 +164,11 @@ namespace Sm64DecompLevelViewer
                 _renderer.CameraMoveSpeed = _settings.CameraMoveSpeed;
                 _renderer.CameraRotationSensitivity = _settings.CameraRotationSpeed;
                 _renderer.LoadMesh(colMesh);
-                if (visMesh != null) _renderer.LoadVisualMesh(visMesh);
+                if (visMesh != null) 
+                {
+                    _renderer.SetSkyboxBackground(visMesh.SkyboxBin);
+                    _renderer.LoadVisualMesh(visMesh);
+                }
                 _renderer.SetObjects(_objects);
                 
                 _renderer.ObjectSelected += (index) => {
@@ -174,6 +182,8 @@ namespace Sm64DecompLevelViewer
                 _renderer.PasteRequested += () => {
                     Dispatcher.Invoke(() => PerformPaste());
                 };
+
+                _renderer.SplinePointModified += Renderer_SplinePointModified;
 
                 // Capture HWND and embed
                 unsafe {
@@ -672,40 +682,40 @@ namespace Sm64DecompLevelViewer
             // 1. Auto-save first
             _levelSaver.SaveLevel(_objects);
 
-            var settingsService = new SettingsService();
-            var settings = settingsService.LoadSettings();
-
-            // 2. Check for emulator path
-            if (string.IsNullOrEmpty(settings.EmulatorPath) || !File.Exists(settings.EmulatorPath))
+            // 2. Launch Build Options Window
+            var optionsWindow = new BuildOptionsWindow(_projectRoot);
+            optionsWindow.Owner = this;
+            if (optionsWindow.ShowDialog() == true)
             {
-                var result = MessageBox.Show(
-                    "Emulator path not set. Would you like to select your emulator (e.g. Project64.exe) now?",
-                    "Setup Emulator",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Question);
-
-                if (result == MessageBoxResult.Yes)
+                if (optionsWindow.IsCleanAndClone)
                 {
-                    var dialog = new Microsoft.Win32.OpenFileDialog
-                    {
-                        Filter = "Executable Files (*.exe)|*.exe|All Files (*.*)|*.*",
-                        Title = "Select N64 Emulator"
-                    };
+                    var cleanWindow = new BuildOutputWindow(_projectRoot, optionsWindow.GitUrlToClone);
+                    cleanWindow.Owner = this;
+                    cleanWindow.ShowDialog();
 
-                    if (dialog.ShowDialog() == true)
+                    if (cleanWindow.IsSuccessful)
                     {
-                        settings.EmulatorPath = dialog.FileName;
-                        settingsService.SaveSettings(settings);
+                        RequestReload?.Invoke(this, EventArgs.Empty);
                     }
-                    else return;
                 }
-                else return;
-            }
+                else if (optionsWindow.IsRevertSource)
+                {
+                    var revertWindow = new BuildOutputWindow(_projectRoot, isRevertMode: true);
+                    revertWindow.Owner = this;
+                    revertWindow.ShowDialog();
 
-            // 3. Launch Build Window
-            var buildWindow = new BuildOutputWindow(_projectRoot, settings.EmulatorPath);
-            buildWindow.Owner = this;
-            buildWindow.ShowDialog();
+                    if (revertWindow.IsSuccessful)
+                    {
+                        RequestReload?.Invoke(this, EventArgs.Empty);
+                    }
+                }
+                else
+                {
+                    var buildWindow = new BuildOutputWindow(_projectRoot, optionsWindow.SelectedSettings);
+                    buildWindow.Owner = this;
+                    buildWindow.ShowDialog();
+                }
+            }
         }
 
         private void UpdateRendererPosition()
@@ -751,6 +761,150 @@ namespace Sm64DecompLevelViewer
                               "Select: [Left-Click] in 3D or in Sidebar";
 
             MessageBox.Show(helpText, "Editor Controls", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private void ToolsDashboardButton_Click(object sender, RoutedEventArgs e)
+        {
+            string? macroFile = _objects.FirstOrDefault(o => !string.IsNullOrEmpty(o.SourceFile))?.SourceFile;
+            string? levelPath = string.IsNullOrEmpty(macroFile) ? null : Path.GetDirectoryName(macroFile);
+
+            var tools = new ToolsWindow(_projectRoot, levelPath, () =>
+            {
+                RequestReload?.Invoke(this, EventArgs.Empty);
+            });
+            tools.Owner = this;
+            tools.Show();
+        }
+
+        private void ActorEditorButton_Click(object sender, RoutedEventArgs e)
+        {
+            var actorEditor = new ActorEditorWindow(_projectRoot);
+            actorEditor.Owner = this;
+            actorEditor.ShowDialog();
+        }
+
+        private void MusicEditorButton_Click(object sender, RoutedEventArgs e)
+        {
+            var musicEditor = new MusicEditorWindow(_projectRoot);
+            musicEditor.Owner = this;
+            musicEditor.Show();
+        }
+
+        private void LevelMeshEditorButton_Click(object sender, RoutedEventArgs e)
+        {
+            string? macroFile = _objects.FirstOrDefault(o => !string.IsNullOrEmpty(o.SourceFile))?.SourceFile;
+            if (string.IsNullOrEmpty(macroFile))
+            {
+                MessageBox.Show("No active level files found to determine the level path.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            string levelPath = Path.GetDirectoryName(macroFile)!;
+            string initialArea = $"Area {_areaIndex}";
+
+            var meshEditor = new LevelMeshEditorWindow(
+                levelPath, 
+                initialArea, 
+                _projectRoot, 
+                () => {
+                    RequestReload?.Invoke(this, EventArgs.Empty);
+                },
+                (point, focusCamera) => {
+                    if (_renderer != null)
+                    {
+                        _renderer.SelectedMeshPoint = point;
+                        if (point.HasValue && focusCamera)
+                        {
+                            _renderer.FocusOnPoint(point.Value);
+                        }
+                    }
+                }
+            );
+
+            Action<int> onCollisionTriangleSelected = (index) => {
+                Application.Current.Dispatcher.Invoke(() => {
+                    if (meshEditor.IsVisible)
+                    {
+                        meshEditor.SelectCollisionTriangle(index);
+                    }
+                });
+            };
+
+            Action<int> onVisualVertexSelected = (index) => {
+                Application.Current.Dispatcher.Invoke(() => {
+                    if (meshEditor.IsVisible)
+                    {
+                        meshEditor.SelectVisualVertex(index);
+                    }
+                });
+            };
+
+            if (_renderer != null)
+            {
+                _renderer.CollisionTriangleSelected += onCollisionTriangleSelected;
+                _renderer.VisualVertexSelected += onVisualVertexSelected;
+            }
+
+            meshEditor.Closed += (s, e) => {
+                if (_renderer != null)
+                {
+                    _renderer.CollisionTriangleSelected -= onCollisionTriangleSelected;
+                    _renderer.VisualVertexSelected -= onVisualVertexSelected;
+                }
+            };
+
+            meshEditor.Owner = this;
+            meshEditor.Show();
+        }
+
+        private void WarpEditorButton_Click(object sender, RoutedEventArgs e)
+        {
+            string? macroFile = _objects.FirstOrDefault(o => !string.IsNullOrEmpty(o.SourceFile))?.SourceFile;
+            if (string.IsNullOrEmpty(macroFile))
+            {
+                MessageBox.Show("No active level files found to determine the level path.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            string levelPath = Path.GetDirectoryName(macroFile)!;
+
+            var warpEditor = new WarpEditorWindow(levelPath, () =>
+            {
+                RequestReload?.Invoke(this, EventArgs.Empty);
+            });
+            warpEditor.Owner = this;
+            warpEditor.Show();
+        }
+
+        private void PaintingEditorButton_Click(object sender, RoutedEventArgs e)
+        {
+            string? macroFile = _objects.FirstOrDefault(o => !string.IsNullOrEmpty(o.SourceFile))?.SourceFile;
+            if (string.IsNullOrEmpty(macroFile))
+            {
+                MessageBox.Show("No active level files found to determine the level path.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            string levelPath = Path.GetDirectoryName(macroFile)!;
+
+            var paintingService = new Sm64DecompLevelViewer.Services.PaintingService();
+            string? paintingPath = paintingService.FindPaintingFile(levelPath);
+            if (string.IsNullOrEmpty(paintingPath) || !File.Exists(paintingPath))
+            {
+                MessageBox.Show("No painting.inc.c file found in this level's folders.", "Information", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var paintingEditor = new PaintingEditorWindow(levelPath, () =>
+            {
+                RequestReload?.Invoke(this, EventArgs.Empty);
+            });
+            paintingEditor.Owner = this;
+            paintingEditor.Show();
+        }
+
+        private void PatchButton_Click(object sender, RoutedEventArgs e)
+        {
+            var patchWindow = new PatchWindow(_projectRoot);
+            patchWindow.Owner = this;
+            patchWindow.ShowDialog();
         }
 
         // --- NEW UI HANDLERS ---
@@ -858,13 +1012,408 @@ namespace Sm64DecompLevelViewer
 
         private void DropToGround_Click(object sender, RoutedEventArgs e)
         {
-            // Future: Implement raycasting to drop object to nearest floor
-            MessageBox.Show("Raycasting for 'Drop to Ground' is not yet implemented in this build.", "Feature Not Ready");
+            if (_selectedObject == null) return;
+
+            if (_collisionMesh == null || _collisionMesh.Triangles.Count == 0)
+            {
+                MessageBox.Show("No collision mesh loaded for this area.", "Drop to Ground Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            double? floorY = FindFloorY(_selectedObject.X, _selectedObject.Y, _selectedObject.Z);
+
+            if (floorY.HasValue)
+            {
+                _selectedObject.Y = (int)Math.Round(floorY.Value);
+                UpdateUIFromObject(_selectedObject);
+                int index = _objects.IndexOf(_selectedObject);
+                if (index >= 0 && _renderer != null)
+                {
+                    _renderer.UpdateObject(index, _selectedObject);
+                }
+            }
+            else
+            {
+                MessageBox.Show("No floor found directly below or near the object's X/Z position.", "Drop to Ground", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+
+        private double? FindFloorY(double x, double currentY, double z)
+        {
+            if (_collisionMesh == null) return null;
+
+            double? bestFloorY = null;
+            double minDistanceBelow = double.MaxValue;
+
+            foreach (var tri in _collisionMesh.Triangles)
+            {
+                if (tri.V1 >= _collisionMesh.Vertices.Count || 
+                    tri.V2 >= _collisionMesh.Vertices.Count || 
+                    tri.V3 >= _collisionMesh.Vertices.Count)
+                    continue;
+
+                var v0 = _collisionMesh.Vertices[tri.V1];
+                var v1 = _collisionMesh.Vertices[tri.V2];
+                var v2 = _collisionMesh.Vertices[tri.V3];
+
+                // Calculate triangle normal vector Y component
+                // normal = (v1 - v0) x (v2 - v0)
+                double edge1X = v1.X - v0.X;
+                double edge1Y = v1.Y - v0.Y;
+                double edge1Z = v1.Z - v0.Z;
+
+                double edge2X = v2.X - v0.X;
+                double edge2Y = v2.Y - v0.Y;
+                double edge2Z = v2.Z - v0.Z;
+
+                double normalY = edge1Z * edge2X - edge1X * edge2Z;
+
+                // Floors must face upwards (normalY > 0.01)
+                if (normalY <= 0.01)
+                    continue;
+
+                // Check if (x, z) is within the projected 2D triangle
+                if (!IsPointInTriangle2D(x, z, v0.X, v0.Z, v1.X, v1.Z, v2.X, v2.Z))
+                    continue;
+
+                double normalX = edge1Y * edge2Z - edge1Z * edge2Y;
+                double normalZ = edge1X * edge2Y - edge1Y * edge2X;
+
+                // Compute Y coordinate on the triangle's plane at (x, z)
+                double y = v0.Y - (normalX * (x - v0.X) + normalZ * (z - v0.Z)) / normalY;
+
+                // We want the floor closest to the object, preferably below it.
+                // We allow a small tolerance of 50 units for being "at" or slightly below the floor.
+                if (y <= currentY + 50)
+                {
+                    double dist = currentY - y;
+                    if (dist < minDistanceBelow)
+                    {
+                        minDistanceBelow = dist;
+                        bestFloorY = y;
+                    }
+                }
+            }
+
+            // Fallback: If no floor is found below the object, check for the closest floor overall (above or below)
+            if (!bestFloorY.HasValue)
+            {
+                double minAbsDistance = double.MaxValue;
+                foreach (var tri in _collisionMesh.Triangles)
+                {
+                    if (tri.V1 >= _collisionMesh.Vertices.Count || 
+                        tri.V2 >= _collisionMesh.Vertices.Count || 
+                        tri.V3 >= _collisionMesh.Vertices.Count)
+                        continue;
+
+                    var v0 = _collisionMesh.Vertices[tri.V1];
+                    var v1 = _collisionMesh.Vertices[tri.V2];
+                    var v2 = _collisionMesh.Vertices[tri.V3];
+
+                    double edge1X = v1.X - v0.X;
+                    double edge1Y = v1.Y - v0.Y;
+                    double edge1Z = v1.Z - v0.Z;
+
+                    double edge2X = v2.X - v0.X;
+                    double edge2Y = v2.Y - v0.Y;
+                    double edge2Z = v2.Z - v0.Z;
+
+                    double normalY = edge1Z * edge2X - edge1X * edge2Z;
+
+                    if (normalY <= 0.01)
+                        continue;
+
+                    if (!IsPointInTriangle2D(x, z, v0.X, v0.Z, v1.X, v1.Z, v2.X, v2.Z))
+                        continue;
+
+                    double normalX = edge1Y * edge2Z - edge1Z * edge2Y;
+                    double normalZ = edge1X * edge2Y - edge1Y * edge2X;
+
+                    double y = v0.Y - (normalX * (x - v0.X) + normalZ * (z - v0.Z)) / normalY;
+
+                    double dist = Math.Abs(currentY - y);
+                    if (dist < minAbsDistance)
+                    {
+                        minAbsDistance = dist;
+                        bestFloorY = y;
+                    }
+                }
+            }
+
+            return bestFloorY;
+        }
+
+        private bool IsPointInTriangle2D(double px, double pz, double x1, double z1, double x2, double z2, double x3, double z3)
+        {
+            double d1 = (px - x2) * (z1 - z2) - (x1 - x2) * (pz - z2);
+            double d2 = (px - x3) * (z2 - z3) - (x2 - x3) * (pz - z3);
+            double d3 = (px - x1) * (z3 - z1) - (x3 - x1) * (pz - z1);
+
+            bool has_neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+            bool has_pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+
+            return !(has_neg && has_pos);
         }
 
         private void BehaviorTextBox_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
             SelectBehaviorButton_Click(sender, e);
+        }
+
+        // Spline editing fields and methods
+        private Services.CutsceneService _cutsceneService = new();
+        private List<Services.SplinePoint>? _activeSplinePoints;
+        private string? _activeSplineName;
+        private string _cameraCPath = "";
+        private bool _isUpdatingUi = false;
+
+        private void Renderer_SplinePointModified()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (_activeSplineName != null && _activeSplinePoints != null)
+                {
+                    _cutsceneService.SaveSpline(_cameraCPath, _activeSplineName, _activeSplinePoints);
+                }
+                
+                _isUpdatingUi = true;
+                int selIndex = SplinePointListBox.SelectedIndex;
+                SplinePointListBox.Items.Refresh();
+                SplinePointListBox.SelectedIndex = selIndex;
+                if (selIndex >= 0)
+                {
+                    var p = _activeSplinePoints[selIndex];
+                    SplineSpeedText.Text = p.Speed.ToString();
+                    SplineXText.Text = p.X.ToString();
+                    SplineYText.Text = p.Y.ToString();
+                    SplineZText.Text = p.Z.ToString();
+                }
+                _isUpdatingUi = false;
+            });
+        }
+
+        private void SplineSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (SplineSelector.SelectedItem is ComboBoxItem item)
+            {
+                _activeSplineName = item.Tag as string;
+                if (_activeSplineName != null)
+                {
+                    _cameraCPath = Path.Combine(_projectRoot, "src", "game", "camera.c");
+                    _activeSplinePoints = _cutsceneService.LoadSpline(_cameraCPath, _activeSplineName);
+                    
+                    _isUpdatingUi = true;
+                    SplinePointListBox.ItemsSource = _activeSplinePoints;
+                    SplineEditorFields.Visibility = Visibility.Collapsed;
+                    _isUpdatingUi = false;
+
+                    if (_renderer != null)
+                    {
+                        _renderer.EditSplinePoints = _activeSplinePoints;
+                        _renderer.SelectedSplinePointIndex = -1;
+                        _renderer.UploadSplineData();
+                        _renderer.UploadObjectData();
+                    }
+                }
+            }
+        }
+
+        private void SplinePointListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isUpdatingUi) return;
+
+            int index = SplinePointListBox.SelectedIndex;
+            if (_renderer != null)
+            {
+                _renderer.SelectedSplinePointIndex = index;
+                _renderer.UploadObjectData();
+            }
+
+            if (index >= 0 && _activeSplinePoints != null)
+            {
+                _isUpdatingUi = true;
+                var p = _activeSplinePoints[index];
+                SplineSpeedText.Text = p.Speed.ToString();
+                SplineXText.Text = p.X.ToString();
+                SplineYText.Text = p.Y.ToString();
+                SplineZText.Text = p.Z.ToString();
+                SplineEditorFields.Visibility = Visibility.Visible;
+                _isUpdatingUi = false;
+            }
+            else
+            {
+                SplineEditorFields.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private void SplineField_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_isUpdatingUi || _activeSplinePoints == null || _activeSplineName == null) return;
+
+            int index = SplinePointListBox.SelectedIndex;
+            if (index < 0 || index >= _activeSplinePoints.Count) return;
+
+            var p = _activeSplinePoints[index];
+            
+            int.TryParse(SplineSpeedText.Text, out int speed);
+            int.TryParse(SplineXText.Text, out int x);
+            int.TryParse(SplineYText.Text, out int y);
+            int.TryParse(SplineZText.Text, out int z);
+
+            p.Speed = speed;
+            p.X = x;
+            p.Y = y;
+            p.Z = z;
+
+            _cutsceneService.SaveSpline(_cameraCPath, _activeSplineName, _activeSplinePoints);
+
+            if (_renderer != null)
+            {
+                _renderer.UploadSplineData();
+                _renderer.UploadObjectData();
+            }
+        }
+
+        private void AddSplinePoint_Click(object sender, RoutedEventArgs e)
+        {
+            if (_activeSplinePoints == null || _activeSplineName == null) return;
+
+            int index = SplinePointListBox.SelectedIndex;
+            var newPoint = new Services.SplinePoint { Speed = 50 };
+            
+            if (index >= 0 && index < _activeSplinePoints.Count)
+            {
+                var refPoint = _activeSplinePoints[index];
+                newPoint.Index = refPoint.Index + 1;
+                newPoint.X = refPoint.X + 200;
+                newPoint.Y = refPoint.Y;
+                newPoint.Z = refPoint.Z + 200;
+                _activeSplinePoints.Insert(index + 1, newPoint);
+            }
+            else
+            {
+                if (_activeSplinePoints.Count > 0)
+                {
+                    var refPoint = _activeSplinePoints[_activeSplinePoints.Count - 1];
+                    newPoint.Index = refPoint.Index + 1;
+                    newPoint.X = refPoint.X + 200;
+                    newPoint.Y = refPoint.Y;
+                    newPoint.Z = refPoint.Z + 200;
+                }
+                else
+                {
+                    newPoint.Index = 0;
+                    newPoint.X = 0;
+                    newPoint.Y = 1000;
+                    newPoint.Z = 0;
+                }
+                _activeSplinePoints.Add(newPoint);
+            }
+
+            _cutsceneService.SaveSpline(_cameraCPath, _activeSplineName, _activeSplinePoints);
+
+            _isUpdatingUi = true;
+            SplinePointListBox.ItemsSource = null;
+            SplinePointListBox.ItemsSource = _activeSplinePoints;
+            _isUpdatingUi = false;
+
+            if (_renderer != null)
+            {
+                _renderer.UploadSplineData();
+                _renderer.UploadObjectData();
+            }
+        }
+
+        private void RemoveSplinePoint_Click(object sender, RoutedEventArgs e)
+        {
+            if (_activeSplinePoints == null || _activeSplineName == null) return;
+
+            int index = SplinePointListBox.SelectedIndex;
+            if (index >= 0 && index < _activeSplinePoints.Count)
+            {
+                _activeSplinePoints.RemoveAt(index);
+
+                _cutsceneService.SaveSpline(_cameraCPath, _activeSplineName, _activeSplinePoints);
+
+                _isUpdatingUi = true;
+                SplinePointListBox.ItemsSource = null;
+                SplinePointListBox.ItemsSource = _activeSplinePoints;
+                _isUpdatingUi = false;
+
+                if (_renderer != null)
+                {
+                    _renderer.SelectedSplinePointIndex = -1;
+                    _renderer.UploadSplineData();
+                    _renderer.UploadObjectData();
+                }
+            }
+        }
+
+        private void PlayPathPreview_Click(object sender, RoutedEventArgs e)
+        {
+            if (_activeSplinePoints == null || _activeSplinePoints.Count < 2) return;
+
+            string baseName = _activeSplineName.Replace("Position", "").Replace("Focus", "");
+            var posSpline = _cutsceneService.LoadSpline(_cameraCPath, baseName + "Position");
+            var focSpline = _cutsceneService.LoadSpline(_cameraCPath, baseName + "Focus");
+
+            if (posSpline.Count < 2 || focSpline.Count < 2) return;
+
+            if (_renderer != null)
+            {
+                _renderer.IsPlayingPreview = true;
+            }
+
+            var timer = new System.Windows.Threading.DispatcherTimer();
+            timer.Interval = TimeSpan.FromMilliseconds(33);
+            double progress = 0.0;
+            double step = 0.005;
+
+            timer.Tick += (s, ev) =>
+            {
+                progress += step;
+                if (progress >= 1.0)
+                {
+                    timer.Stop();
+                    if (_renderer != null)
+                    {
+                        _renderer.StopPreview();
+                    }
+                    return;
+                }
+
+                OpenTK.Mathematics.Vector3 pos = InterpolateSpline(posSpline, progress);
+                OpenTK.Mathematics.Vector3 foc = InterpolateSpline(focSpline, progress);
+
+                if (_renderer != null)
+                {
+                    _renderer.SetCameraPositionAndTarget(pos, foc);
+                }
+            };
+
+            timer.Start();
+        }
+
+        private OpenTK.Mathematics.Vector3 InterpolateSpline(List<Services.SplinePoint> spline, double t)
+        {
+            int n = spline.Count;
+            double scaledT = t * (n - 1);
+            int idx1 = (int)Math.Floor(scaledT);
+            int idx2 = (int)Math.Ceiling(scaledT);
+            
+            if (idx1 < 0) idx1 = 0;
+            if (idx2 >= n) idx2 = n - 1;
+            if (idx1 == idx2) return new OpenTK.Mathematics.Vector3(spline[idx1].X, spline[idx1].Y, spline[idx1].Z);
+
+            double frac = scaledT - idx1;
+            var p1 = spline[idx1];
+            var p2 = spline[idx2];
+
+            float x = (float)(p1.X + (p2.X - p1.X) * frac);
+            float y = (float)(p1.Y + (p2.Y - p1.Y) * frac);
+            float z = (float)(p1.Z + (p2.Z - p1.Z) * frac);
+
+            return new OpenTK.Mathematics.Vector3(x, y, z);
         }
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)

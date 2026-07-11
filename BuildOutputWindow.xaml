@@ -10,7 +10,7 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         
-        <TextBlock Text="BUILDING PROJECT (WSL)..." Foreground="#569CD6" FontWeight="Bold" Margin="10"/>
+        <TextBlock x:Name="HeaderTitleText" Text="BUILDING PROJECT (WSL)..." Foreground="#569CD6" FontWeight="Bold" Margin="10"/>
         
         <ScrollViewer Grid.Row="1" x:Name="LogScrollViewer" Background="#0C0C0C" Margin="10,0,10,10">
             <TextBox x:Name="LogTextBox" 

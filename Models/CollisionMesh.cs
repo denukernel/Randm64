@@ -7,6 +7,7 @@ public class CollisionMesh
 {
     public List<CollisionVertex> Vertices { get; set; } = new();
     public List<CollisionTriangle> Triangles { get; set; } = new();
+    public List<WaterBox> WaterBoxes { get; set; } = new();
     public string AreaName { get; set; } = string.Empty;
     public string LevelName { get; set; } = string.Empty;
 

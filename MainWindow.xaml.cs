@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.IO;
 using System.Diagnostics;
 using System.Windows;
@@ -30,6 +30,8 @@ public partial class MainWindow : Window
     private List<LevelObject> _currentObjects = new();
     private readonly LevelSaver _levelSaver;
     private readonly SettingsService _settingsService;
+    private readonly PluginService _pluginService;
+    private List<IPlugin> _loadedPlugins = new();
 
     private static readonly Regex SpecialObjectPattern = new Regex(
         @"SPECIAL_OBJECT\s*\(\s*(?:/\*.*?\*/\s*)?([^,]+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*\)[\s,]*",
@@ -60,6 +62,7 @@ public partial class MainWindow : Window
         _macroParser = new MacroObjectParser();
         _levelSaver = new LevelSaver();
         _settingsService = new SettingsService();
+        _pluginService = new PluginService();
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -73,6 +76,11 @@ public partial class MainWindow : Window
         {
             _projectRootPath = settings.LastProjectRoot;
             LoadLevels();
+            LoadPlugins();
+        }
+        else
+        {
+            LoadPlugins();
         }
     }
 
@@ -122,7 +130,240 @@ public partial class MainWindow : Window
             _settingsService.SaveSettings(settings);
 
             LoadLevels();
+            LoadPlugins();
         }
+    }
+
+    private void OpenProjectFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
+        {
+            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        try
+        {
+            System.Diagnostics.Process.Start("explorer.exe", _projectRootPath);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Failed to open project folder: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void OpenToolsDashboard_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
+        {
+            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var tools = new ToolsWindow(_projectRootPath, _selectedLevel?.LevelPath, () =>
+        {
+            // If active level is selected, reload details
+            if (_selectedLevel != null)
+            {
+                LevelListBox_SelectionChanged(null, null);
+            }
+        });
+        tools.Owner = this;
+        tools.Show();
+    }
+
+    private void SoundReplacerButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
+        {
+            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var sfx = new SoundReplacerWindow(_projectRootPath, new List<SoundReplacerWindow.SoundReplacementRule>());
+        sfx.Owner = this;
+        sfx.ShowDialog();
+    }
+
+    private void MusicEditorMain_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
+        {
+            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var musicEditor = new MusicEditorWindow(_projectRootPath);
+        musicEditor.Owner = this;
+        musicEditor.Show();
+    }
+
+    private void SoundEditorMain_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
+        {
+            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var soundEditor = new SoundEditorWindow(_projectRootPath);
+        soundEditor.Owner = this;
+        soundEditor.Show();
+    }
+
+    private void LevelMeshEditorMain_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
+        {
+            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (_selectedLevel == null)
+        {
+            MessageBox.Show("This tool requires a level to be selected. Please select a level in the Levels tab first.", "Level Specific Tool", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var meshEditor = new LevelMeshEditorWindow(_selectedLevel.LevelPath, "Area 1", _projectRootPath, () =>
+        {
+            LevelListBox_SelectionChanged(null, null);
+        });
+        meshEditor.Owner = this;
+        meshEditor.Show();
+    }
+
+    private void WarpEditorMain_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
+        {
+            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (_selectedLevel == null)
+        {
+            MessageBox.Show("This tool requires a level to be selected. Please select a level in the Levels tab first.", "Level Specific Tool", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var warpEditor = new WarpEditorWindow(_selectedLevel.LevelPath, () =>
+        {
+            LevelListBox_SelectionChanged(null, null);
+        });
+        warpEditor.Owner = this;
+        warpEditor.Show();
+    }
+
+    private void PaintingEditorMain_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
+        {
+            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (_selectedLevel == null)
+        {
+            MessageBox.Show("This tool requires a level to be selected. Please select a level in the Levels tab first.", "Level Specific Tool", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var paintingService = new Sm64DecompLevelViewer.Services.PaintingService();
+        string? paintingPath = paintingService.FindPaintingFile(_selectedLevel.LevelPath);
+        if (string.IsNullOrEmpty(paintingPath) || !File.Exists(paintingPath))
+        {
+            MessageBox.Show("No painting.inc.c file found in this level's folders.", "Information", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var paintingEditor = new PaintingEditorWindow(_selectedLevel.LevelPath, () =>
+        {
+            LevelListBox_SelectionChanged(null, null);
+        });
+        paintingEditor.Owner = this;
+        paintingEditor.Show();
+    }
+
+    private void BehaviorBuilderButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
+        {
+            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var builder = new CustomBehaviorBuilderWindow(_projectRootPath);
+        builder.Owner = this;
+        builder.ShowDialog();
+    }
+
+    private void ActorEditorMain_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
+        {
+            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var actorEditor = new ActorEditorWindow(_projectRootPath);
+        actorEditor.Owner = this;
+        actorEditor.ShowDialog();
+    }
+
+    private void BuildRomMain_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
+        {
+            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var optionsWindow = new BuildOptionsWindow(_projectRootPath);
+        optionsWindow.Owner = this;
+        if (optionsWindow.ShowDialog() == true)
+        {
+            if (optionsWindow.IsCleanAndClone)
+            {
+                var cleanWindow = new BuildOutputWindow(_projectRootPath, optionsWindow.GitUrlToClone);
+                cleanWindow.Owner = this;
+                cleanWindow.ShowDialog();
+
+                if (cleanWindow.IsSuccessful)
+                {
+                    LoadLevels();
+                }
+            }
+            else if (optionsWindow.IsRevertSource)
+            {
+                var revertWindow = new BuildOutputWindow(_projectRootPath, isRevertMode: true);
+                revertWindow.Owner = this;
+                revertWindow.ShowDialog();
+
+                if (revertWindow.IsSuccessful)
+                {
+                    LoadLevels();
+                }
+            }
+            else
+            {
+                var buildWindow = new BuildOutputWindow(_projectRootPath, optionsWindow.SelectedSettings);
+                buildWindow.Owner = this;
+                buildWindow.ShowDialog();
+            }
+        }
+    }
+
+    private void PatchButtonMain_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
+        {
+            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var patchWindow = new PatchWindow(_projectRootPath);
+        patchWindow.Owner = this;
+        patchWindow.ShowDialog();
     }
 
     private void OptionsButton_Click(object sender, RoutedEventArgs e)
@@ -130,6 +371,21 @@ public partial class MainWindow : Window
         var settingsWindow = new SettingsWindow();
         settingsWindow.Owner = this;
         settingsWindow.ShowDialog();
+    }
+
+    private void ChaosEngineButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
+        {
+            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Chaos Engine Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var chaosWindow = new ChaosEngineWindow(_projectRootPath)
+        {
+            Owner = this
+        };
+        chaosWindow.ShowDialog();
     }
 
     private void LoadLevels()
@@ -379,7 +635,9 @@ public partial class MainWindow : Window
                 _currentVisualMesh = _modelParser.ParseMultipleModelFiles(modelFilePaths, areaName, _selectedLevel.FullName, transforms);
                 if (_currentVisualMesh != null && _projectRootPath != null)
                 {
+                    _currentVisualMesh.SkyboxBin = _selectedLevel.SkyboxBin;
                     _modelParser.ParseTextureMapping(_selectedLevel.LevelPath, _currentVisualMesh, _projectRootPath);
+                    _modelParser.ResolveSharedTextures(_currentVisualMesh, _selectedLevel.TextureBin, _projectRootPath);
                 }
             }
             else
@@ -581,6 +839,22 @@ public partial class MainWindow : Window
                     // Open the new Level Editor window
                     var settings = _settingsService.LoadSettings();
                     var editor = new LevelEditorWindow(objects, collisionMesh, visualMesh, projectRoot ?? "", areaIndex, supportedModels, settings);
+                    
+                    editor.RequestReload += (s, ev) =>
+                    {
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            editor.Close();
+                            // Re-parse the meshes from the newly cloned files
+                            if (AreaComboBox.SelectedItem is string areaName)
+                            {
+                                LoadCollisionMesh(areaName);
+                            }
+                            // Re-parse objects and open LevelEditorWindow again
+                            View3DButton_Click(this, new RoutedEventArgs());
+                        }));
+                    };
+
                     editor.Show();
                 }
             }
@@ -678,6 +952,58 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             MessageBox.Show($"Error opening folder: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void LoadPlugins()
+    {
+        try
+        {
+            _loadedPlugins = _pluginService.LoadPlugins(_projectRootPath ?? string.Empty);
+            PluginsListBox.ItemsSource = null;
+            PluginsListBox.ItemsSource = _loadedPlugins;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading plugins: {ex.Message}");
+        }
+    }
+
+    private void ReloadPlugins_Click(object sender, RoutedEventArgs e)
+    {
+        LoadPlugins();
+        MessageBox.Show("Plugins reloaded successfully!", "Plugins", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void OpenPluginsFolder_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start("explorer.exe", _settingsService.PluginsFolderPath);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Failed to open plugins folder: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void ExecutePlugin_Click(object sender, RoutedEventArgs e)
+    {
+        if (PluginsListBox.SelectedItem is IPlugin plugin)
+        {
+            try
+            {
+                plugin.Execute();
+                MessageBox.Show($"Plugin '{plugin.Name}' executed successfully!", "Plugin Execution", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error executing plugin: {ex.Message}", "Plugin Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        else
+        {
+            MessageBox.Show("Please select a plugin to execute first.", "Plugin Execution", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 }

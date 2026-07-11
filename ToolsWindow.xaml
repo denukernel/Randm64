@@ -1,0 +1,128 @@
+<Window x:Class="Sm64DecompLevelViewer.ToolsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Randm64 Tools Dashboard" Height="450" Width="780"
+        WindowStartupLocation="CenterOwner"
+        Background="#1E1E1E" Foreground="#CCCCCC"
+        ShowInTaskbar="False">
+    <Window.Resources>
+        <SolidColorBrush x:Key="PanelBackground" Color="#252526"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#3F3F46"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#007ACC"/>
+        
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="#F1F1F1"/>
+            <Setter Property="BorderBrush" Value="#3F3F46"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" BorderThickness="{TemplateBinding BorderThickness}" BorderBrush="{TemplateBinding BorderBrush}" Background="{TemplateBinding Background}" CornerRadius="3">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#3E3E42"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#007ACC"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="#555555"/>
+                                <Setter TargetName="border" Property="Background" Value="#252526"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        
+        <TextBlock Grid.Row="0" Text="Randm64 Tools Dashboard" FontSize="18" FontWeight="Bold" Foreground="White" Margin="0,0,0,5"/>
+        <TextBlock Grid.Row="1" x:Name="ActiveLevelText" Text="Active Level: None" Foreground="#999999" FontStyle="Italic" Margin="0,0,0,15"/>
+        
+        <UniformGrid Grid.Row="2" Columns="4">
+            <!-- Level Specific Tools -->
+            <Button Click="LevelMeshEditor_Click" ToolTip="Edit level vertices, geometry, and collision meshes.">
+                <StackPanel>
+                    <TextBlock Text="📐" FontSize="20" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Level Mesh Editor" Margin="0,5,0,0" FontWeight="SemiBold"/>
+                </StackPanel>
+            </Button>
+            
+            <Button Click="WarpEditor_Click" ToolTip="Manage warp nodes and teleport connections.">
+                <StackPanel>
+                    <TextBlock Text="🌀" FontSize="20" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Warp Editor" Margin="0,5,0,0" FontWeight="SemiBold"/>
+                </StackPanel>
+            </Button>
+            
+            <Button Click="PaintingEditor_Click" ToolTip="Modify castle paintings and warp destinations.">
+                <StackPanel>
+                    <TextBlock Text="🖼️" FontSize="20" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Painting Editor" Margin="0,5,0,0" FontWeight="SemiBold"/>
+                </StackPanel>
+            </Button>
+            
+            <!-- Global Asset Tools -->
+            <Button Click="ActorEditor_Click" ToolTip="Inspect and modify 3D character and object models.">
+                <StackPanel>
+                    <TextBlock Text="👤" FontSize="20" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Actor Editor" Margin="0,5,0,0" FontWeight="SemiBold"/>
+                </StackPanel>
+            </Button>
+            
+            <Button Click="MusicEditor_Click" ToolTip="Manage and configure sequence notes and tracks.">
+                <StackPanel>
+                    <TextBlock Text="🎵" FontSize="20" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Music Editor" Margin="0,5,0,0" FontWeight="SemiBold"/>
+                </StackPanel>
+            </Button>
+            
+            <Button Click="SoundEditor_Click" ToolTip="Inspect audio samples and sounds.">
+                <StackPanel>
+                    <TextBlock Text="🔊" FontSize="20" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Sound Editor" Margin="0,5,0,0" FontWeight="SemiBold"/>
+                </StackPanel>
+            </Button>
+            
+            <!-- System / Chaos Tools -->
+            <Button Click="ChaosEngine_Click" ToolTip="Open the Chaos Engine interface.">
+                <StackPanel>
+                    <TextBlock Text="🔥" FontSize="20" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Chaos Engine" Margin="0,5,0,0" FontWeight="SemiBold"/>
+                </StackPanel>
+            </Button>
+            
+            <Button Click="BuildRom_Click" ToolTip="Configure build targets, clean repository clone, revert source, and compile SM64 ROM.">
+                <StackPanel>
+                    <TextBlock Text="⚙️" FontSize="20" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Build ROM" Margin="0,5,0,0" FontWeight="SemiBold"/>
+                </StackPanel>
+            </Button>
+            
+            <Button Click="BehaviorBuilder_Click" ToolTip="Create and compile custom entity behaviors using a visual AI constructor.">
+                <StackPanel>
+                    <TextBlock Text="🧩" FontSize="20" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Behavior Builder" Margin="0,5,0,0" FontWeight="SemiBold"/>
+                </StackPanel>
+            </Button>
+            
+            <Button Click="OpenProjectFolder_Click" ToolTip="Open project folder in Windows Explorer.">
+                <StackPanel>
+                    <TextBlock Text="📁" FontSize="20" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Open Project Folder" Margin="0,5,0,0" FontWeight="SemiBold"/>
+                </StackPanel>
+            </Button>
+        </UniformGrid>
+    </Grid>
+</Window>

@@ -1,0 +1,210 @@
+<Window x:Class="Sm64DecompLevelViewer.ActorEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Actor Viewer &amp; Editor" Height="500" Width="850"
+        Background="#1E1E1E" Foreground="#CCCCCC"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResize">
+    <Window.Resources>
+        <SolidColorBrush x:Key="BackgroundBrush" Color="#1E1E1E"/>
+        <SolidColorBrush x:Key="PanelBrush" Color="#252526"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#3F3F46"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#CCCCCC"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#00A2FF"/>
+        <SolidColorBrush x:Key="HeaderBrush" Color="#569CD6"/>
+        <SolidColorBrush x:Key="HoverBrush" Color="#2A2D2E"/>
+
+        <!-- ListBox Style -->
+        <Style TargetType="ListBox">
+            <Setter Property="Background" Value="{StaticResource PanelBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <!-- ListBoxItem Style -->
+        <Style TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource HoverBrush}"/>
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+                    <Setter Property="Foreground" Value="White"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Button Style -->
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource PanelBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource HoverBrush}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Title -->
+            <RowDefinition Height="*"/>    <!-- Content area -->
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="Actor Viewer &amp; Editor" FontSize="20" FontWeight="Bold" Foreground="{StaticResource HeaderBrush}" Margin="0,0,0,15"/>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220"/> <!-- Actor list -->
+                <ColumnDefinition Width="150"/> <!-- Actions / Info -->
+                <ColumnDefinition Width="*"/>   <!-- Texture list -->
+            </Grid.ColumnDefinitions>
+
+            <!-- Column 0: Actor List -->
+            <Grid Grid.Column="0" Margin="0,0,10,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <TextBlock Text="Actors" FontWeight="Bold" Foreground="{StaticResource HeaderBrush}" Margin="0,0,0,5"/>
+                <ListBox Grid.Row="1" x:Name="ActorsListBox" SelectionChanged="ActorsListBox_SelectionChanged"/>
+            </Grid>
+
+            <!-- Column 1: Actor Info & 3D Viewer Launch -->
+            <Border Grid.Column="1" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="10" Margin="0,0,10,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    
+                    <TextBlock Text="Properties" FontWeight="Bold" Foreground="{StaticResource HeaderBrush}" Margin="0,0,0,10"/>
+                    
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="0,0,5,0">
+                            <!-- Info -->
+                            <TextBlock x:Name="ActorNameText" Text="Select an actor" FontWeight="Bold" Foreground="White" TextWrapping="Wrap"/>
+                            <TextBlock x:Name="ActorPathText" Text="" FontSize="10" Foreground="#888888" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                            
+                            <!-- Mario Colors Customizer (Hidden by default) -->
+                            <StackPanel x:Name="MarioColorsPanel" Visibility="Collapsed" Margin="0,15,0,0">
+                                <TextBlock Text="Mario Colors" FontWeight="Bold" Foreground="{StaticResource HeaderBrush}" Margin="0,0,0,10"/>
+                                
+                                <Grid Margin="0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="40"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Overalls:" VerticalAlignment="Center" FontSize="11"/>
+                                    <Button Grid.Column="1" x:Name="OverallsColorButton" Click="ColorButton_Click" Background="Blue" Width="32" Height="20" BorderBrush="#3F3F46" Cursor="Hand"/>
+                                </Grid>
+                                
+                                <Grid Margin="0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="40"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Shirt &amp; Cap:" VerticalAlignment="Center" FontSize="11"/>
+                                    <Button Grid.Column="1" x:Name="ShirtColorButton" Click="ColorButton_Click" Background="Red" Width="32" Height="20" BorderBrush="#3F3F46" Cursor="Hand"/>
+                                </Grid>
+                                
+                                <Grid Margin="0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="40"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Gloves:" VerticalAlignment="Center" FontSize="11"/>
+                                    <Button Grid.Column="1" x:Name="GlovesColorButton" Click="ColorButton_Click" Background="White" Width="32" Height="20" BorderBrush="#3F3F46" Cursor="Hand"/>
+                                </Grid>
+                                
+                                <Grid Margin="0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="40"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Shoes:" VerticalAlignment="Center" FontSize="11"/>
+                                    <Button Grid.Column="1" x:Name="ShoesColorButton" Click="ColorButton_Click" Background="Brown" Width="32" Height="20" BorderBrush="#3F3F46" Cursor="Hand"/>
+                                </Grid>
+                                
+                                <Grid Margin="0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="40"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Skin:" VerticalAlignment="Center" FontSize="11"/>
+                                    <Button Grid.Column="1" x:Name="SkinColorButton" Click="ColorButton_Click" Background="Wheat" Width="32" Height="20" BorderBrush="#3F3F46" Cursor="Hand"/>
+                                </Grid>
+                                
+                                <Grid Margin="0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="40"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Hair/Mustache:" VerticalAlignment="Center" FontSize="11"/>
+                                    <Button Grid.Column="1" x:Name="HairColorButton" Click="ColorButton_Click" Background="DarkRed" Width="32" Height="20" BorderBrush="#3F3F46" Cursor="Hand"/>
+                                </Grid>
+                            </StackPanel>
+                            
+                            <!-- Mario Animations Panel (Hidden by default) -->
+                            <StackPanel x:Name="MarioAnimationsPanel" Visibility="Collapsed" Margin="0,15,0,0">
+                                <TextBlock Text="Mario Animations" FontWeight="Bold" Foreground="{StaticResource HeaderBrush}" Margin="0,0,0,10"/>
+                                <ComboBox x:Name="AnimationComboBox" SelectionChanged="AnimationComboBox_SelectionChanged" Margin="0,0,0,10" Foreground="Black"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Button Grid.Column="0" x:Name="PlayAnimButton" Content="Play" Click="PlayAnim_Click" Margin="0,0,5,0" Background="{StaticResource AccentBrush}"/>
+                                    <Button Grid.Column="1" x:Name="StopAnimButton" Content="Stop" Click="StopAnim_Click" Margin="5,0,0,0"/>
+                                </Grid>
+                            </StackPanel>
+                        </StackPanel>
+                    </ScrollViewer>
+                    
+                    <Button Grid.Row="2" x:Name="Open3DButton" Content="Open 3D View" Click="Open3D_Click" Background="{StaticResource AccentBrush}" BorderThickness="0" Foreground="White" FontWeight="Bold" Padding="15,8" HorizontalAlignment="Stretch" IsEnabled="False"/>
+                </Grid>
+            </Border>
+
+            <!-- Column 2: Texture List -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <TextBlock Text="Actor Textures" FontWeight="Bold" Foreground="{StaticResource HeaderBrush}" Margin="0,0,0,5"/>
+                <ListBox x:Name="TexturesListBox" Grid.Row="1" HorizontalContentAlignment="Stretch">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="5">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="64"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                
+                                <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Grid.Column="0" Width="48" Height="48" CornerRadius="4" ClipToBounds="True" Background="#0C0C0C">
+                                    <Image Source="{Binding ImageSource}" Width="48" Height="48" Stretch="Uniform"/>
+                                </Border>
+                                
+                                <StackPanel Grid.Column="1" Margin="10,0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding FileName}" FontWeight="Bold" Foreground="White" FontSize="12"/>
+                                    <TextBlock Text="{Binding ResolutionText}" Foreground="#888888" FontSize="10" Margin="0,2,0,0"/>
+                                </StackPanel>
+                                
+                                <Button Grid.Column="2" Content="Replace..." Click="ReplaceTexture_Click" Tag="{Binding}" Background="{StaticResource AccentBrush}" BorderThickness="0" Foreground="White" VerticalAlignment="Center" Padding="10,5"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

@@ -14,6 +14,10 @@ public class GeoNode
     public string? DisplayListName { get; set; }
     public List<GeoNode> Children { get; set; } = new();
 
+    // Fields for skeletal animation support
+    public int JointIndex { get; set; } = -1;
+    public int ParentIndex { get; set; } = -1;
+
     public GeoNode(GeoNodeType type)
     {
         Type = type;

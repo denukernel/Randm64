@@ -1,0 +1,92 @@
+<Window x:Class="Sm64DecompLevelViewer.WarpEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Warp Nodes Editor" Height="450" Width="800"
+        Background="#1E1E1E" Foreground="White"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    
+    <Window.Resources>
+        <SolidColorBrush x:Key="PanelBackground" Color="#252526"/>
+        <SolidColorBrush x:Key="HeaderBrush" Color="#007ACC"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#3F3F46"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#F1F1F1"/>
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+        <Style TargetType="DataGrid">
+            <Setter Property="Background" Value="#1E1E1E"/>
+            <Setter Property="RowBackground" Value="#252526"/>
+            <Setter Property="AlternatingRowBackground" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#3F3F46"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="#3F3F46"/>
+            <Setter Property="VerticalGridLinesBrush" Value="#3F3F46"/>
+            <Setter Property="RowHeaderWidth" Value="0"/>
+            <Setter Property="ColumnHeaderStyle">
+                <Setter.Value>
+                    <Style TargetType="DataGridColumnHeader">
+                        <Setter Property="Background" Value="#2D2D30"/>
+                        <Setter Property="Foreground" Value="White"/>
+                        <Setter Property="Padding" Value="6,4"/>
+                        <Setter Property="BorderBrush" Value="#3F3F46"/>
+                        <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="Black"/>
+            <Setter Property="BorderBrush" Value="#3F3F46"/>
+            <Setter Property="Padding" Value="4"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Title Header -->
+        <TextBlock Text="🌀 LEVEL SCRIPT WARPS" FontSize="16" FontWeight="Bold" Foreground="{StaticResource HeaderBrush}" Margin="0,0,0,10"/>
+
+        <!-- Grid of Warp Nodes -->
+        <DataGrid x:Name="WarpGrid" Grid.Row="1" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False">
+            <DataGrid.Columns>
+                <DataGridComboBoxColumn x:Name="MacroTypeColumn" Header="Macro Type" SelectedValueBinding="{Binding MacroType, UpdateSourceTrigger=PropertyChanged}" Width="150"/>
+                <DataGridTextColumn Header="Warp ID" Binding="{Binding Id, UpdateSourceTrigger=PropertyChanged}" Width="100"/>
+                <DataGridComboBoxColumn x:Name="DestLevelColumn" Header="Dest Level" SelectedValueBinding="{Binding DestLevel, UpdateSourceTrigger=PropertyChanged}" Width="180"/>
+                <DataGridTextColumn Header="Dest Area" Binding="{Binding DestArea, UpdateSourceTrigger=PropertyChanged}" Width="80"/>
+                <DataGridTextColumn Header="Dest Node" Binding="{Binding DestNode, UpdateSourceTrigger=PropertyChanged}" Width="100"/>
+                <DataGridComboBoxColumn x:Name="FlagsColumn" Header="Flags" SelectedValueBinding="{Binding Flags, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- Bottom Controls -->
+        <DockPanel Grid.Row="2" Margin="0,15,0,0">
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                <Button Content="➕ Add Warp" Click="AddWarp_Click" Background="#3F3F46" Foreground="White" BorderThickness="0" Padding="12,6" Margin="0,0,10,0"/>
+                <Button Content="🗑️ Delete Selected" Click="DeleteWarp_Click" Background="#D13438" Foreground="White" BorderThickness="0" Padding="12,6"/>
+            </StackPanel>
+            
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
+                <Button Content="💾 Save Changes" Click="SaveButton_Click" Background="#007ACC" Foreground="White" BorderThickness="0" Padding="15,6" FontWeight="Bold" Margin="0,0,10,0"/>
+                <Button Content="Close" Click="CloseButton_Click" Background="#3F3F46" Foreground="White" BorderThickness="0" Padding="12,6"/>
+            </StackPanel>
+        </DockPanel>
+
+        <!-- Status Bar -->
+        <StatusBar Grid.Row="3" Background="#2D2D30" BorderBrush="#3F3F46" BorderThickness="0,1,0,0" Margin="0,10,-10,-10" Height="25">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusBarText" Text="Warp script editor loaded." FontSize="11" Foreground="#999999" Margin="5,0"/>
+            </StatusBarItem>
+        </StatusBar>
+    </Grid>
+</Window>

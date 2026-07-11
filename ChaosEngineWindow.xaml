@@ -1,0 +1,255 @@
+<Window x:Class="Sm64DecompLevelViewer.ChaosEngineWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Chaos Engine" Height="500" Width="460"
+        Background="#121212" Foreground="#E0E0E0"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+    <Window.Resources>
+        <SolidColorBrush x:Key="PanelBrush" Color="#1E1E1E"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#333333"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#D32F2F"/>
+        <SolidColorBrush x:Key="AccentHoverBrush" Color="#F44336"/>
+    </Window.Resources>
+    
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Title -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,15">
+            <TextBlock Text="CHAOS ENGINE" FontSize="22" FontWeight="ExtraBold" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center"/>
+            <TextBlock Text="Inject corruption directly into compiled ROM assets and decomp source" FontSize="11" Foreground="#888888" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+        </StackPanel>
+
+        <!-- Presets Bar -->
+        <Border Grid.Row="1" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,12">
+            <DockPanel>
+                <TextBlock Text="Chaos Preset:" VerticalAlignment="Center" Foreground="#CCCCCC" Margin="0,0,10,0"/>
+                <Button Content="Save As..." Click="SavePreset_Click" DockPanel.Dock="Right" Padding="10,4" Margin="5,0,0,0" Background="#3E3E42" Foreground="White" BorderThickness="0" Cursor="Hand"/>
+                <Button Content="Delete" Click="DeletePreset_Click" DockPanel.Dock="Right" Padding="10,4" Margin="5,0,0,0" Background="#A12424" Foreground="White" BorderThickness="0" Cursor="Hand"/>
+                <ComboBox x:Name="PresetComboBox" SelectedIndex="0" Height="24" SelectionChanged="PresetComboBox_SelectionChanged" Background="#252526" Foreground="Black" BorderBrush="#3F3F46">
+                    <ComboBoxItem Content="Default Settings"/>
+                </ComboBox>
+            </DockPanel>
+        </Border>
+
+        <!-- Configuration -->
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,0,0,15">
+            <StackPanel Grid.IsSharedSizeScope="True">
+                <!-- Intensify Slider -->
+                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="15" Margin="0,0,0,12">
+                    <StackPanel>
+                        <DockPanel>
+                            <TextBlock Text="Intensify (Corruption Rate):" FontSize="13" FontWeight="Bold" Foreground="#FFFFFF"/>
+                            <TextBlock x:Name="IntensifyValueText" Text="10%" FontSize="13" FontWeight="Bold" Foreground="#4CAF50" DockPanel.Dock="Right"/>
+                        </DockPanel>
+                        <Slider x:Name="IntensifySlider" Minimum="1" Maximum="500" Value="10" TickFrequency="5" IsSnapToTickEnabled="True" Margin="0,10,0,0" ValueChanged="IntensifySlider_ValueChanged"/>
+                        <TextBlock x:Name="IntensifyWarningText" Text="⚠️ WARNING: High corruption rates may cause sound driver hangs or total silence!" FontSize="11" Foreground="#FF3333" FontWeight="SemiBold" Margin="0,5,0,0" Visibility="Collapsed" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Corruption Targets -->
+                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="15" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="Target Assets" FontSize="13" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
+                        
+                        <!-- Level Selection Filter -->
+                        <DockPanel Margin="0,0,0,12">
+                            <TextBlock Text="Target Level:" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <ComboBox x:Name="LevelSelectionComboBox" SelectedIndex="0" Height="24" Width="200" HorizontalAlignment="Left" Background="#252526" Foreground="Black" BorderBrush="#3F3F46">
+                                <ComboBoxItem Content="All Levels"/>
+                            </ComboBox>
+                        </DockPanel>
+                        
+                        <CheckBox x:Name="TargetMusicNotesCheck" Content="M64 Music Notes (Sequences)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="True" Checked="TargetMusicNotesCheck_Toggle" Unchecked="TargetMusicNotesCheck_Toggle"/>
+                        <!-- Sub-options for M64 Music Notes -->
+                        <StackPanel x:Name="MusicNotesOptionsPanel" Margin="20,0,0,8" Visibility="Visible">
+                            <DockPanel Margin="0,0,0,6">
+                                <TextBlock Text="Mode:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox x:Name="MusicNotesModeComboBox" SelectedIndex="0" Height="24" Width="200" HorizontalAlignment="Left">
+                                    <ComboBoxItem Content="Transpose (Pitch Shift)"/>
+                                    <ComboBoxItem Content="Tempo Shift (BPM Warp)"/>
+                                    <ComboBoxItem Content="Instrument Swap (Orchestration)"/>
+                                    <ComboBoxItem Content="Duration Glitcher"/>
+                                    <ComboBoxItem Content="Velocity Randomizer"/>
+                                    <ComboBoxItem Content="Melody Scrambler (Shuffle)"/>
+                                </ComboBox>
+                            </DockPanel>
+                            <StackPanel Margin="0,0,0,4">
+                                <RadioButton x:Name="M64AllRadio" Content="Corrupt All Sequences" Foreground="#CCCCCC" IsChecked="True" Checked="M64Radio_Checked" Unchecked="M64Radio_Checked"/>
+                                <RadioButton x:Name="M64SelectRadio" Content="Corrupt Selected Sequences" Foreground="#CCCCCC" Margin="0,4,0,0" Checked="M64Radio_Checked" Unchecked="M64Radio_Checked"/>
+                            </StackPanel>
+                            <ListBox x:Name="M64SelectionListBox" Height="80" SelectionMode="Multiple" Margin="0,4,0,0" Visibility="Collapsed" Background="#252526" Foreground="#E0E0E0" BorderBrush="#3F3F46"/>
+                        </StackPanel>
+                        
+                        <CheckBox x:Name="TargetSoundsCheck" Content="Sound Bank Instrument Samples (.aiff)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="True"/>
+                        <CheckBox x:Name="ShuffleSoundsCheck" Content="Randomize/Shuffle Sound Samples (Swap audio files)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="ShuffleSoundsCheck_Toggle" Unchecked="ShuffleSoundsCheck_Toggle"/>
+                        <!-- Sub-options for shuffling sounds -->
+                        <StackPanel x:Name="ShuffleSoundsOptionsPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <CheckBox x:Name="ExcludeInstrumentsShuffleCheck" Content="Exclude Instruments (keep instruments clean)" Foreground="#CCCCCC" Margin="0,0,0,6" IsChecked="False"/>
+                            <CheckBox x:Name="ExcludeSfxShuffleCheck" Content="Exclude SFX (keep voices &amp; sound effects clean)" Foreground="#CCCCCC" IsChecked="False"/>
+                            <CheckBox x:Name="ShuffleSfxOnlyCheck" Content="Shuffle SFX amongst themselves only" Foreground="#CCCCCC" Margin="0,6,0,0" IsChecked="False"/>
+                        </StackPanel>
+                        
+                        <CheckBox x:Name="ReplaceSfxCheck" Content="Replace Selected SFX with Specific Sound" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="ReplaceSfxCheck_Toggle" Unchecked="ReplaceSfxCheck_Toggle"/>
+                        <!-- Sub-options for replacing SFX -->
+                        <StackPanel x:Name="ReplaceSfxPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <Button Content="Configure Sound / Instrument Replacements..." Click="ConfigureSoundReplacer_Click" Height="28" Width="300" HorizontalAlignment="Left" Background="#007ACC" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Margin="0,4,0,4"/>
+                            <TextBlock x:Name="ActiveReplacementsSummaryText" Text="Active replacement rules: 0" Foreground="#999999" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        
+                        <CheckBox x:Name="RandomizeDlCheck" Content="Display List (F3DEX) Randomizer" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="RandomizeDlCheck_Toggle" Unchecked="RandomizeDlCheck_Toggle"/>
+                        <!-- Sub-options for Display List Randomizer -->
+                        <StackPanel x:Name="DlRandomizerPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <DockPanel>
+                                <TextBlock Text="Mode:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox x:Name="DlRandomizerModeComboBox" SelectedIndex="0" Height="24" Width="200" HorizontalAlignment="Left">
+                                    <ComboBoxItem Content="Rainbow World (Vertex Colors)"/>
+                                    <ComboBoxItem Content="Faceless Mario (No UVs)"/>
+                                    <ComboBoxItem Content="Normal Inversion"/>
+                                    <ComboBoxItem Content="Texture Scrambler (UV Size)"/>
+                                    <ComboBoxItem Content="Polygon Exploder"/>
+                                    <ComboBoxItem Content="Wireframe Conversion"/>
+                                    <ComboBoxItem Content="UV Swap"/>
+                                    <ComboBoxItem Content="Scale Distortion"/>
+                                </ComboBox>
+                            </DockPanel>
+                        </StackPanel>
+                        
+                        <CheckBox x:Name="TargetModelsCheck" Content="Vertices / Custom 3D Models" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="True"/>
+                        <CheckBox x:Name="TargetGoddardCheck" Content="Goddard Physics &amp; Mario Face Vertices" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="True" Checked="TargetGoddardCheck_Toggle" Unchecked="TargetGoddardCheck_Toggle"/>
+                        <!-- Sub-options for Goddard Corruptions -->
+                        <StackPanel x:Name="GoddardOptionsPanel" Margin="20,0,0,8" Visibility="Visible">
+                            <DockPanel>
+                                <TextBlock Text="Mode:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox x:Name="GoddardModeComboBox" SelectedIndex="0" Height="24" Width="200" HorizontalAlignment="Left">
+                                    <ComboBoxItem Content="Face Jitter (Vibration)"/>
+                                    <ComboBoxItem Content="Face Stretch (Meltdown)"/>
+                                    <ComboBoxItem Content="Face Squash"/>
+                                    <ComboBoxItem Content="Vertex Exploder"/>
+                                    <ComboBoxItem Content="Mirror Face (Invert X)"/>
+                                    <ComboBoxItem Content="Low Poly Voxelizer"/>
+                                    <ComboBoxItem Content="Static Noise"/>
+                                    <ComboBoxItem Content="Facial Tremor"/>
+                                    <ComboBoxItem Content="Mouth/Eye Warp"/>
+                                    <ComboBoxItem Content="Melt Face (Zero Coords)"/>
+                                </ComboBox>
+                            </DockPanel>
+                        </StackPanel>
+                        
+                        <CheckBox x:Name="GlitchAnimationsCheck" Content="Mario Animation Glitcher" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="GlitchAnimationsCheck_Toggle" Unchecked="GlitchAnimationsCheck_Toggle"/>
+                        <!-- Sub-options for Mario Animation Glitcher -->
+                        <StackPanel x:Name="AnimationGlitcherPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <DockPanel>
+                                <TextBlock Text="Mode:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox x:Name="AnimationGlitcherModeComboBox" SelectedIndex="0" Height="24" Width="200" HorizontalAlignment="Left">
+                                    <ComboBoxItem Content="Joint Jitter"/>
+                                    <ComboBoxItem Content="Joint Stretch"/>
+                                    <ComboBoxItem Content="Angle Invert"/>
+                                    <ComboBoxItem Content="Stutter Step"/>
+                                    <ComboBoxItem Content="Pose Freeze (T-Pose)"/>
+                                    <ComboBoxItem Content="Extreme Twist"/>
+                                    <ComboBoxItem Content="Frame Scrambler"/>
+                                    <ComboBoxItem Content="Offset Detach (Limbs)"/>
+                                </ComboBox>
+                            </DockPanel>
+                        </StackPanel>
+                        
+                        <CheckBox x:Name="GlitchHudCheck" Content="HUD Glitcher" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="GlitchHudCheck_Toggle" Unchecked="GlitchHudCheck_Toggle"/>
+                        <!-- Sub-options for HUD Glitcher -->
+                        <StackPanel x:Name="HudGlitcherPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <DockPanel>
+                                <TextBlock Text="Mode:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox x:Name="HudGlitcherModeComboBox" SelectedIndex="0" Height="24" Width="200" HorizontalAlignment="Left">
+                                    <ComboBoxItem Content="Position Scramble"/>
+                                    <ComboBoxItem Content="Glyph Corruption"/>
+                                    <ComboBoxItem Content="Int Format Break"/>
+                                    <ComboBoxItem Content="Health Meter Warp"/>
+                                    <ComboBoxItem Content="Strobe Stutter"/>
+                                </ComboBox>
+                            </DockPanel>
+                        </StackPanel>
+                        
+                        <CheckBox x:Name="RandomizeTexturesCheck" Content="Randomize Game Textures (Glitched PNGs)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="RandomizeTexturesCheck_Toggle" Unchecked="RandomizeTexturesCheck_Toggle"/>
+                        <!-- Sub-options for texture randomizer -->
+                        <StackPanel x:Name="TextureRandomizeOptionsPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <DockPanel>
+                                <TextBlock Text="Mode:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox x:Name="TextureRandomizeModeComboBox" SelectedIndex="0" Height="24" Width="200" HorizontalAlignment="Left">
+                                    <ComboBoxItem Content="Texture Swapping (Shuffle)"/>
+                                    <ComboBoxItem Content="Color Inversion (Negative)"/>
+                                    <ComboBoxItem Content="Hue Shift (Color Cycle)"/>
+                                    <ComboBoxItem Content="Grayscale &amp; Desaturate"/>
+                                    <ComboBoxItem Content="Noise Injection"/>
+                                    <ComboBoxItem Content="Pixelate / Mosaic"/>
+                                </ComboBox>
+                            </DockPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Corruption Modes -->
+                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="15">
+                    <StackPanel>
+                        <TextBlock Text="Corruption Mode" FontSize="13" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
+                        <ComboBox x:Name="ModeComboBox" SelectedIndex="0" Height="28">
+                            <ComboBoxItem Content="Byte Swapping (Interleave Glitches)"/>
+                            <ComboBoxItem Content="Random Noise / Value Randomizer"/>
+                            <ComboBoxItem Content="Bitwise Logical (XOR Masks)"/>
+                            <ComboBoxItem Content="Shift Corrupt (Vertex Stretching)"/>
+                            <ComboBoxItem Content="Nullify / Zero out (Geometry Voids)"/>
+                            <ComboBoxItem Content="Arithmetic Addition (Pitch Transpose / Value Offset)"/>
+                        </ComboBox>
+                    </StackPanel>
+                </Border>
+
+                <!-- Chaos Cheats & Game Logic -->
+                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="15" Margin="0,12,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Chaos Cheats &amp; Game Logic" FontSize="13" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
+                        <CheckBox x:Name="RandomizeSkyboxCheck" Content="Randomize Level Skyboxes" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False"/>
+                        <CheckBox x:Name="RandomizeTextCheck" Content="Randomize Game Text &amp; Dialogs" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="RandomizeTextCheck_Toggle" Unchecked="RandomizeTextCheck_Toggle"/>
+                        <!-- Sub-options for text randomizer -->
+                        <StackPanel x:Name="TextRandomizeOptionsPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <DockPanel Margin="0,0,0,6">
+                                <TextBlock Text="Randomization Mode:" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="TextRandomizeModeComboBox" SelectedIndex="0" Height="24" Width="180" HorizontalAlignment="Left">
+                                    <ComboBoxItem Content="Scramble Characters"/>
+                                    <ComboBoxItem Content="Word Shuffle"/>
+                                    <ComboBoxItem Content="Leet Speak"/>
+                                    <ComboBoxItem Content="Alien/Glitch Symbols"/>
+                                    <ComboBoxItem Content="Mocking Case"/>
+                                </ComboBox>
+                            </DockPanel>
+                        </StackPanel>
+                        <CheckBox x:Name="ChaosLogicJumpWeird" Content="Weird Mario Jumping (Random Velocity)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False"/>
+                        <CheckBox x:Name="ChaosLogicJumpDeath" Content="Deadly Jumping (Mario dies on jump)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False"/>
+                        <CheckBox x:Name="LimboMarioCheck" Content="Limbo Mario Animations (Spine deform)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False"/>
+                        <CheckBox x:Name="AlienSoundCheatCheck" Content="Alien Sound Glitch (Inject GameShark A031C1AF)" Foreground="#CCCCCC" IsChecked="False"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Action / Status -->
+        <Grid Grid.Row="3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            
+            <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
+                <TextBlock x:Name="StatusTextBlock" Text="Engine ready..." FontSize="11" Foreground="#888888" TextWrapping="Wrap"/>
+                <ProgressBar x:Name="CorruptionProgressBar" Height="6" Margin="0,4,0,0" Background="#222" Foreground="{StaticResource AccentBrush}" Visibility="Collapsed"/>
+            </StackPanel>
+
+            <Button Grid.Column="1" x:Name="ChaosButton" Content="INFLICT CHAOS!" Click="ChaosButton_Click"
+                    Padding="25,12" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0" 
+                    FontSize="14" FontWeight="Bold" Cursor="Hand"/>
+        </Grid>
+    </Grid>
+</Window>
