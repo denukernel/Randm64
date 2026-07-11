@@ -48,6 +48,32 @@ Randm64 stores user preferences and mod assets inside the user's Documents folde
 - **Data/Patchs**: Source patch scripts.
 - **Data/Custom Objects**: Saved templates for the behavior builder.
 
+## System Requirements
+
+### Minimum Requirements
+- **Operating System**: Windows 10 (64-bit)
+- **Processor**: Intel Core 2 Duo / AMD Athlon 64 X2 or better (2.0 GHz)
+- **Memory**: 4 GB RAM
+- **Graphics**: Intel HD Graphics 4000 or any GPU supporting OpenGL 3.3
+- **Storage**: 500 MB free disk space (plus space for SM64 repositories)
+- **Software**: .NET 8.0 Runtime, WSL with Ubuntu 20.04 (if compiling ROMs)
+
+### Recommended Requirements
+- **Operating System**: Windows 10 or 11 (64-bit)
+- **Processor**: Intel Core i5 / AMD Ryzen 5 or better
+- **Memory**: 8 GB RAM
+- **Graphics**: NVIDIA GeForce GTX 960 / AMD Radeon R9 280 or better (supporting OpenGL 4.3 or higher)
+- **Storage**: 2 GB free SSD space
+- **Software**: .NET 8.0 SDK, WSL 2 with Ubuntu 22.04 LTS
+
+### High Performance / Maximum Setup
+- **Operating System**: Windows 11 (64-bit)
+- **Processor**: Intel Core i7 or i9 / AMD Ryzen 7 or 9 (enables fast parallel compiling via `make -j16`)
+- **Memory**: 16 GB RAM or more
+- **Graphics**: NVIDIA RTX series / AMD Radeon RX series (enables smooth high render distance settings up to 100k units and maximum FOV viewport detail)
+- **Storage**: NVMe M.2 SSD (for optimal file scanning and asset search speed)
+- **Software**: .NET 8.0 SDK, WSL 2 with custom compiled compilation tools
+
 ## Getting Started
 
 ### Prerequisites
