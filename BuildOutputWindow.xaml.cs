@@ -142,6 +142,12 @@ namespace Sm64DecompLevelViewer
             {
                 MainStatusBar.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(220, 53, 69)); // Red
                 LogTextBox.AppendText($"\n> FATAL ERROR: {ex.Message}\n");
+                if (ex is System.ComponentModel.Win32Exception || ex.Message.Contains("wsl", StringComparison.OrdinalIgnoreCase))
+                {
+                    LogTextBox.AppendText("\n> WSL (Windows Subsystem for Linux) might not be installed or configured on your system.\n");
+                    LogTextBox.AppendText("> Please install WSL (e.g. Ubuntu 20.04 or newer from the Microsoft Store) to build the ROM.\n");
+                    LogTextBox.AppendText("> To install WSL, run: 'wsl --install' in an administrator Command Prompt/PowerShell.\n");
+                }
                 StatusText.Text = "Execution Error";
             }
         }
@@ -279,6 +285,12 @@ namespace Sm64DecompLevelViewer
                 MainStatusBar.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(220, 53, 69)); // Red
                 StatusText.Text = "Failed to Clean & Re-clone";
                 LogTextBox.AppendText($"\n> FATAL ERROR: {ex.Message}\n");
+                if (ex is System.ComponentModel.Win32Exception || ex.Message.Contains("wsl", StringComparison.OrdinalIgnoreCase))
+                {
+                    LogTextBox.AppendText("\n> WSL (Windows Subsystem for Linux) might not be installed or configured on your system.\n");
+                    LogTextBox.AppendText("> Please install WSL (e.g. Ubuntu 20.04 or newer from the Microsoft Store) to run build tools.\n");
+                    LogTextBox.AppendText("> To install WSL, run: 'wsl --install' in an administrator Command Prompt/PowerShell.\n");
+                }
 
                 // CRITICAL safety fallback: try to restore baseroms even if clone failed
                 if (hasBackup)
@@ -385,6 +397,12 @@ namespace Sm64DecompLevelViewer
                 MainStatusBar.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(220, 53, 69)); // Red
                 StatusText.Text = "Failed to Revert Changes";
                 LogTextBox.AppendText($"\n> FATAL ERROR: {ex.Message}\n");
+                if (ex is System.ComponentModel.Win32Exception || ex.Message.Contains("wsl", StringComparison.OrdinalIgnoreCase))
+                {
+                    LogTextBox.AppendText("\n> WSL (Windows Subsystem for Linux) might not be installed or configured on your system.\n");
+                    LogTextBox.AppendText("> Please install WSL (e.g. Ubuntu 20.04 or newer from the Microsoft Store) to run build tools.\n");
+                    LogTextBox.AppendText("> To install WSL, run: 'wsl --install' in an administrator Command Prompt/PowerShell.\n");
+                }
             }
         }
 
@@ -570,6 +588,12 @@ echo ""Compilation complete!""
             catch (Exception ex)
             {
                 LogTextBox.AppendText($"> ERROR during ROM extension: {ex.Message}\n");
+                if (ex is System.ComponentModel.Win32Exception || ex.Message.Contains("wsl", StringComparison.OrdinalIgnoreCase))
+                {
+                    LogTextBox.AppendText("\n> WSL (Windows Subsystem for Linux) might not be installed or configured on your system.\n");
+                    LogTextBox.AppendText("> Please install WSL (e.g. Ubuntu 20.04 or newer from the Microsoft Store) to run build tools.\n");
+                    LogTextBox.AppendText("> To install WSL, run: 'wsl --install' in an administrator Command Prompt/PowerShell.\n");
+                }
                 return false;
             }
         }

@@ -59,6 +59,25 @@ Randm64 stores user preferences and mod assets inside the user's Documents folde
 2. Select **Build -> Rebuild Solution**.
 3. Run the project to configure your settings and start editing.
 
+## WSL & Compilation Setup
+
+### Installing WSL
+If you plan to compile SM64 ROMs using the built-in Build menu:
+1. Open PowerShell or Command Prompt as Administrator.
+2. Run: `wsl --install`
+3. Restart your computer. This installs Ubuntu by default. If you need a specific distro (such as Ubuntu 20.04), you can download it from the Microsoft Store or install it via command line.
+4. Once Ubuntu starts, set up your username and password, then run the compilation dependency setup command inside the WSL terminal:
+   ```bash
+   sudo apt update && sudo apt install -y build-essential git binutils-mips-linux-gnu zlib1g-dev libaudiofile-dev pkg-config
+   ```
+
+### Does it work on Windows drives (C:, D:, etc.)?
+Yes! You do not need to clone your repository inside the internal WSL filesystem (for example, `/home/username/`).
+WSL automatically mounts your Windows drives under `/mnt/` (for example, `C:\` is mounted at `/mnt/c/`).
+1. Place your SM64 decomp repository folder anywhere on your computer (like your Downloads folder: `C:\Users\...\Downloads\sm64`).
+2. Place a valid `baserom.us.z64` (or target region) inside your repository root folder.
+3. Open Randm64, select the repository folder, and compile. The build engine runs commands directly on the Windows host folder via the WSL mounts, and output files will compile directly on your host drive!
+
 ## Technical Stack
 - **C# / .NET 8**
 - **WPF** (Windows Presentation Foundation)
