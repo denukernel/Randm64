@@ -125,6 +125,12 @@ If you plan to compile SM64 ROMs using the built-in Build menu:
 ### Does it work with the Super Mario 64 PC Port?
 Yes! The 3D Level Editor, Custom Behavior Builder, and Sound Replacer work seamlessly with PC Port repositories (like `sm64ex`, `sm64-port`, and `sm64ex-coop` / `coop`). However, low-level ROM memory injections (such as Goddard face deforming) are designed specifically for N64 emulators/ROM compilation and may not apply to PC-native executables.
 
+### Does it work on custom decompilation repositories (like Render96, Shindou, or custom hacks)?
+Yes! As long as the repository maintains the standard folder structure of the SM64 decompilation (such as `levels/`, `actors/`, `textures/`, `sound/`), Randm64 can successfully parse, edit, and build your assets.
+
+### Can it edit pre-compiled ROM Hacks (traditional `.z64` / `.n64` files)?
+No. Randm64 is designed to operate on **source code repositories** (decompilation projects). This allows you to edit levels, behaviors, and sounds at the source level and build clean ROMs or native PC executables, which is much more stable and extensible than modifying compiled binaries.
+
 ### Does it work on Windows drives (C:, D:, etc.)?
 Yes! You do not need to clone your repository inside the internal WSL filesystem (for example, `/home/username/`).
 WSL automatically mounts your Windows drives under `/mnt/` (for example, `C:\` is mounted at `/mnt/c/`).
