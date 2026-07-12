@@ -131,6 +131,7 @@ public class ObjectParser
                         };
 
                         string paramsStr = match.Groups[8].Value.Trim();
+                        obj.RawParams = paramsStr;
                         if (paramsStr.StartsWith("0x"))
                         {
                             obj.Params = Convert.ToUInt32(paramsStr, 16);

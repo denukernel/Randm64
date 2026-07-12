@@ -93,6 +93,19 @@
                             <CheckBox x:Name="ExcludeInstrumentsShuffleCheck" Content="Exclude Instruments (keep instruments clean)" Foreground="#CCCCCC" Margin="0,0,0,6" IsChecked="False"/>
                             <CheckBox x:Name="ExcludeSfxShuffleCheck" Content="Exclude SFX (keep voices &amp; sound effects clean)" Foreground="#CCCCCC" IsChecked="False"/>
                             <CheckBox x:Name="ShuffleSfxOnlyCheck" Content="Shuffle SFX amongst themselves only" Foreground="#CCCCCC" Margin="0,6,0,0" IsChecked="False"/>
+                            <CheckBox x:Name="SfxIdentityShuffleCheck" Content="Shuffle/Swap Sound Identities (Change which sound plays)" Foreground="#CCCCCC" Margin="0,6,0,0" IsChecked="True"/>
+                            <CheckBox x:Name="SfxPitchVariationCheck" Content="Apply Random Pitch Variation" Foreground="#CCCCCC" Margin="0,6,0,0" IsChecked="False"/>
+                            <DockPanel Margin="0,6,0,0">
+                                <TextBlock Text="SFX Randomizer Mode:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox x:Name="SfxRandomizerModeComboBox" SelectedIndex="0" Height="24" Width="200" HorizontalAlignment="Left">
+                                    <ComboBoxItem Content="Pure Shuffle (Swap Only)"/>
+                                    <ComboBoxItem Content="High Pitch (Chipmunk)"/>
+                                    <ComboBoxItem Content="Low Pitch (Demonic)"/>
+                                    <ComboBoxItem Content="Chaotic Pitch (Random)"/>
+                                    <ComboBoxItem Content="Reverse Playback (Backwards)"/>
+                                    <ComboBoxItem Content="Glitched Truncation (Shortened)"/>
+                                </ComboBox>
+                            </DockPanel>
                         </StackPanel>
                         
                         <CheckBox x:Name="ReplaceSfxCheck" Content="Replace Selected SFX with Specific Sound" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="ReplaceSfxCheck_Toggle" Unchecked="ReplaceSfxCheck_Toggle"/>
@@ -118,6 +131,12 @@
                                     <ComboBoxItem Content="Scale Distortion"/>
                                 </ComboBox>
                             </DockPanel>
+                        </StackPanel>
+
+                        <CheckBox x:Name="DlExclusionCheck" Content="Display List Exclusion Mode" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="DlExclusionCheck_Toggle" Unchecked="DlExclusionCheck_Toggle"/>
+                        <!-- Sub-options for Display List Exclusion Mode -->
+                        <StackPanel x:Name="DlExclusionPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <Button Content="Configure Exclusions..." Click="OpenDlExclusionWindow_Click" Height="26" Width="220" HorizontalAlignment="Left" Background="#007ACC" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Cursor="Hand" Margin="0,0,0,8"/>
                         </StackPanel>
                         
                         <CheckBox x:Name="RandomizeMarioColorsCheck" Content="Randomize Mario Colors (Shirt, Overalls, Cap)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="RandomizeMarioColorsCheck_Toggle" Unchecked="RandomizeMarioColorsCheck_Toggle"/>
@@ -222,6 +241,13 @@
                             
                             <Button x:Name="SelectTexturesButton" Content="📁 Select &amp; Preview Textures..." Click="SelectTexturesButton_Click" HorizontalAlignment="Left" Padding="12,4" Margin="47,0,0,4" Visibility="Collapsed"/>
                         </StackPanel>
+                        
+                        <CheckBox x:Name="ReplaceTexturesCustomCheck" Content="Replace Selected Textures with Specific Texture" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="ReplaceTexturesCustomCheck_Toggle" Unchecked="ReplaceTexturesCustomCheck_Toggle"/>
+                        <!-- Sub-options for replacing textures -->
+                        <StackPanel x:Name="ReplaceTexturesCustomPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <Button Content="Configure Texture Replacements..." Click="ConfigureTextureReplacer_Click" Height="28" Width="300" HorizontalAlignment="Left" Background="#007ACC" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Margin="0,4,0,4"/>
+                            <TextBlock x:Name="ActiveTextureReplacementsSummaryText" Text="Active replacement rules: 0" Foreground="#999999" Margin="0,2,0,0"/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 
@@ -259,6 +285,78 @@
                                 </ComboBox>
                             </DockPanel>
                         </StackPanel>
+
+                        <CheckBox x:Name="ScrambleTitleScreenCheck" Content="Title Screen Logo Scrambler" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="ScrambleTitleScreenCheck_Toggle" Unchecked="ScrambleTitleScreenCheck_Toggle"/>
+                        <!-- Sub-options for Title Screen Scrambler -->
+                        <StackPanel x:Name="TitleScreenScramblerPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <DockPanel>
+                                <TextBlock Text="Scrambler Mode:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox x:Name="TitleScreenScramblerModeComboBox" SelectedIndex="0" Height="24" Width="220" HorizontalAlignment="Left">
+                                    <ComboBoxItem Content="Mode 0: Disabled"/>
+                                    <ComboBoxItem Content="Mode 1: Glitchy Scale Jitter"/>
+                                    <ComboBoxItem Content="Mode 2: Vinesauce Spin / Rotation"/>
+                                    <ComboBoxItem Content="Mode 3: Melt / Vertical Stretch"/>
+                                    <ComboBoxItem Content="Mode 4: Disco Jump"/>
+                                    <ComboBoxItem Content="Mode 5: Upside Down / Mirror"/>
+                                    <ComboBoxItem Content="Mode 6: Random Warp Jitter"/>
+                                    <ComboBoxItem Content="Mode 7: Shrinking Void"/>
+                                    <ComboBoxItem Content="Mode 8: Chaotic Skewed"/>
+                                    <ComboBoxItem Content="Mode 9: Completely Random Glitch"/>
+                                </ComboBox>
+                            </DockPanel>
+                        </StackPanel>
+
+                        <CheckBox x:Name="RandomizeCutsceneCameraCheck" Content="Intro Cutscene Camera Randomizer" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="RandomizeCutsceneCameraCheck_Toggle" Unchecked="RandomizeCutsceneCameraCheck_Toggle"/>
+                        <!-- Sub-options for Cutscene Camera Randomizer -->
+                        <StackPanel x:Name="CutsceneCameraPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <DockPanel>
+                                <TextBlock Text="Camera Mode:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox x:Name="CutsceneCameraModeComboBox" SelectedIndex="0" Height="24" Width="220" HorizontalAlignment="Left">
+                                    <ComboBoxItem Content="Mode 0: Disabled"/>
+                                    <ComboBoxItem Content="Mode 1: Random Static Angles"/>
+                                    <ComboBoxItem Content="Mode 2: Jittery Handheld Camera"/>
+                                    <ComboBoxItem Content="Mode 3: Drunken / Swaying Camera"/>
+                                    <ComboBoxItem Content="Mode 4: Spinning Vortex"/>
+                                    <ComboBoxItem Content="Mode 5: Close-up Focus"/>
+                                    <ComboBoxItem Content="Mode 6: Birds-Eye View"/>
+                                    <ComboBoxItem Content="Mode 7: First Person View"/>
+                                    <ComboBoxItem Content="Mode 8: Warped Perspective"/>
+                                    <ComboBoxItem Content="Mode 9: Completely Chaotic"/>
+                                </ComboBox>
+                            </DockPanel>
+                        </StackPanel>
+
+                        <CheckBox x:Name="StartLevelChaosCheck" Content="Start Level Chaos (File Select Warp)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="StartLevelChaosCheck_Toggle" Unchecked="StartLevelChaosCheck_Toggle"/>
+                        <!-- Sub-options for Start Level Chaos -->
+                        <StackPanel x:Name="StartLevelChaosPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <DockPanel>
+                                <TextBlock Text="Warp Destination:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox x:Name="StartLevelComboBox" SelectedIndex="0" Height="24" Width="220" HorizontalAlignment="Left">
+                                    <ComboBoxItem Content="Bob-omb Battlefield (LEVEL_BOB)"/>
+                                    <ComboBoxItem Content="Whomp's Fortress (LEVEL_WF)"/>
+                                    <ComboBoxItem Content="Jolly Roger Bay (LEVEL_JRB)"/>
+                                    <ComboBoxItem Content="Cool, Cool Mountain (LEVEL_CCM)"/>
+                                    <ComboBoxItem Content="Big Boo's Haunt (LEVEL_BBH)"/>
+                                    <ComboBoxItem Content="Hazy Maze Cave (LEVEL_HMC)"/>
+                                    <ComboBoxItem Content="Lethal Lava Land (LEVEL_LLL)"/>
+                                    <ComboBoxItem Content="Shifting Sand Land (LEVEL_SSL)"/>
+                                    <ComboBoxItem Content="Dire, Dire Docks (LEVEL_DDD)"/>
+                                    <ComboBoxItem Content="Snowman's Land (LEVEL_SL)"/>
+                                    <ComboBoxItem Content="Wet-Dry World (LEVEL_WDW)"/>
+                                    <ComboBoxItem Content="Tall, Tall Mountain (LEVEL_TTM)"/>
+                                    <ComboBoxItem Content="Tiny-Huge Island (LEVEL_THI)"/>
+                                    <ComboBoxItem Content="Tick Tock Clock (LEVEL_TTC)"/>
+                                    <ComboBoxItem Content="Rainbow Ride (LEVEL_RR)"/>
+                                    <ComboBoxItem Content="Secret Aquarium (LEVEL_SA)"/>
+                                    <ComboBoxItem Content="Cavern of the Metal Cap (LEVEL_COTMC)"/>
+                                    <ComboBoxItem Content="Tower of the Wing Cap (LEVEL_TOTWC)"/>
+                                    <ComboBoxItem Content="Bowser in the Dark World (LEVEL_BITDW)"/>
+                                    <ComboBoxItem Content="Bowser in the Fire Sea (LEVEL_BITFS)"/>
+                                    <ComboBoxItem Content="Bowser in the Sky (LEVEL_BITS)"/>
+                                </ComboBox>
+                            </DockPanel>
+                        </StackPanel>
+
                         <CheckBox x:Name="ChaosLogicJumpWeird" Content="Weird Mario Jumping (Random Velocity)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False"/>
                         <CheckBox x:Name="ChaosLogicJumpDeath" Content="Deadly Jumping (Mario dies on jump)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False"/>
                         <CheckBox x:Name="LimboMarioCheck" Content="Limbo Mario Animations (Spine deform)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False"/>

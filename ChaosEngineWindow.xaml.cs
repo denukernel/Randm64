@@ -17,6 +17,7 @@ namespace Sm64DecompLevelViewer
         private readonly string _projectRoot;
         private readonly Random _random = new();
         private readonly List<SoundReplacerWindow.SoundReplacementRule> _sfxReplacementRules = new();
+        private readonly List<TextureReplacerWindow.TextureReplacementRule> _textureReplacementRules = new();
 
         private readonly string _presetsDir;
         private bool _isLoadingPreset = false;
@@ -66,11 +67,30 @@ namespace Sm64DecompLevelViewer
             int hudMode = HudGlitcherModeComboBox.SelectedIndex;
 
             bool replaceSfx = ReplaceSfxCheck.IsChecked == true;
+            bool replaceTexturesCustom = ReplaceTexturesCustomCheck.IsChecked == true;
 
             bool jumpWeird = ChaosLogicJumpWeird.IsChecked == true;
             bool jumpDeath = ChaosLogicJumpDeath.IsChecked == true;
             bool limboMario = LimboMarioCheck.IsChecked == true;
             bool alienSound = AlienSoundCheatCheck.IsChecked == true;
+
+            bool scrambleTitleScreen = ScrambleTitleScreenCheck.IsChecked == true;
+            int titleScramblerMode = TitleScreenScramblerModeComboBox.SelectedIndex;
+            bool randomizeCutsceneCamera = RandomizeCutsceneCameraCheck.IsChecked == true;
+            int cutsceneCameraMode = CutsceneCameraModeComboBox.SelectedIndex;
+            bool startLevelChaos = StartLevelChaosCheck.IsChecked == true;
+            string startLevelConstant = "LEVEL_CASTLE_GROUNDS";
+            string[] startLevelConstants = {
+                "LEVEL_BOB", "LEVEL_WF", "LEVEL_JRB", "LEVEL_CCM", "LEVEL_BBH", "LEVEL_HMC",
+                "LEVEL_LLL", "LEVEL_SSL", "LEVEL_DDD", "LEVEL_SL", "LEVEL_WDW", "LEVEL_TTM",
+                "LEVEL_THI", "LEVEL_TTC", "LEVEL_RR", "LEVEL_SA", "LEVEL_COTMC", "LEVEL_TOTWC",
+                "LEVEL_BITDW", "LEVEL_BITFS", "LEVEL_BITS"
+            };
+            int startLevelIndex = StartLevelComboBox.SelectedIndex;
+            if (startLevelIndex >= 0 && startLevelIndex < startLevelConstants.Length)
+            {
+                startLevelConstant = startLevelConstants[startLevelIndex];
+            }
 
             string selectedLevel = "All Levels";
             Dispatcher.Invoke(() =>
@@ -80,7 +100,8 @@ namespace Sm64DecompLevelViewer
 
             if (!targetMusic && !targetSounds && !randomizeDl && !targetModels && !targetGoddard && !shuffleSounds &&
                 !randomizeSkybox && !randomizeText && !jumpWeird && !jumpDeath && !limboMario && !alienSound && !randomizeTextures &&
-                !glitchAnimations && !glitchHud && !replaceSfx && !randomizeMarioColors)
+                !glitchAnimations && !glitchHud && !replaceSfx && !replaceTexturesCustom && !randomizeMarioColors && DlExclusionCheck.IsChecked != true &&
+                !scrambleTitleScreen && !randomizeCutsceneCamera && !startLevelChaos)
             {
                 MessageBox.Show("Please select at least one target asset type or cheat to inflict.", "No Targets Selected", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
@@ -132,24 +153,57 @@ namespace Sm64DecompLevelViewer
                                     }
                                 }
 
-                                // Shuffle
-                                var shuffledFiles = new List<string>(aiffFiles);
-                                int n = shuffledFiles.Count;
-                                while (n > 1)
+                                int sfxMode = 0;
+                                bool sfxIdentityShuffle = true;
+                                bool sfxPitchVariation = false;
+                                Dispatcher.Invoke(() =>
                                 {
-                                    n--;
-                                    int k = _random.Next(n + 1);
-                                    string temp = shuffledFiles[k];
-                                    shuffledFiles[k] = shuffledFiles[n];
-                                    shuffledFiles[n] = temp;
+                                    sfxMode = SfxRandomizerModeComboBox.SelectedIndex;
+                                    sfxIdentityShuffle = SfxIdentityShuffleCheck.IsChecked == true;
+                                    sfxPitchVariation = SfxPitchVariationCheck.IsChecked == true;
+                                });
+
+                                // Define source backups to target mapping
+                                string[] sourceBackups = new string[aiffFiles.Length];
+                                if (sfxIdentityShuffle)
+                                {
+                                    // Shuffle
+                                    var shuffledFiles = new List<string>(aiffFiles);
+                                    int n = shuffledFiles.Count;
+                                    while (n > 1)
+                                    {
+                                        n--;
+                                        int k = _random.Next(n + 1);
+                                        string temp = shuffledFiles[k];
+                                        shuffledFiles[k] = shuffledFiles[n];
+                                        shuffledFiles[n] = temp;
+                                    }
+                                    for (int i = 0; i < aiffFiles.Length; i++)
+                                    {
+                                        sourceBackups[i] = shuffledFiles[i] + ".bak";
+                                    }
+                                }
+                                else
+                                {
+                                    for (int i = 0; i < aiffFiles.Length; i++)
+                                    {
+                                        sourceBackups[i] = aiffFiles[i] + ".bak";
+                                    }
                                 }
 
-                                // Copy shuffled backups to active slots
+                                // Copy backups to active slots and apply modification
                                 for (int i = 0; i < aiffFiles.Length; i++)
                                 {
-                                    string sourceBackup = shuffledFiles[i] + ".bak";
+                                    string sourceBackup = sourceBackups[i];
                                     string targetFile = aiffFiles[i];
                                     File.Copy(sourceBackup, targetFile, true);
+
+                                    // Apply our custom pitch / mode changes to the target file!
+                                    if (sfxMode != 0 || sfxPitchVariation)
+                                    {
+                                        ModifyAiffFile(targetFile, sfxMode, sfxPitchVariation);
+                                    }
+
                                     File.SetLastWriteTime(targetFile, DateTime.Now);
                                 }
                             }
@@ -193,13 +247,76 @@ namespace Sm64DecompLevelViewer
                         }
                     }
 
+                    // Perform Custom Texture replacement if requested
+                    if (replaceTexturesCustom && _textureReplacementRules.Count > 0)
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            StatusTextBlock.Text = "Applying custom texture replacements...";
+                        });
+
+                        foreach (var rule in _textureReplacementRules)
+                        {
+                            try
+                            {
+                                string targetPath = rule.TargetPath;
+                                string repPath = rule.ReplacementPath;
+
+                                if (File.Exists(repPath) && File.Exists(targetPath))
+                                {
+                                    // Make backup of target first
+                                    string backupPath = targetPath + ".bak";
+                                    if (!File.Exists(backupPath))
+                                    {
+                                        File.Copy(targetPath, backupPath);
+                                    }
+
+                                    // Read target dimensions
+                                    int targetW = 64;
+                                    int targetH = 64;
+                                    double dpiX = 96;
+                                    double dpiY = 96;
+                                    using (var stream = new FileStream(targetPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                                    {
+                                        var decoder = new PngBitmapDecoder(stream, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
+                                        targetW = decoder.Frames[0].PixelWidth;
+                                        targetH = decoder.Frames[0].PixelHeight;
+                                        dpiX = decoder.Frames[0].DpiX;
+                                        dpiY = decoder.Frames[0].DpiY;
+                                    }
+
+                                    // Get scaled pixels of replacement image
+                                    byte[] pixels = GetTextureXPixels(repPath, targetW, targetH);
+
+                                    // Write back as PNG to targetPath
+                                    var bitmap = System.Windows.Media.Imaging.BitmapSource.Create(
+                                        targetW, targetH, dpiX, dpiY,
+                                        System.Windows.Media.PixelFormats.Bgra32, null, pixels, targetW * 4);
+
+                                    var encoder = new PngBitmapEncoder();
+                                    encoder.Frames.Add(BitmapFrame.Create(bitmap));
+
+                                    using (var outStream = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                                    {
+                                        encoder.Save(outStream);
+                                    }
+                                    File.SetLastWriteTime(targetPath, DateTime.Now);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"Error replacing custom texture: {ex.Message}");
+                            }
+                        }
+                    }
+
                     // Perform C source file patches based on selected logic cheats
                     int skyboxSeed = _random.Next(0, 9);
                     
-                    // Create src/game/chaos_config.h
+                    // Create include/chaos_config.h
                     try
                     {
-                        string configDir = Path.Combine(_projectRoot, "src", "game");
+                        string configDir = Path.Combine(_projectRoot, "include");
                         if (Directory.Exists(configDir))
                         {
                             string configPath = Path.Combine(configDir, "chaos_config.h");
@@ -229,6 +346,18 @@ namespace Sm64DecompLevelViewer
                             if (alienSound)
                             {
                                 configContent.AppendLine("#define CHAOS_ALIEN_SOUND");
+                            }
+                            if (scrambleTitleScreen)
+                            {
+                                configContent.AppendLine($"#define CHAOS_TITLE_SCRAMBLER_MODE {titleScramblerMode}");
+                            }
+                            if (randomizeCutsceneCamera)
+                            {
+                                configContent.AppendLine($"#define CHAOS_CUTSCENE_CAMERA_MODE {cutsceneCameraMode}");
+                            }
+                            if (startLevelChaos)
+                            {
+                                configContent.AppendLine($"#define CHAOS_START_LEVEL {startLevelConstant}");
                             }
                             
                             configContent.AppendLine();
@@ -353,7 +482,7 @@ namespace Sm64DecompLevelViewer
                         PatchSourceFile("src/game/mario_actions_airborne.c", oldDouble, newDouble);
                         
                         PatchSourceFile("src/game/mario_actions_airborne.c", "s32 act_triple_jump(struct MarioState *m) {", "s32 act_triple_jump(struct MarioState *m) {\n" + jumpHooksStr);
-                        PatchSourceFile("src/game/mario_actions_airborne.c", "#include <PR/ultratypes.h>", "#include <PR/ultratypes.h>\n#include \"game/chaos_config.h\"");
+                        PatchSourceFile("src/game/mario_actions_airborne.c", "#include <PR/ultratypes.h>", "#include <PR/ultratypes.h>\n#include \"chaos_config.h\"");
                     }
                     
                     if (limboMario)
@@ -361,7 +490,7 @@ namespace Sm64DecompLevelViewer
                         string oldLimbo = "        rotNode->rotation[0] = bodyState->torsoAngle[1];\n        rotNode->rotation[1] = bodyState->torsoAngle[2];\n        rotNode->rotation[2] = bodyState->torsoAngle[0];";
                         string newLimbo = "        rotNode->rotation[0] = bodyState->torsoAngle[1];\n        rotNode->rotation[1] = bodyState->torsoAngle[2];\n        rotNode->rotation[2] = bodyState->torsoAngle[0];\n#ifdef CHAOS_LIMBO_MARIO\n        rotNode->rotation[0] += 0x3800;\n#endif";
                         PatchSourceFile("src/game/mario_misc.c", oldLimbo, newLimbo);
-                        PatchSourceFile("src/game/mario_misc.c", "#include <PR/ultratypes.h>", "#include <PR/ultratypes.h>\n#include \"game/chaos_config.h\"");
+                        PatchSourceFile("src/game/mario_misc.c", "#include <PR/ultratypes.h>", "#include <PR/ultratypes.h>\n#include \"chaos_config.h\"");
                     }
                     
                     if (alienSound)
@@ -369,12 +498,183 @@ namespace Sm64DecompLevelViewer
                         string oldAlienLoop = "        {\n            u8 *_ptr_pc;\n            _ptr_pc = (*state).pc++;\n            cmd = *_ptr_pc;\n        }";
                         string newAlienLoop = "        {\n            u8 *_ptr_pc;\n            _ptr_pc = (*state).pc++;\n            cmd = *_ptr_pc;\n#ifdef CHAOS_ALIEN_SOUND\n            if (cmd > 0xc0) {\n                cmd = (cmd + 13) % 256;\n            }\n#endif\n        }";
                         PatchSourceFile("src/audio/copt/seq_channel_layer_process_script_copt.inc.c", oldAlienLoop, newAlienLoop);
-                        PatchSourceFile("src/audio/seqplayer.c", "#include \"seqplayer.h\"", "#include \"seqplayer.h\"\n#include \"game/chaos_config.h\"");
+                        PatchSourceFile("src/audio/seqplayer.c", "#include \"seqplayer.h\"", "#include \"seqplayer.h\"\n#include \"chaos_config.h\"");
                         string parentFile = Path.Combine(_projectRoot, "src", "audio", "seqplayer.c");
                         if (File.Exists(parentFile))
                         {
                             File.SetLastWriteTime(parentFile, DateTime.Now);
                         }
+                    }
+
+                    if (scrambleTitleScreen)
+                    {
+                        string oldLogoScale = "        guScale(scaleMat, scaleX, scaleY, scaleZ);\n\n        gSPMatrix(dlIter++, scaleMat, G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH);\n        gSPDisplayList(dlIter++, &intro_seg7_dl_logo);  // draw model\n        gSPPopMatrix(dlIter++, G_MTX_MODELVIEW);";
+                        string newLogoScale = @"#ifdef CHAOS_TITLE_SCRAMBLER_MODE
+        {
+            Mtx *rotMat = alloc_display_list(sizeof(*rotMat));
+            Mtx *transMat = alloc_display_list(sizeof(*transMat));
+            u32 seed = gGlobalTimer * 1664525 + 1013904223;
+            guTranslate(transMat, 0.0f, 0.0f, 0.0f);
+            guRotate(rotMat, 0.0f, 0.0f, 0.0f, 0.0f);
+            
+            switch (CHAOS_TITLE_SCRAMBLER_MODE) {
+                case 1: // Glitchy Scale Jitter
+                    scaleX *= (1.0f + 0.3f * sins(gGlobalTimer * 4000));
+                    scaleY *= (1.0f + 0.3f * coss(gGlobalTimer * 5000));
+                    scaleZ *= (1.0f + 0.3f * sins(gGlobalTimer * 6000));
+                    break;
+                case 2: // Vinesauce Spin
+                    guRotate(rotMat, gGlobalTimer * 8.0f, 0.0f, 1.0f, 1.0f);
+                    break;
+                case 3: // Melt / Vertical Stretch
+                    scaleY *= 4.0f + 3.0f * sins(gGlobalTimer * 800);
+                    scaleX *= 0.3f;
+                    break;
+                case 4: // Disco Jump
+                    guTranslate(transMat, 40.0f * sins(gGlobalTimer * 1500), 30.0f * coss(gGlobalTimer * 2000), 0.0f);
+                    break;
+                case 5: // Upside Down / Mirror
+                    scaleY *= -1.0f;
+                    scaleX *= -1.0f;
+                    break;
+                case 6: // Random Warp Jitter
+                    scaleX *= (0.5f + 1.0f * (seed % 100) / 100.0f);
+                    guRotate(rotMat, (seed % 360), 1.0f, 1.0f, 1.0f);
+                    break;
+                case 7: // Shrinking Void
+                    {
+                        f32 s = 0.5f + 0.5f * sins(gGlobalTimer * 3000);
+                        scaleX *= s; scaleY *= s; scaleZ *= s;
+                    }
+                    break;
+                case 8: // Chaotic Skewed
+                    guRotate(rotMat, 45.0f + 30.0f * sins(gGlobalTimer * 1000), 1.0f, 0.0f, 0.0f);
+                    guTranslate(transMat, 0.0f, 0.0f, 50.0f * coss(gGlobalTimer * 1000));
+                    break;
+                case 9: // Completely Random Glitch
+                    scaleX *= ((seed % 200) - 100) / 50.0f;
+                    scaleY *= (((seed >> 4) % 200) - 100) / 50.0f;
+                    guTranslate(transMat, (seed % 100) - 50, ((seed >> 4) % 100) - 50, ((seed >> 8) % 100) - 50);
+                    break;
+            }
+            guScale(scaleMat, scaleX, scaleY, scaleZ);
+            gSPMatrix(dlIter++, scaleMat, G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH);
+            gSPMatrix(dlIter++, rotMat, G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
+            gSPMatrix(dlIter++, transMat, G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
+        }
+#else
+        guScale(scaleMat, scaleX, scaleY, scaleZ);
+        gSPMatrix(dlIter++, scaleMat, G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH);
+#endif
+        gSPDisplayList(dlIter++, &intro_seg7_dl_logo);  // draw model
+        gSPPopMatrix(dlIter++, G_MTX_MODELVIEW);";
+
+                        PatchSourceFile("src/menu/intro_geo.c", oldLogoScale, newLogoScale);
+                        PatchSourceFile("src/menu/intro_geo.c", "#include <PR/ultratypes.h>", "#include <PR/ultratypes.h>\n#include \"chaos_config.h\"\n#include \"engine/math_util.h\"\nextern u32 gGlobalTimer;");
+                    }
+
+                    if (randomizeCutsceneCamera)
+                    {
+                        string oldIntroMove = "    posReturn += focusReturn; // Unused\n    return focusReturn;\n}";
+                        string newIntroMove = @"    posReturn += focusReturn; // Unused
+#ifdef CHAOS_CUTSCENE_CAMERA_MODE
+    {
+        void apply_chaos_intro_camera(struct Camera *c);
+        apply_chaos_intro_camera(c);
+    }
+#endif
+    return focusReturn;
+}";
+                        PatchSourceFile("src/game/camera.c", oldIntroMove, newIntroMove);
+
+                        string oldIntroFollow = "BAD_RETURN(s32) cutscene_intro_peach_follow_pipe_spline(struct Camera *c) {\n    move_point_along_spline(c->pos, sIntroPipeToDialogPosition, &sCutsceneSplineSegment, &sCutsceneSplineSegmentProgress);\n    move_point_along_spline(c->focus, sIntroPipeToDialogFocus, &sCutsceneSplineSegment, &sCutsceneSplineSegmentProgress);\n}";
+                        string newIntroFollow = @"BAD_RETURN(s32) cutscene_intro_peach_follow_pipe_spline(struct Camera *c) {
+    move_point_along_spline(c->pos, sIntroPipeToDialogPosition, &sCutsceneSplineSegment, &sCutsceneSplineSegmentProgress);
+    move_point_along_spline(c->focus, sIntroPipeToDialogFocus, &sCutsceneSplineSegment, &sCutsceneSplineSegmentProgress);
+#ifdef CHAOS_CUTSCENE_CAMERA_MODE
+    {
+        void apply_chaos_intro_camera(struct Camera *c);
+        apply_chaos_intro_camera(c);
+    }
+#endif
+}";
+                        PatchSourceFile("src/game/camera.c", oldIntroFollow, newIntroFollow);
+
+                        string cameraHelper = @"#ifdef CHAOS_CUTSCENE_CAMERA_MODE
+void apply_chaos_intro_camera(struct Camera *c) {
+    extern u32 gGlobalTimer;
+    u32 seed = gGlobalTimer * 1664525 + 1013904223;
+    f32 rx, rz;
+    
+    switch (CHAOS_CUTSCENE_CAMERA_MODE) {
+        case 1: // Random Static Angles
+            c->pos[0] += 2000.f * sins(gGlobalTimer / 50 * 50);
+            c->pos[1] += 500.f;
+            c->pos[2] += 2000.f * coss(gGlobalTimer / 50 * 50);
+            break;
+        case 2: // Jittery Handheld Camera
+            c->pos[0] += (seed % 100 - 50) * 8.0f;
+            c->pos[1] += ((seed >> 4) % 100 - 50) * 8.0f;
+            c->pos[2] += ((seed >> 8) % 100 - 50) * 8.0f;
+            c->focus[0] += ((seed >> 12) % 100 - 50) * 4.0f;
+            c->focus[1] += ((seed >> 16) % 100 - 50) * 4.0f;
+            c->focus[2] += ((seed >> 20) % 100 - 50) * 4.0f;
+            break;
+        case 3: // Drunken / Swaying Camera
+            c->pos[0] += 800.f * sins(gGlobalTimer * 200);
+            c->pos[1] += 400.f * coss(gGlobalTimer * 150);
+            c->pos[2] += 800.f * coss(gGlobalTimer * 200);
+            break;
+        case 4: // Spinning Vortex
+            rx = c->pos[0] - c->focus[0];
+            rz = c->pos[2] - c->focus[2];
+            c->pos[0] = c->focus[0] + rx * coss(gGlobalTimer * 800) - rz * sins(gGlobalTimer * 800);
+            c->pos[2] = c->focus[2] + rx * sins(gGlobalTimer * 800) + rz * coss(gGlobalTimer * 800);
+            break;
+        case 5: // Close-up Focus
+            c->pos[0] = c->focus[0] + (c->pos[0] - c->focus[0]) * 0.1f;
+            c->pos[1] = c->focus[1] + (c->pos[1] - c->focus[1]) * 0.1f;
+            c->pos[2] = c->focus[2] + (c->pos[2] - c->focus[2]) * 0.1f;
+            break;
+        case 6: // Birds-Eye View
+            c->pos[0] = c->focus[0] + 10.0f;
+            c->pos[1] = c->focus[1] + 3000.0f;
+            c->pos[2] = c->focus[2] + 10.0f;
+            break;
+        case 7: // First Person view
+            c->pos[0] = c->focus[0] - 300.0f;
+            c->pos[1] = c->focus[1] + 100.0f;
+            c->pos[2] = c->focus[2];
+            break;
+        case 8: // Warped Perspective
+            c->pos[0] += 500.f * sins(gGlobalTimer * 400);
+            c->focus[1] += 300.f * coss(gGlobalTimer * 500);
+            break;
+        case 9: // Completely Chaotic
+            seed = (gGlobalTimer / 30) * 1664525 + 1013904223;
+            c->pos[0] += (seed % 2000) - 1000;
+            c->pos[1] += ((seed >> 4) % 1000) - 500;
+            c->focus[2] += ((seed >> 8) % 1000) - 500;
+            break;
+    }
+}
+#endif
+";
+                        PatchSourceFile("src/game/camera.c", "s32 intro_peach_move_camera_start_to_pipe(struct Camera *c, struct CutsceneSplinePoint positionSpline[],", cameraHelper + "s32 intro_peach_move_camera_start_to_pipe(struct Camera *c, struct CutsceneSplinePoint positionSpline[],");
+                        PatchSourceFile("src/game/camera.c", "#include <ultra64.h>", "#include <ultra64.h>\n#include \"chaos_config.h\"");
+                    }
+
+                    if (startLevelChaos)
+                    {
+                        string oldInitSaveFile = "    gNeverEnteredCastle = !save_file_exists(gCurrSaveFileNum - 1);\n\n    gCurrLevelNum = levelNum;";
+                        string newInitSaveFile = "    gNeverEnteredCastle = !save_file_exists(gCurrSaveFileNum - 1);\n\n#ifdef CHAOS_START_LEVEL\n    levelNum = CHAOS_START_LEVEL;\n#endif\n\n    gCurrLevelNum = levelNum;";
+                        PatchSourceFile("src/game/level_update.c", oldInitSaveFile, newInitSaveFile);
+
+                        string oldCutscene = "            } else if (!gDebugLevelSelect) {\n                if (gMarioState->action != ACT_UNINITIALIZED) {\n                    if (save_file_exists(gCurrSaveFileNum - 1)) {\n                        set_mario_action(gMarioState, ACT_IDLE, 0);\n                    } else {\n                        set_mario_action(gMarioState, ACT_INTRO_CUTSCENE, 0);\n                        val4 = TRUE;\n                    }\n                }\n            }";
+                        string newCutscene = "            } else if (!gDebugLevelSelect) {\n                if (gMarioState->action != ACT_UNINITIALIZED) {\n                    if (save_file_exists(gCurrSaveFileNum - 1)) {\n                        set_mario_action(gMarioState, ACT_IDLE, 0);\n                    } else {\n#ifdef CHAOS_START_LEVEL\n                        if (gCurrLevelNum != LEVEL_CASTLE_GROUNDS) {\n                            set_mario_action(gMarioState, ACT_IDLE, 0);\n                        } else {\n                            set_mario_action(gMarioState, ACT_INTRO_CUTSCENE, 0);\n                            val4 = TRUE;\n                        }\n#else\n                        set_mario_action(gMarioState, ACT_INTRO_CUTSCENE, 0);\n                        val4 = TRUE;\n#endif\n                    }\n                }\n            }";
+                        PatchSourceFile("src/game/level_update.c", oldCutscene, newCutscene);
+
+                        PatchSourceFile("src/game/level_update.c", "#include <ultra64.h>", "#include <ultra64.h>\n#include \"chaos_config.h\"");
                     }
 
                     // Apply game text randomization if requested
@@ -714,7 +1014,14 @@ namespace Sm64DecompLevelViewer
                             }
                             else if (ext == ".png")
                             {
-                                CorruptTexturePixels(file, intensity, textureMode);
+                                if (replaceTexturesCustom && _textureReplacementRules.Any(r => r.TargetPath == file))
+                                {
+                                    // Skip standard corruption, keep replaced texture clean
+                                }
+                                else
+                                {
+                                    CorruptTexturePixels(file, intensity, textureMode);
+                                }
                             }
                             else if (file.EndsWith("hud.c", StringComparison.OrdinalIgnoreCase))
                             {
@@ -843,6 +1150,30 @@ namespace Sm64DecompLevelViewer
             }
         }
 
+        private void ScrambleTitleScreenCheck_Toggle(object sender, RoutedEventArgs e)
+        {
+            if (TitleScreenScramblerPanel != null)
+            {
+                TitleScreenScramblerPanel.Visibility = ScrambleTitleScreenCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private void RandomizeCutsceneCameraCheck_Toggle(object sender, RoutedEventArgs e)
+        {
+            if (CutsceneCameraPanel != null)
+            {
+                CutsceneCameraPanel.Visibility = RandomizeCutsceneCameraCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private void StartLevelChaosCheck_Toggle(object sender, RoutedEventArgs e)
+        {
+            if (StartLevelChaosPanel != null)
+            {
+                StartLevelChaosPanel.Visibility = StartLevelChaosCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
         private void TextureTarget_Changed(object sender, RoutedEventArgs e)
         {
             if (SelectTexturesButton != null && TextureRandomizeSelectedRadio != null)
@@ -857,6 +1188,25 @@ namespace Sm64DecompLevelViewer
             if (window.ShowDialog() == true)
             {
                 _selectedTextures = window.SelectedRelativePaths;
+            }
+        }
+
+        private void ReplaceTexturesCustomCheck_Toggle(object sender, RoutedEventArgs e)
+        {
+            if (ReplaceTexturesCustomPanel != null)
+            {
+                ReplaceTexturesCustomPanel.Visibility = ReplaceTexturesCustomCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private void ConfigureTextureReplacer_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new TextureReplacerWindow(_projectRoot, _textureReplacementRules) { Owner = this };
+            if (dialog.ShowDialog() == true)
+            {
+                _textureReplacementRules.Clear();
+                _textureReplacementRules.AddRange(dialog.ActiveRules);
+                ActiveTextureReplacementsSummaryText.Text = $"Active replacement rules: {_textureReplacementRules.Count}";
             }
         }
 
@@ -950,6 +1300,14 @@ namespace Sm64DecompLevelViewer
             if (DlRandomizerPanel != null)
             {
                 DlRandomizerPanel.Visibility = RandomizeDlCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private void DlExclusionCheck_Toggle(object sender, RoutedEventArgs e)
+        {
+            if (DlExclusionPanel != null)
+            {
+                DlExclusionPanel.Visibility = DlExclusionCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
             }
         }
 
@@ -1076,6 +1434,8 @@ namespace Sm64DecompLevelViewer
                             }
                         }
                         break;
+
+
                 }
 
                 // Write back as PNG
@@ -1094,6 +1454,202 @@ namespace Sm64DecompLevelViewer
             catch (Exception ex)
             {
                 Console.WriteLine($"Error corrupting texture {filePath}: {ex.Message}");
+            }
+        }
+
+        private byte[] GetTextureXPixels(string customPath, int targetWidth, int targetHeight)
+        {
+            byte[] targetPixels = new byte[targetWidth * targetHeight * 4];
+            System.Windows.Media.Imaging.BitmapSource src = null;
+
+            if (!string.IsNullOrEmpty(customPath) && File.Exists(customPath))
+            {
+                try
+                {
+                    using (var stream = new FileStream(customPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    {
+                        var decoder = new PngBitmapDecoder(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+                        src = decoder.Frames[0];
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error reading custom texture file: {ex.Message}");
+                }
+            }
+
+            if (src == null)
+            {
+                // Generate default "X" image of size targetWidth x targetHeight
+                for (int y = 0; y < targetHeight; y++)
+                {
+                    for (int x = 0; x < targetWidth; x++)
+                    {
+                        int idx = (y * targetWidth + x) * 4;
+                        double normX = (double)x / targetWidth;
+                        double normY = (double)y / targetHeight;
+                        bool onDiagonal1 = Math.Abs(normX - normY) < 0.05;
+                        bool onDiagonal2 = Math.Abs(normX - (1.0 - normY)) < 0.05;
+                        if (onDiagonal1 || onDiagonal2)
+                        {
+                            targetPixels[idx] = 0;
+                            targetPixels[idx + 1] = 0;
+                            targetPixels[idx + 2] = 255;
+                            targetPixels[idx + 3] = 255;
+                        }
+                        else
+                        {
+                            targetPixels[idx] = 0;
+                            targetPixels[idx + 1] = 0;
+                            targetPixels[idx + 2] = 0;
+                            targetPixels[idx + 3] = 255;
+                        }
+                    }
+                }
+                return targetPixels;
+            }
+
+            double scaleX = (double)targetWidth / src.PixelWidth;
+            double scaleY = (double)targetHeight / src.PixelHeight;
+
+            var scaleTransform = new System.Windows.Media.ScaleTransform(scaleX, scaleY);
+            var resized = new System.Windows.Media.Imaging.TransformedBitmap(src, scaleTransform);
+            var formatted = new System.Windows.Media.Imaging.FormatConvertedBitmap(resized, System.Windows.Media.PixelFormats.Bgra32, null, 0);
+            
+            formatted.CopyPixels(targetPixels, targetWidth * 4, 0);
+            return targetPixels;
+        }
+
+        private void ModifyAiffFile(string filePath, int mode, bool applyPitchVariation)
+        {
+            try
+            {
+                byte[] data = File.ReadAllBytes(filePath);
+                if (data.Length < 12) return;
+
+                if (data[0] != 0x46 || data[1] != 0x4F || data[2] != 0x52 || data[3] != 0x4D) return; // 'FORM'
+                if (data[8] != 0x41 || data[9] != 0x49 || data[10] != 0x46 || data[11] != 0x46) return; // 'AIFF'
+
+                int pos = 12;
+                int commPos = -1;
+                int ssndPos = -1;
+                int ssndSize = -1;
+
+                while (pos + 8 <= data.Length)
+                {
+                    string chunkName = System.Text.Encoding.ASCII.GetString(data, pos, 4);
+                    int chunkSize = (data[pos + 4] << 24) | (data[pos + 5] << 16) | (data[pos + 6] << 8) | data[pos + 7];
+                    
+                    if (chunkName == "COMM")
+                    {
+                        commPos = pos;
+                    }
+                    else if (chunkName == "SSND")
+                    {
+                        ssndPos = pos;
+                        ssndSize = chunkSize;
+                    }
+                    
+                    pos += 8 + ((chunkSize + 1) & ~1);
+                }
+
+                if (commPos == -1) return;
+
+                int numChannels = (data[commPos + 8] << 8) | data[commPos + 9];
+                int numSampleFrames = (data[commPos + 10] << 24) | (data[commPos + 11] << 16) | (data[commPos + 12] << 8) | data[commPos + 13];
+                int sampleSize = (data[commPos + 14] << 8) | data[commPos + 15];
+                
+                int exp = ((data[commPos + 16] & 0x7F) << 8) | data[commPos + 17];
+                uint hiMant = ((uint)data[commPos + 18] << 24) | ((uint)data[commPos + 19] << 16) | ((uint)data[commPos + 20] << 8) | data[commPos + 21];
+                double originalRate = hiMant * Math.Pow(2, exp - 16383 - 31);
+                if (double.IsNaN(originalRate) || double.IsInfinity(originalRate) || originalRate <= 0)
+                {
+                    originalRate = 32000;
+                }
+
+                double rateMultiplier = 1.0;
+                
+                if (mode == 1)
+                {
+                    rateMultiplier = 1.3 + _random.NextDouble() * 0.9;
+                }
+                else if (mode == 2)
+                {
+                    rateMultiplier = 0.45 + _random.NextDouble() * 0.3;
+                }
+                else if (mode == 3)
+                {
+                    rateMultiplier = 0.35 + _random.NextDouble() * 2.15;
+                }
+                
+                if (applyPitchVariation)
+                {
+                    rateMultiplier *= (0.7 + _random.NextDouble() * 0.7);
+                }
+
+                if (rateMultiplier != 1.0)
+                {
+                    double newRate = originalRate * rateMultiplier;
+                    byte[] rateBytes = Services.AiffWavTranscoder.EncodeDoubleTo80Bit(newRate);
+                    Array.Copy(rateBytes, 0, data, commPos + 16, 10);
+                }
+
+                if (mode == 5)
+                {
+                    double lenMultiplier = 0.1 + _random.NextDouble() * 0.4;
+                    int newSampleFrames = (int)(numSampleFrames * lenMultiplier);
+                    if (newSampleFrames < 1) newSampleFrames = 1;
+                    
+                    data[commPos + 10] = (byte)(newSampleFrames >> 24);
+                    data[commPos + 11] = (byte)(newSampleFrames >> 16);
+                    data[commPos + 12] = (byte)(newSampleFrames >> 8);
+                    data[commPos + 13] = (byte)newSampleFrames;
+                }
+
+                if (mode == 4 && ssndPos != -1 && ssndSize > 8)
+                {
+                    int dataOffset = ssndPos + 16;
+                    int dataSize = ssndSize - 8;
+                    if (dataOffset + dataSize <= data.Length)
+                    {
+                        if (sampleSize == 16)
+                        {
+                            int sampleCount = dataSize / 2;
+                            for (int i = 0; i < sampleCount / 2; i++)
+                            {
+                                int idx1 = dataOffset + i * 2;
+                                int idx2 = dataOffset + (sampleCount - 1 - i) * 2;
+                                
+                                byte b0 = data[idx1];
+                                byte b1 = data[idx1 + 1];
+                                
+                                data[idx1] = data[idx2];
+                                data[idx1 + 1] = data[idx2 + 1];
+                                
+                                data[idx2] = b0;
+                                data[idx2 + 1] = b1;
+                            }
+                        }
+                        else
+                        {
+                            for (int i = 0; i < dataSize / 2; i++)
+                            {
+                                int idx1 = dataOffset + i;
+                                int idx2 = dataOffset + (dataSize - 1 - i);
+                                
+                                byte temp = data[idx1];
+                                data[idx1] = data[idx2];
+                                data[idx2] = temp;
+                            }
+                        }
+                    }
+                }
+
+                File.WriteAllBytes(filePath, data);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error modifying AIFF file {filePath}: {ex.Message}");
             }
         }
 
@@ -2115,30 +2671,41 @@ namespace Sm64DecompLevelViewer
                             break;
 
                         case 3: // Texture Scrambler (UV Size)
-                            u = (int)(u * (1.5 + _random.NextDouble() * 3.0));
-                            v = (int)(v * (1.5 + _random.NextDouble() * 3.0));
+                            double scaleUV = 1.5 + _random.NextDouble() * (intensity / 100.0) * 5.0;
+                            u = (int)(u * scaleUV);
+                            v = (int)(v * scaleUV);
                             break;
 
                         case 4: // Polygon Exploder
-                            x += _random.Next(-400, 401);
-                            y += _random.Next(-400, 401);
-                            z += _random.Next(-400, 401);
+                            double explScale = 1.0 + (intensity / 50.0);
+                            x += (int)(_random.Next(-400, 401) * explScale);
+                            y += (int)(_random.Next(-400, 401) * explScale);
+                            z += (int)(_random.Next(-400, 401) * explScale);
                             break;
 
                         case 5: // Voxelizer Snap
-                            x = (x / 200) * 200;
-                            y = (y / 200) * 200;
-                            z = (z / 200) * 200;
+                            int snapUnit = (int)(50 + (intensity * 3.0));
+                            if (snapUnit < 1) snapUnit = 1;
+                            x = (x / snapUnit) * snapUnit;
+                            y = (y / snapUnit) * snapUnit;
+                            z = (z / snapUnit) * snapUnit;
                             break;
 
                         case 6: // UV Swap
                             int tempU = u;
                             u = v;
                             v = tempU;
+                            u += (int)((_random.NextDouble() - 0.5) * intensity * 10.0);
+                            v += (int)((_random.NextDouble() - 0.5) * intensity * 10.0);
                             break;
 
                         case 7: // Scale Distortion
-                            y = (int)(y * 0.15);
+                            double distScaleX = 1.0 + (_random.NextDouble() - 0.5) * (intensity / 100.0) * 2.0;
+                            double distScaleY = 1.0 + (_random.NextDouble() - 0.5) * (intensity / 100.0) * 4.0;
+                            double distScaleZ = 1.0 + (_random.NextDouble() - 0.5) * (intensity / 100.0) * 2.0;
+                            x = (int)(x * distScaleX);
+                            y = (int)(y * distScaleY);
+                            z = (int)(z * distScaleZ);
                             break;
                     }
 
@@ -2154,6 +2721,31 @@ namespace Sm64DecompLevelViewer
                 {
                     // Enable Environment Mapping (Texture Coordinate Generation) to strip static UVs and force shifting textures/crystal reflections
                     newContent = Regex.Replace(newContent, @"(static const Gfx [a-zA-Z0-9_]+\[\]\s*=\s*\{)", "$1\n    gsSPSetGeometryMode(G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR),");
+                }
+                else if (dlMode == 2) // Normal Inversion
+                {
+                    // Invert culling modes to draw the model inside-out
+                    newContent = Regex.Replace(newContent, @"(static const Gfx [a-zA-Z0-9_]+\[\]\s*=\s*\{)", "$1\n    gsSPClearGeometryMode(G_CULL_BACK),\n    gsSPSetGeometryMode(G_CULL_FRONT),");
+                }
+                else if (dlMode == 3) // Texture Scrambler (UV Size)
+                {
+                    // Force a micro texture scale mapping to pixelate/tile textures extensively
+                    newContent = Regex.Replace(newContent, @"(static const Gfx [a-zA-Z0-9_]+\[\]\s*=\s*\{)", "$1\n    gsSPTexture(0x0001, 0x0001, 0, G_TX_RENDERTILE, G_ON),");
+                }
+                else if (dlMode == 4) // Polygon Exploder
+                {
+                    // Clear both front and back culling so exploded faces are visible from all sides
+                    newContent = Regex.Replace(newContent, @"(static const Gfx [a-zA-Z0-9_]+\[\]\s*=\s*\{)", "$1\n    gsSPClearGeometryMode(G_CULL_BOTH),");
+                }
+                else if (dlMode == 5) // Voxelizer Snap
+                {
+                    // Disable lighting and shading to enhance blocky retro voxel aesthetic
+                    newContent = Regex.Replace(newContent, @"(static const Gfx [a-zA-Z0-9_]+\[\]\s*=\s*\{)", "$1\n    gsSPClearGeometryMode(G_LIGHTING),");
+                }
+                else if (dlMode == 6) // UV Swap
+                {
+                    // Force a fixed skewed texture coordinate translation scale
+                    newContent = Regex.Replace(newContent, @"(static const Gfx [a-zA-Z0-9_]+\[\]\s*=\s*\{)", "$1\n    gsSPTexture(0x4000, 0x4000, 0, G_TX_RENDERTILE, G_ON),");
                 }
 
                 File.WriteAllText(filePath, newContent);
@@ -2314,9 +2906,13 @@ namespace Sm64DecompLevelViewer
                 ExcludeInstrumentsShuffleCheck.IsChecked = false;
                 ExcludeSfxShuffleCheck.IsChecked = false;
                 ShuffleSfxOnlyCheck.IsChecked = false;
+                SfxIdentityShuffleCheck.IsChecked = true;
+                SfxPitchVariationCheck.IsChecked = false;
+                SfxRandomizerModeComboBox.SelectedIndex = 0;
                 ReplaceSfxCheck.IsChecked = false;
                 RandomizeDlCheck.IsChecked = false;
                 DlRandomizerModeComboBox.SelectedIndex = 0;
+                DlExclusionCheck.IsChecked = false;
                 TargetModelsCheck.IsChecked = true;
                 TargetGoddardCheck.IsChecked = true;
                 GoddardModeComboBox.SelectedIndex = 0;
@@ -2330,6 +2926,9 @@ namespace Sm64DecompLevelViewer
                 HudGlitcherModeComboBox.SelectedIndex = 0;
                 RandomizeTexturesCheck.IsChecked = false;
                 TextureRandomizeModeComboBox.SelectedIndex = 0;
+                ReplaceTexturesCustomCheck.IsChecked = false;
+                _textureReplacementRules.Clear();
+                ActiveTextureReplacementsSummaryText.Text = "Active replacement rules: 0";
                 TextureRandomizeAllRadio.IsChecked = true;
                 _selectedTextures.Clear();
                 ModeComboBox.SelectedIndex = 0;
@@ -2370,11 +2969,15 @@ namespace Sm64DecompLevelViewer
                 ExcludeInstrumentsShuffleCheck.IsChecked = preset.ExcludeInstrumentsShuffle;
                 ExcludeSfxShuffleCheck.IsChecked = preset.ExcludeSfxShuffle;
                 ShuffleSfxOnlyCheck.IsChecked = preset.ShuffleSfxOnly;
+                SfxIdentityShuffleCheck.IsChecked = preset.SfxIdentityShuffle;
+                SfxPitchVariationCheck.IsChecked = preset.SfxPitchVariation;
+                SfxRandomizerModeComboBox.SelectedIndex = preset.SfxRandomizerMode;
 
                 ReplaceSfxCheck.IsChecked = preset.ReplaceSfx;
 
                 RandomizeDlCheck.IsChecked = preset.RandomizeDl;
                 DlRandomizerModeComboBox.SelectedIndex = preset.DlRandomizerMode;
+                DlExclusionCheck.IsChecked = preset.DlExclusion;
 
                 TargetModelsCheck.IsChecked = preset.TargetModels;
                 TargetGoddardCheck.IsChecked = preset.TargetGoddard;
@@ -2391,6 +2994,13 @@ namespace Sm64DecompLevelViewer
 
                 RandomizeTexturesCheck.IsChecked = preset.RandomizeTextures;
                 TextureRandomizeModeComboBox.SelectedIndex = preset.TextureRandomizeMode;
+                ReplaceTexturesCustomCheck.IsChecked = preset.ReplaceTexturesCustom;
+                _textureReplacementRules.Clear();
+                if (preset.ReplaceTexturesRules != null)
+                {
+                    _textureReplacementRules.AddRange(preset.ReplaceTexturesRules);
+                }
+                ActiveTextureReplacementsSummaryText.Text = $"Active replacement rules: {_textureReplacementRules.Count}";
                 if (preset.TextureRandomizeSelectedOnly)
                 {
                     TextureRandomizeSelectedRadio.IsChecked = true;
@@ -2410,6 +3020,13 @@ namespace Sm64DecompLevelViewer
                 ChaosLogicJumpDeath.IsChecked = preset.ChaosLogicJumpDeath;
                 LimboMarioCheck.IsChecked = preset.LimboMario;
                 AlienSoundCheatCheck.IsChecked = preset.AlienSoundCheat;
+
+                ScrambleTitleScreenCheck.IsChecked = preset.ScrambleTitleScreen;
+                TitleScreenScramblerModeComboBox.SelectedIndex = preset.TitleScreenScramblerMode;
+                RandomizeCutsceneCameraCheck.IsChecked = preset.RandomizeCutsceneCamera;
+                CutsceneCameraModeComboBox.SelectedIndex = preset.CutsceneCameraMode;
+                StartLevelChaosCheck.IsChecked = preset.StartLevelChaos;
+                StartLevelComboBox.SelectedIndex = preset.StartLevelIndex;
             }
             catch (Exception ex)
             {
@@ -2424,14 +3041,19 @@ namespace Sm64DecompLevelViewer
                 ShuffleSoundsCheck_Toggle(null, null);
                 ReplaceSfxCheck_Toggle(null, null);
                 RandomizeDlCheck_Toggle(null, null);
+                DlExclusionCheck_Toggle(null, null);
                 TargetGoddardCheck_Toggle(null, null);
                 GlitchAnimationsCheck_Toggle(null, null);
                 GlitchHudCheck_Toggle(null, null);
                 RandomizeTexturesCheck_Toggle(null, null);
+                ReplaceTexturesCustomCheck_Toggle(null, null);
                 TextureTarget_Changed(null, null);
                 RandomizeTextCheck_Toggle(null, null);
                 RandomizeMarioColorsCheck_Toggle(null, null);
                 M64Radio_Checked(null, null);
+                ScrambleTitleScreenCheck_Toggle(null, null);
+                RandomizeCutsceneCameraCheck_Toggle(null, null);
+                StartLevelChaosCheck_Toggle(null, null);
             }
         }
 
@@ -2462,11 +3084,15 @@ namespace Sm64DecompLevelViewer
                 ExcludeInstrumentsShuffle = ExcludeInstrumentsShuffleCheck.IsChecked == true,
                 ExcludeSfxShuffle = ExcludeSfxShuffleCheck.IsChecked == true,
                 ShuffleSfxOnly = ShuffleSfxOnlyCheck.IsChecked == true,
+                SfxIdentityShuffle = SfxIdentityShuffleCheck.IsChecked == true,
+                SfxPitchVariation = SfxPitchVariationCheck.IsChecked == true,
+                SfxRandomizerMode = SfxRandomizerModeComboBox.SelectedIndex,
 
                 ReplaceSfx = ReplaceSfxCheck.IsChecked == true,
 
                 RandomizeDl = RandomizeDlCheck.IsChecked == true,
                 DlRandomizerMode = DlRandomizerModeComboBox.SelectedIndex,
+                DlExclusion = DlExclusionCheck.IsChecked == true,
 
                 TargetModels = TargetModelsCheck.IsChecked == true,
                 TargetGoddard = TargetGoddardCheck.IsChecked == true,
@@ -2483,6 +3109,8 @@ namespace Sm64DecompLevelViewer
 
                 RandomizeTextures = RandomizeTexturesCheck.IsChecked == true,
                 TextureRandomizeMode = TextureRandomizeModeComboBox.SelectedIndex,
+                ReplaceTexturesCustom = ReplaceTexturesCustomCheck.IsChecked == true,
+                ReplaceTexturesRules = _textureReplacementRules.ToList(),
                 TextureRandomizeSelectedOnly = TextureRandomizeSelectedRadio.IsChecked == true,
                 TextureRandomizeSelectedPaths = _selectedTextures.ToList(),
 
@@ -2494,7 +3122,14 @@ namespace Sm64DecompLevelViewer
                 ChaosLogicJumpWeird = ChaosLogicJumpWeird.IsChecked == true,
                 ChaosLogicJumpDeath = ChaosLogicJumpDeath.IsChecked == true,
                 LimboMario = LimboMarioCheck.IsChecked == true,
-                AlienSoundCheat = AlienSoundCheatCheck.IsChecked == true
+                AlienSoundCheat = AlienSoundCheatCheck.IsChecked == true,
+
+                ScrambleTitleScreen = ScrambleTitleScreenCheck.IsChecked == true,
+                TitleScreenScramblerMode = TitleScreenScramblerModeComboBox.SelectedIndex,
+                RandomizeCutsceneCamera = RandomizeCutsceneCameraCheck.IsChecked == true,
+                CutsceneCameraMode = CutsceneCameraModeComboBox.SelectedIndex,
+                StartLevelChaos = StartLevelChaosCheck.IsChecked == true,
+                StartLevelIndex = StartLevelComboBox.SelectedIndex
             };
 
             try
@@ -2743,6 +3378,15 @@ namespace Sm64DecompLevelViewer
                 Console.WriteLine($"Error corrupting Mario colors in {filePath}: {ex.Message}");
             }
         }
+
+        private void OpenDlExclusionWindow_Click(object sender, RoutedEventArgs e)
+        {
+            var window = new DisplayListChaosWindow(_projectRoot)
+            {
+                Owner = this
+            };
+            window.ShowDialog();
+        }
     }
 
     public class ChaosPreset
@@ -2761,11 +3405,15 @@ namespace Sm64DecompLevelViewer
         public bool ExcludeInstrumentsShuffle { get; set; } = false;
         public bool ExcludeSfxShuffle { get; set; } = false;
         public bool ShuffleSfxOnly { get; set; } = false;
+        public bool SfxIdentityShuffle { get; set; } = true;
+        public bool SfxPitchVariation { get; set; } = false;
+        public int SfxRandomizerMode { get; set; } = 0;
 
         public bool ReplaceSfx { get; set; } = false;
 
         public bool RandomizeDl { get; set; } = false;
         public int DlRandomizerMode { get; set; } = 0;
+        public bool DlExclusion { get; set; } = false;
 
         public bool TargetModels { get; set; } = true;
         public bool TargetGoddard { get; set; } = true;
@@ -2782,6 +3430,8 @@ namespace Sm64DecompLevelViewer
 
         public bool RandomizeTextures { get; set; } = false;
         public int TextureRandomizeMode { get; set; } = 0;
+        public bool ReplaceTexturesCustom { get; set; } = false;
+        public List<TextureReplacerWindow.TextureReplacementRule> ReplaceTexturesRules { get; set; } = new();
         public bool TextureRandomizeSelectedOnly { get; set; } = false;
         public List<string> TextureRandomizeSelectedPaths { get; set; } = new();
 
@@ -2794,6 +3444,13 @@ namespace Sm64DecompLevelViewer
         public bool ChaosLogicJumpDeath { get; set; } = false;
         public bool LimboMario { get; set; } = false;
         public bool AlienSoundCheat { get; set; } = false;
+
+        public bool ScrambleTitleScreen { get; set; } = false;
+        public int TitleScreenScramblerMode { get; set; } = 0;
+        public bool RandomizeCutsceneCamera { get; set; } = false;
+        public int CutsceneCameraMode { get; set; } = 0;
+        public bool StartLevelChaos { get; set; } = false;
+        public int StartLevelIndex { get; set; } = 0;
     }
 
     public static class InputBox

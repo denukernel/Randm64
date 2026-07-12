@@ -107,6 +107,7 @@ namespace Sm64DecompLevelViewer.Services
                             Z = int.Parse(match.Groups[5].Value),
                             RY = int.Parse(match.Groups[2].Value),
                             Params = paramValue | (uint)preset.Param,
+                            RawParams = paramStr,
                             SourceFile = filePath,
                             SourceIndex = match.Index,
                             SourceLength = match.Length,

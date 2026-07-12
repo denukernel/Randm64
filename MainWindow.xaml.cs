@@ -762,7 +762,7 @@ public partial class MainWindow : Window
                             var specialWithYawMatches = SpecialObjectWithYawPattern.Matches(colContent);
                             var specialWithYawAndParamMatches = SpecialObjectWithYawAndParamPattern.Matches(colContent);
 
-                            void ProcessSpecialObject(string preset, int x, int y, int z, int ry, string sourceFile, int sourceIndex, int sourceLength)
+                            void ProcessSpecialObject(string preset, int x, int y, int z, int ry, string? rawParams, string sourceFile, int sourceIndex, int sourceLength)
                             {
                                 if (presetMapping.TryGetValue(preset, out string? modelId))
                                 {
@@ -794,6 +794,19 @@ public partial class MainWindow : Window
                                         }
                                     }
 
+                                    uint paramValue = 0;
+                                    if (rawParams != null)
+                                    {
+                                        if (rawParams.StartsWith("0x"))
+                                        {
+                                            uint.TryParse(rawParams.Substring(2), System.Globalization.NumberStyles.HexNumber, null, out paramValue);
+                                        }
+                                        else
+                                        {
+                                            uint.TryParse(rawParams, out paramValue);
+                                        }
+                                    }
+
                                     objects.Add(new LevelObject 
                                     { 
                                         ModelName = resolvedModelName, 
@@ -803,6 +816,8 @@ public partial class MainWindow : Window
                                         Y = y, 
                                         Z = z, 
                                         RY = ry, 
+                                        Params = paramValue,
+                                        RawParams = rawParams,
                                         SourceFile = sourceFile, 
                                         SourceIndex = sourceIndex, 
                                         SourceLength = sourceLength,
@@ -813,19 +828,20 @@ public partial class MainWindow : Window
 
                             foreach (Match m in specialMatches)
                             {
-                                ProcessSpecialObject(m.Groups[1].Value.Trim(), int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value), int.Parse(m.Groups[4].Value), 0, collisionFilePath, m.Index, m.Length);
+                                ProcessSpecialObject(m.Groups[1].Value.Trim(), int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value), int.Parse(m.Groups[4].Value), 0, null, collisionFilePath, m.Index, m.Length);
                             }
                             foreach (Match m in specialWithYawMatches)
                             {
                                 int byteYaw = int.Parse(m.Groups[5].Value);
                                 int degreeYaw = (int)(byteYaw * 360.0 / 256.0);
-                                ProcessSpecialObject(m.Groups[1].Value.Trim(), int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value), int.Parse(m.Groups[4].Value), degreeYaw, collisionFilePath, m.Index, m.Length);
+                                ProcessSpecialObject(m.Groups[1].Value.Trim(), int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value), int.Parse(m.Groups[4].Value), degreeYaw, null, collisionFilePath, m.Index, m.Length);
                             }
                             foreach (Match m in specialWithYawAndParamMatches)
                             {
                                 int byteYaw = int.Parse(m.Groups[5].Value);
                                 int degreeYaw = (int)(byteYaw * 360.0 / 256.0);
-                                ProcessSpecialObject(m.Groups[1].Value.Trim(), int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value), int.Parse(m.Groups[4].Value), degreeYaw, collisionFilePath, m.Index, m.Length);
+                                string paramStr = m.Groups[6].Value.Trim();
+                                ProcessSpecialObject(m.Groups[1].Value.Trim(), int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value), int.Parse(m.Groups[4].Value), degreeYaw, paramStr, collisionFilePath, m.Index, m.Length);
                             }
                         }
                     }

@@ -753,7 +753,11 @@ namespace Sm64DecompLevelViewer
                 else if (sender == PosYTextBox) _selectedObject.Y = int.Parse(PosYTextBox.Text);
                 else if (sender == PosZTextBox) _selectedObject.Z = int.Parse(PosZTextBox.Text);
                 else if (sender == RotYTextBox) _selectedObject.RY = int.Parse(RotYTextBox.Text);
-                else if (sender == ParamsTextBox) _selectedObject.Params = uint.Parse(ParamsTextBox.Text, System.Globalization.NumberStyles.HexNumber);
+                else if (sender == ParamsTextBox)
+                {
+                    _selectedObject.Params = uint.Parse(ParamsTextBox.Text, System.Globalization.NumberStyles.HexNumber);
+                    _selectedObject.RawParams = null;
+                }
                 
                 if (_renderer != null)
                 {

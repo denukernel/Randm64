@@ -20,13 +20,21 @@ Randm64 is an advanced, professional modding platform and chaos orchestrator for
 - **10 Goddard Face Modes**: Deform Mario's start screen face using safe algorithms (Face Meltdown, Face Stretch, Face Squash, Tremors, Melt, and Vertex Shuttering).
 - **8 Animation Glitcher Modes**: Scramble coordinates, joint scaling, angle negations, and frame stuttering, or detach limbs.
 - **8 Display List Randomizers**: Transform geometry rendering including Rainbow World rendering, UV texture mapping removals, and scaling distortions.
+- **Display List Exclusion Mode**: Exclude specific display lists dynamically at runtime from 10 different complexity levels based on customizable triggers (Always Active, when Mario is Moving, or when Mario is Standing), matching Glide64 exclusion mechanics.
 - **5 HUD Glitcher Modes**: Warp health meters, format tags, and glyph coordinates.
+- **Start Level Chaos (File Select Warp)**: Warp directly to a custom starting level on a new save file, with automated cutscene bypassing for stable playability.
 - **Preset Manager**: Save and load custom corruption profiles to the settings folder for quick selection.
 
 ### 🔀 Sound and Instrument Replacer
 - **Independent Filtering**: Swap sounds across separate directories with custom rule filters.
 - **Audition Preview**: Transcode AIFF audio samples to WAV in-memory and preview them inside the config dialog before compiling.
 - **Search Filtering**: Filter targets and replacements on-the-fly with integrated text searches.
+- **SFX Randomizer Pitching & Modes**: Apply custom pitch variations, shuffle sound identities, or select from 6 new sound randomization modes (Reverse playback, Glitched truncation, High/Low/Random pitch shifting, Swap-only).
+
+### 🖼️ Dialogue-Based Texture Replacer
+- **Unified Rule Selector**: Dedicated window to map targets recursively from both the `textures/` and `actors/` folders.
+- **Image Previews**: View original and replacement texture images along with their pixel dimensions directly within the mapping interface.
+- **Custom Image Mapping**: Browse and select external PNG files to automatically scale and overwrite target texture assets.
 
 ### 🧩 Custom Behavior Builder
 - **Visual AI Constructor**: Design custom actor code patterns (Patrol, Chase Mario, Jump Repeatedly, Spin, Hover, or Stand Still) and configure properties (Solid, Damage, Grabbable, Collectible, Climbable).

@@ -246,7 +246,7 @@ public class LevelSaver
             string macroName = string.IsNullOrEmpty(obj.PresetName) ? obj.ModelName : obj.PresetName;
             if (identifier.Contains("WITH_BHV_PARAM"))
             {
-                string param = $"0x{obj.Params:X2}";
+                string param = !string.IsNullOrEmpty(obj.RawParams) ? obj.RawParams : $"0x{obj.Params:X2}";
                 return $"{prefix}MACRO_OBJECT_WITH_BHV_PARAM({macroName}, {obj.RY}, {obj.X}, {obj.Y}, {obj.Z}, {param}){tail}";
             }
             return $"{prefix}MACRO_OBJECT({macroName}, {obj.RY}, {obj.X}, {obj.Y}, {obj.Z}){tail}";
@@ -259,7 +259,7 @@ public class LevelSaver
             
             if (identifier.Contains("WITH_YAW_AND_PARAM"))
             {
-                string param = $"0x{obj.Params:X2}";
+                string param = !string.IsNullOrEmpty(obj.RawParams) ? obj.RawParams : $"0x{obj.Params:X2}";
                 return $"{prefix}SPECIAL_OBJECT_WITH_YAW_AND_PARAM({presetName}, {obj.X}, {obj.Y}, {obj.Z}, {byteYaw}, {param}){tail}";
             }
             if (identifier.Contains("WITH_YAW"))
@@ -276,7 +276,7 @@ public class LevelSaver
             if (match.Success)
             {
                 string acts = match.Groups[10].Success ? $", {match.Groups[10].Value}" : "";
-                string bhvParam = $"0x{obj.Params:X8}";
+                string bhvParam = !string.IsNullOrEmpty(obj.RawParams) ? obj.RawParams : $"0x{obj.Params:X8}";
                 string newId = identifier.Contains("WITH_ACTS") ? "OBJECT_WITH_ACTS" : "OBJECT";
                 return $"{prefix}{newId}({obj.ModelName}, {obj.X}, {obj.Y}, {obj.Z}, {obj.RX}, {obj.RY}, {obj.RZ}, {bhvParam}, {obj.Behavior}{acts}){tail}";
             }

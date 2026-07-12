@@ -911,7 +911,7 @@ namespace Sm64DecompLevelViewer.Services
             }
         }
 
-        private static byte[] EncodeDoubleTo80Bit(double value)
+        public static byte[] EncodeDoubleTo80Bit(double value)
         {
             byte[] bytes = new byte[10];
             if (value == 0) return bytes;
