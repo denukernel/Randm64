@@ -2,7 +2,9 @@
 
 Randm64 is an advanced, professional modding platform and chaos orchestrator for Super Mario 64 decompilation projects. It extends beyond simple level editing, providing a complete suite of low-level ROM corruption, sequence translation, custom entity builders, and code patching engines.
 
-<img width="946" height="687" alt="image" src="https://github.com/user-attachments/assets/6e51690d-5f91-4153-85bc-035a39bd6653" />
+<img width="979" height="588" alt="image" src="https://github.com/user-attachments/assets/3cb3ef9e-282e-4af6-b871-e38d07b346b0" />
+<img width="1003" height="761" alt="image" src="https://github.com/user-attachments/assets/1ea9c546-fd8c-4f69-9aa6-1e470b694efc" />
+
 
 ## Key Features
 
@@ -24,6 +26,13 @@ Randm64 is an advanced, professional modding platform and chaos orchestrator for
 - **5 HUD Glitcher Modes**: Warp health meters, format tags, and glyph coordinates.
 - **Start Level Chaos (File Select Warp)**: Warp directly to a custom starting level on a new save file, with automated cutscene bypassing for stable playability.
 - **Preset Manager**: Save and load custom corruption profiles to the settings folder for quick selection.
+
+<img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/4657a59c-ea44-4dc1-8c82-7de8488d1bba" />
+<img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/c4515938-c9a9-4ca2-b6e5-8e28736f592a" />
+<img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/67009b2d-cd3d-4505-85b0-778a4a3d58ac" />
+<img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/93797155-a3fa-4bb5-8495-76767541a589" />
+<img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/51ecfcae-cb73-407a-8948-441cb1d3e4bc" />
+
 
 ### 🔀 Sound and Instrument Replacer
 - **Independent Filtering**: Swap sounds across separate directories with custom rule filters.

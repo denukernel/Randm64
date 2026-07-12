@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="SM64 Level Editor" Height="768" Width="1024"
         Background="#1E1E1E" Foreground="#CCCCCC"
-        Icon="Assets/icon.jpg"
+        Icon="Assets/icon.png"
         Closing="Window_Closing">
     <Window.Resources>
         <SolidColorBrush x:Key="PanelBackground" Color="#252526"/>

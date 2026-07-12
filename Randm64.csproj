@@ -12,7 +12,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Resource Include="Assets\icon.jpg" />
+    <Resource Include="Assets\icon.png" />
+    <Resource Include="Assets\level_editor_icon.png" />
+    <Resource Include="Assets\chaos_engine_icon.png" />
+    <Resource Include="Assets\music_editor_icon.png" />
+    <Resource Include="Assets\sound_editor_icon.png" />
   </ItemGroup>
 
   <ItemGroup>

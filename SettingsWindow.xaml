@@ -5,9 +5,6 @@
         Background="#1E1E1E" Foreground="#CCCCCC"
         WindowStartupLocation="CenterOwner">
     <Window.Resources>
-        <SolidColorBrush x:Key="PanelBrush" Color="#252526"/>
-        <SolidColorBrush x:Key="BorderBrush" Color="#3F3F46"/>
-        <SolidColorBrush x:Key="AccentBrush" Color="#00A2FF"/>
     </Window.Resources>
     
     <Grid Margin="20">
@@ -57,6 +54,19 @@
                         <TextBlock Text="{Binding Value, ElementName=DistanceSlider, StringFormat={}{0:F0}}" FontWeight="Bold" DockPanel.Dock="Right"/>
                     </DockPanel>
                     <Slider x:Name="DistanceSlider" Minimum="5000" Maximum="100000" TickFrequency="5000" IsSnapToTickEnabled="True" Margin="0,5,0,0"/>
+                </StackPanel>
+
+                <!-- Theme Settings Header -->
+                <TextBlock Text="Appearance &amp; Theme" FontSize="14" FontWeight="Bold" Foreground="White" Margin="0,0,0,10"/>
+                <StackPanel Margin="0,0,0,15">
+                    <TextBlock Text="Select Editor Theme: " Foreground="#CCCCCC" Margin="0,0,0,5"/>
+                    <ComboBox x:Name="ThemeComboBox" Height="26" Background="#252526" Foreground="White" SelectionChanged="ThemeComboBox_SelectionChanged">
+                        <ComboBoxItem Content="Dark"/>
+                        <ComboBoxItem Content="Light"/>
+                        <ComboBoxItem Content="Cyberpunk (Neon)"/>
+                        <ComboBoxItem Content="Forest Green"/>
+                        <ComboBoxItem Content="Royal Purple"/>
+                    </ComboBox>
                 </StackPanel>
 
                 <Separator Background="{StaticResource BorderBrush}" Margin="0,5,0,15"/>
