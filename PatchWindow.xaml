@@ -1,7 +1,7 @@
 <Window x:Class="Sm64DecompLevelViewer.PatchWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Decomp Patch Manager" Height="500" Width="800"
+        Title="Decomp Patch Manager" Height="500" Width="950"
         Background="#1E1E1E" Foreground="White"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
     
@@ -83,6 +83,8 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="240"/>
                 <ColumnDefinition Width="15"/>
+                <ColumnDefinition Width="240"/>
+                <ColumnDefinition Width="15"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
@@ -98,8 +100,30 @@
                 </Grid>
             </GroupBox>
 
+            <!-- Middle: Built-in C Patches -->
+            <GroupBox Header="Randm64 C Patches" BorderBrush="{StaticResource BorderBrush}" Background="{StaticResource PanelBackground}" Foreground="#CCCCCC" Grid.Column="2" Padding="5">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="5">
+                            <CheckBox x:Name="SkipGoddardCheck" Content="Skip Goddard Face" Foreground="#CCCCCC" Margin="0,0,0,10"/>
+                            <CheckBox x:Name="SkipTitleCheck" Content="Skip Title Screen" Foreground="#CCCCCC" Margin="0,0,0,10"/>
+                            <CheckBox x:Name="SkipLakituCheck" Content="Skip Lakitu Intro" Foreground="#CCCCCC" Margin="0,0,0,10"/>
+                            <CheckBox x:Name="Start99LivesCheck" Content="Start with 99 Lives" Foreground="#CCCCCC" Margin="0,0,0,10"/>
+                            <CheckBox x:Name="StageSelectCheck" Content="Enable Stage Select" Foreground="#CCCCCC" Margin="0,0,0,10"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                    
+                    <Button Grid.Row="1" Content="⚡ Apply Selected C Patches" Click="ApplyCPatches_Click" Padding="6" Background="#007ACC" Foreground="White" BorderThickness="0" FontWeight="SemiBold" HorizontalAlignment="Stretch"/>
+                </Grid>
+            </GroupBox>
+
             <!-- Right: Actions + Terminal -->
-            <Grid Grid.Column="2">
+            <Grid Grid.Column="4">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>

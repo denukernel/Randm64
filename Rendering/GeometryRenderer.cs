@@ -62,6 +62,7 @@ public class GeometryRenderer : GameWindow
     private bool _showObjects = true;
     private bool _needsObjectUpload = false;
     private bool _needsVisualMeshUpload = false;
+    private bool _needsCollisionMeshUpload = false;
     private bool _needsTextureReload = false;
     private bool _isLoaded = false;
     private readonly object _objectLock = new object();
@@ -160,6 +161,12 @@ public class GeometryRenderer : GameWindow
     {
         _collisionMesh = mesh;
         if (_isLoaded) UploadCollisionMeshData();
+    }
+
+    public void LoadMeshThreadSafe(CollisionMesh mesh)
+    {
+        _collisionMesh = mesh;
+        _needsCollisionMeshUpload = true;
     }
 
     public void LoadVisualMesh(VisualMesh mesh)
@@ -1529,6 +1536,12 @@ public class GeometryRenderer : GameWindow
         {
             UploadVisualMeshData();
             _needsVisualMeshUpload = false;
+        }
+
+        if (_needsCollisionMeshUpload)
+        {
+            UploadCollisionMeshData();
+            _needsCollisionMeshUpload = false;
         }
 
         if (_needsTextureReload)

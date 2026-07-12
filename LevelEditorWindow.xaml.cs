@@ -29,6 +29,7 @@ namespace Sm64DecompLevelViewer
         private LevelObject? _clipboard;
         private AppSettings _settings;
         private CollisionMesh? _collisionMesh;
+        private string _collisionFilePath;
 
         public event EventHandler? RequestReload;
 
@@ -48,7 +49,7 @@ namespace Sm64DecompLevelViewer
         private const int WS_CHILD = 0x40000000;
         private const int WS_VISIBLE = 0x10000000;
 
-        public LevelEditorWindow(List<LevelObject> objects, CollisionMesh collisionMesh, VisualMesh visualMesh, string projectRoot, int areaIndex, List<string> supportedModels, AppSettings settings)
+        public LevelEditorWindow(List<LevelObject> objects, CollisionMesh collisionMesh, VisualMesh visualMesh, string projectRoot, int areaIndex, List<string> supportedModels, AppSettings settings, string collisionFilePath)
         {
             InitializeComponent();
             _objects = objects;
@@ -56,11 +57,13 @@ namespace Sm64DecompLevelViewer
             _supportedModels = supportedModels;
             _settings = settings;
             _collisionMesh = collisionMesh;
+            _collisionFilePath = collisionFilePath;
             
             _projectRoot = projectRoot;
             _behaviorService = new BehaviorService(projectRoot);
             
             PopulateTreeView();
+            InitializeMeshEditor();
             
             this.SizeChanged += (s, e) => UpdateRendererPosition();
 
@@ -81,7 +84,121 @@ namespace Sm64DecompLevelViewer
                     PerformPaste();
                     e.Handled = true;
                 }
-                // 3. Fallback: focus renderer
+                // 3. Mesh/Geometry Keyboard Transformation (Arrow Keys / PageUp / PageDown)
+                else if (SidebarTabControl.SelectedIndex == 2 && MeshItemListBox.SelectedItem is MeshItemViewModel selectedVM && !(System.Windows.Input.Keyboard.FocusedElement is TextBox))
+                {
+                    bool isArrowOrPage = e.Key == System.Windows.Input.Key.Up ||
+                                         e.Key == System.Windows.Input.Key.Down ||
+                                         e.Key == System.Windows.Input.Key.Left ||
+                                         e.Key == System.Windows.Input.Key.Right ||
+                                         e.Key == System.Windows.Input.Key.PageUp ||
+                                         e.Key == System.Windows.Input.Key.PageDown;
+
+                    if (isArrowOrPage)
+                    {
+                        int delta = 50; // Move by 50 units
+                        if (System.Windows.Input.Keyboard.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Shift))
+                        {
+                            delta = 10; // Move by 10 units if Shift is held
+                        }
+
+                        int dx = 0, dy = 0, dz = 0;
+
+                        if (e.Key == System.Windows.Input.Key.Left) dx = -delta;
+                        else if (e.Key == System.Windows.Input.Key.Right) dx = delta;
+                        else if (e.Key == System.Windows.Input.Key.Up) dz = -delta;
+                        else if (e.Key == System.Windows.Input.Key.Down) dz = delta;
+                        else if (e.Key == System.Windows.Input.Key.PageUp) dy = delta;
+                        else if (e.Key == System.Windows.Input.Key.PageDown) dy = -delta;
+
+                        bool modified = false;
+
+                        if (selectedVM.Target is CollisionVertex v)
+                        {
+                            v.X += dx;
+                            v.Y += dy;
+                            v.Z += dz;
+                            modified = true;
+                            selectedVM.DisplayText = $"V{_collisionMesh.Vertices.IndexOf(v)}: ({v.X}, {v.Y}, {v.Z})";
+                        }
+                        else if (selectedVM.Target is CollisionTriangle t)
+                        {
+                            if (_collisionMesh != null &&
+                                t.V1 < _collisionMesh.Vertices.Count &&
+                                t.V2 < _collisionMesh.Vertices.Count &&
+                                t.V3 < _collisionMesh.Vertices.Count)
+                            {
+                                var v1 = _collisionMesh.Vertices[t.V1];
+                                var v2 = _collisionMesh.Vertices[t.V2];
+                                var v3 = _collisionMesh.Vertices[t.V3];
+                                v1.X += dx; v1.Y += dy; v1.Z += dz;
+                                v2.X += dx; v2.Y += dy; v2.Z += dz;
+                                v3.X += dx; v3.Y += dy; v3.Z += dz;
+                                modified = true;
+                                selectedVM.DisplayText = $"T{_collisionMesh.Triangles.IndexOf(t)}: V({t.V1},{t.V2},{t.V3}) {t.SurfaceType}";
+                            }
+                        }
+                        else if (selectedVM.Target is WaterBox wb)
+                        {
+                            wb.X1 += dx;
+                            wb.X2 += dx;
+                            wb.Z1 += dz;
+                            wb.Z2 += dz;
+                            wb.Y += dy;
+                            modified = true;
+                            selectedVM.DisplayText = $"W{wb.Id}: X({wb.X1}..{wb.X2}) Z({wb.Z1}..{wb.Z2}) Y={wb.Y}";
+                        }
+
+                        if (modified)
+                        {
+                            // Refresh listbox item
+                            var index = MeshItemListBox.SelectedIndex;
+                            MeshItemListBox.Items.Refresh();
+                            MeshItemListBox.SelectedIndex = index;
+
+                            // Update textboxes in UI
+                            UpdateMeshEditorFieldsVisibility();
+
+                            // Force the renderer to redraw and reposition
+                            if (_renderer != null)
+                            {
+                                _renderer.LoadMeshThreadSafe(_collisionMesh);
+                                
+                                OpenTK.Mathematics.Vector3? point = null;
+                                if (selectedVM.Target is CollisionVertex vert)
+                                {
+                                    point = new OpenTK.Mathematics.Vector3((float)vert.X, (float)vert.Y, (float)vert.Z);
+                                }
+                                else if (selectedVM.Target is CollisionTriangle tri)
+                                {
+                                    var v1 = _collisionMesh.Vertices[tri.V1];
+                                    var v2 = _collisionMesh.Vertices[tri.V2];
+                                    var v3 = _collisionMesh.Vertices[tri.V3];
+                                    point = new OpenTK.Mathematics.Vector3(
+                                        (float)((v1.X + v2.X + v3.X) / 3.0),
+                                        (float)((v1.Y + v2.Y + v3.Y) / 3.0),
+                                        (float)((v1.Z + v2.Z + v3.Z) / 3.0)
+                                    );
+                                }
+                                else if (selectedVM.Target is WaterBox wbox)
+                                {
+                                    point = new OpenTK.Mathematics.Vector3(
+                                        (float)((wbox.X1 + wbox.X2) / 2.0),
+                                        (float)wbox.Y,
+                                        (float)((wbox.Z1 + wbox.Z2) / 2.0)
+                                    );
+                                }
+                                if (point.HasValue)
+                                {
+                                    _renderer.SelectedMeshPoint = point;
+                                }
+                            }
+
+                            e.Handled = true;
+                        }
+                    }
+                }
+                // 4. Fallback: focus renderer
                 else if (!(System.Windows.Input.Keyboard.FocusedElement is TextBox) && _rendererHwnd != IntPtr.Zero)
                 {
                     SetFocus(_rendererHwnd);
@@ -184,6 +301,14 @@ namespace Sm64DecompLevelViewer
                 };
 
                 _renderer.SplinePointModified += Renderer_SplinePointModified;
+
+                _renderer.CollisionTriangleSelected += (index) => {
+                    Dispatcher.Invoke(() => SelectCollisionTriangleInUI(index));
+                };
+
+                _renderer.VisualVertexSelected += (index) => {
+                    Dispatcher.Invoke(() => SelectVisualVertexInUI(index));
+                };
 
                 // Capture HWND and embed
                 unsafe {
@@ -1414,6 +1539,434 @@ namespace Sm64DecompLevelViewer
             float z = (float)(p1.Z + (p2.Z - p1.Z) * frac);
 
             return new OpenTK.Mathematics.Vector3(x, y, z);
+        }
+
+        public class MeshItemViewModel
+        {
+            public object Target { get; set; }
+            public string DisplayText { get; set; }
+        }
+
+        private static readonly List<string> CollisionSurfaces = new()
+        {
+            "SURFACE_DEFAULT",
+            "SURFACE_BURNING",
+            "SURFACE_0004",
+            "SURFACE_HANGABLE",
+            "SURFACE_SLOW",
+            "SURFACE_DEATH_PLANE",
+            "SURFACE_CLOSE_CAMERA",
+            "SURFACE_WATER",
+            "SURFACE_FLOWING_WATER",
+            "SURFACE_INTANGIBLE",
+            "SURFACE_VERY_SLIPPERY",
+            "SURFACE_SLIPPERY",
+            "SURFACE_NOT_SLIPPERY",
+            "SURFACE_TTM_VINES",
+            "SURFACE_MGR_MUSIC",
+            "SURFACE_INSTANT_WARP_1B",
+            "SURFACE_INSTANT_WARP_1C",
+            "SURFACE_INSTANT_WARP_1D",
+            "SURFACE_INSTANT_WARP_1E",
+            "SURFACE_SHALLOW_QUICKSAND",
+            "SURFACE_DEEP_QUICKSAND",
+            "SURFACE_INSTANT_QUICKSAND",
+            "SURFACE_DEEP_MOVING_QUICKSAND",
+            "SURFACE_SHALLOW_MOVING_QUICKSAND",
+            "SURFACE_QUICKSAND",
+            "SURFACE_MOVING_QUICKSAND",
+            "SURFACE_WALL_MISC",
+            "SURFACE_NOISE_DEFAULT",
+            "SURFACE_NOISE_SLIPPERY",
+            "SURFACE_HORIZONTAL_WIND",
+            "SURFACE_INSTANT_MOVING_QUICKSAND",
+            "SURFACE_ICE",
+            "SURFACE_LOOK_UP_WARP",
+            "SURFACE_HARD",
+            "SURFACE_WARP",
+            "SURFACE_TIMER_START",
+            "SURFACE_TIMER_END",
+            "SURFACE_HARD_SLIPPERY",
+            "SURFACE_HARD_VERY_SLIPPERY",
+            "SURFACE_HARD_NOT_SLIPPERY",
+            "SURFACE_VERTICAL_WIND",
+            "SURFACE_BOSS_FIGHT_CAMERA"
+        };
+
+        private void InitializeMeshEditor()
+        {
+            MeshTriSurfaceSelector.ItemsSource = CollisionSurfaces;
+            RefreshMeshList();
+        }
+
+        private void RefreshMeshList()
+        {
+            if (_collisionMesh == null || MeshTypeSelector == null || MeshItemListBox == null) return;
+
+            var selectedItem = (ComboBoxItem)MeshTypeSelector.SelectedItem;
+            if (selectedItem == null) return;
+            string type = selectedItem.Tag.ToString();
+
+            var list = new List<MeshItemViewModel>();
+
+            if (type == "ColVertices")
+            {
+                for (int i = 0; i < _collisionMesh.Vertices.Count; i++)
+                {
+                    var v = _collisionMesh.Vertices[i];
+                    list.Add(new MeshItemViewModel
+                    {
+                        Target = v,
+                        DisplayText = $"V{i}: ({v.X}, {v.Y}, {v.Z})"
+                    });
+                }
+            }
+            else if (type == "ColTriangles")
+            {
+                for (int i = 0; i < _collisionMesh.Triangles.Count; i++)
+                {
+                    var t = _collisionMesh.Triangles[i];
+                    list.Add(new MeshItemViewModel
+                    {
+                        Target = t,
+                        DisplayText = $"T{i}: V({t.V1},{t.V2},{t.V3}) {t.SurfaceType}"
+                    });
+                }
+            }
+            else if (type == "WaterBoxes")
+            {
+                if (_collisionMesh.WaterBoxes != null)
+                {
+                    for (int i = 0; i < _collisionMesh.WaterBoxes.Count; i++)
+                    {
+                        var wb = _collisionMesh.WaterBoxes[i];
+                        list.Add(new MeshItemViewModel
+                        {
+                            Target = wb,
+                            DisplayText = $"W{wb.Id}: X({wb.X1}..{wb.X2}) Z({wb.Z1}..{wb.Z2}) Y={wb.Y}"
+                        });
+                    }
+                }
+            }
+
+            MeshItemListBox.ItemsSource = list;
+            UpdateMeshEditorFieldsVisibility();
+        }
+
+        private void UpdateMeshEditorFieldsVisibility()
+        {
+            if (MeshTypeSelector == null) return;
+
+            var selectedItem = (ComboBoxItem)MeshTypeSelector.SelectedItem;
+            if (selectedItem == null) return;
+            string type = selectedItem.Tag.ToString();
+
+            var selectedVM = (MeshItemViewModel)MeshItemListBox.SelectedItem;
+
+            MeshVertexEditorFields.Visibility = (type == "ColVertices" && selectedVM != null) ? Visibility.Visible : Visibility.Collapsed;
+            MeshTriangleEditorFields.Visibility = (type == "ColTriangles" && selectedVM != null) ? Visibility.Visible : Visibility.Collapsed;
+            MeshWaterEditorFields.Visibility = (type == "WaterBoxes" && selectedVM != null) ? Visibility.Visible : Visibility.Collapsed;
+
+            if (selectedVM == null) return;
+
+            _isUpdatingFromCode = true;
+
+            if (type == "ColVertices" && selectedVM.Target is CollisionVertex v)
+            {
+                MeshVertXText.Text = v.X.ToString();
+                MeshVertYText.Text = v.Y.ToString();
+                MeshVertZText.Text = v.Z.ToString();
+            }
+            else if (type == "ColTriangles" && selectedVM.Target is CollisionTriangle t)
+            {
+                MeshTriV1Text.Text = t.V1.ToString();
+                MeshTriV2Text.Text = t.V2.ToString();
+                MeshTriV3Text.Text = t.V3.ToString();
+                MeshTriSurfaceSelector.SelectedItem = t.SurfaceType;
+                MeshTriParamText.Text = t.SpecialParam?.ToString() ?? "";
+            }
+            else if (type == "WaterBoxes" && selectedVM.Target is WaterBox wb)
+            {
+                MeshWaterIDText.Text = wb.Id.ToString();
+                MeshWaterX1Text.Text = wb.X1.ToString();
+                MeshWaterZ1Text.Text = wb.Z1.ToString();
+                MeshWaterX2Text.Text = wb.X2.ToString();
+                MeshWaterZ2Text.Text = wb.Z2.ToString();
+                MeshWaterYText.Text = wb.Y.ToString();
+            }
+
+            _isUpdatingFromCode = false;
+        }
+
+        private void MeshTypeSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            RefreshMeshList();
+        }
+
+        private void MeshItemListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            UpdateMeshEditorFieldsVisibility();
+
+            var selectedVM = (MeshItemViewModel)MeshItemListBox.SelectedItem;
+            if (selectedVM == null) return;
+
+            OpenTK.Mathematics.Vector3? point = null;
+
+            if (selectedVM.Target is CollisionVertex v)
+            {
+                point = new OpenTK.Mathematics.Vector3((float)v.X, (float)v.Y, (float)v.Z);
+            }
+            else if (selectedVM.Target is CollisionTriangle t)
+            {
+                if (_collisionMesh != null &&
+                    t.V1 < _collisionMesh.Vertices.Count &&
+                    t.V2 < _collisionMesh.Vertices.Count &&
+                    t.V3 < _collisionMesh.Vertices.Count)
+                {
+                    var v1 = _collisionMesh.Vertices[t.V1];
+                    var v2 = _collisionMesh.Vertices[t.V2];
+                    var v3 = _collisionMesh.Vertices[t.V3];
+                    point = new OpenTK.Mathematics.Vector3(
+                        (float)((v1.X + v2.X + v3.X) / 3.0),
+                        (float)((v1.Y + v2.Y + v3.Y) / 3.0),
+                        (float)((v1.Z + v2.Z + v3.Z) / 3.0)
+                    );
+                }
+            }
+            else if (selectedVM.Target is WaterBox wb)
+            {
+                point = new OpenTK.Mathematics.Vector3(
+                    (float)((wb.X1 + wb.X2) / 2.0),
+                    (float)wb.Y,
+                    (float)((wb.Z1 + wb.Z2) / 2.0)
+                );
+            }
+
+            if (point.HasValue && _renderer != null)
+            {
+                _renderer.SelectedMeshPoint = point;
+            }
+        }
+
+        private void MeshVertField_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_isUpdatingFromCode || _collisionMesh == null) return;
+
+            var selectedVM = (MeshItemViewModel)MeshItemListBox.SelectedItem;
+            if (selectedVM == null || !(selectedVM.Target is CollisionVertex v)) return;
+
+            if (int.TryParse(MeshVertXText.Text, out int x)) v.X = x;
+            if (int.TryParse(MeshVertYText.Text, out int y)) v.Y = y;
+            if (int.TryParse(MeshVertZText.Text, out int z)) v.Z = z;
+
+            selectedVM.DisplayText = $"V{_collisionMesh.Vertices.IndexOf(v)}: ({v.X}, {v.Y}, {v.Z})";
+            var index = MeshItemListBox.SelectedIndex;
+            MeshItemListBox.Items.Refresh();
+            MeshItemListBox.SelectedIndex = index;
+        }
+
+        private void MeshTriField_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_isUpdatingFromCode || _collisionMesh == null) return;
+
+            var selectedVM = (MeshItemViewModel)MeshItemListBox.SelectedItem;
+            if (selectedVM == null || !(selectedVM.Target is CollisionTriangle t)) return;
+
+            if (int.TryParse(MeshTriV1Text.Text, out int v1)) t.V1 = v1;
+            if (int.TryParse(MeshTriV2Text.Text, out int v2)) t.V2 = v2;
+            if (int.TryParse(MeshTriV3Text.Text, out int v3)) t.V3 = v3;
+            
+            if (string.IsNullOrWhiteSpace(MeshTriParamText.Text))
+            {
+                t.SpecialParam = null;
+            }
+            else
+            {
+                string pText = MeshTriParamText.Text.Trim();
+                if (pText.StartsWith("0x"))
+                {
+                    try { t.SpecialParam = Convert.ToInt32(pText, 16); } catch { }
+                }
+                else
+                {
+                    if (int.TryParse(pText, out int pVal)) t.SpecialParam = pVal;
+                }
+            }
+
+            selectedVM.DisplayText = $"T{_collisionMesh.Triangles.IndexOf(t)}: V({t.V1},{t.V2},{t.V3}) {t.SurfaceType}";
+            var index = MeshItemListBox.SelectedIndex;
+            MeshItemListBox.Items.Refresh();
+            MeshItemListBox.SelectedIndex = index;
+        }
+
+        private void MeshTriSurfaceSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isUpdatingFromCode || _collisionMesh == null) return;
+
+            var selectedVM = (MeshItemViewModel)MeshItemListBox.SelectedItem;
+            if (selectedVM == null || !(selectedVM.Target is CollisionTriangle t)) return;
+
+            t.SurfaceType = MeshTriSurfaceSelector.SelectedItem as string ?? "SURFACE_DEFAULT";
+
+            selectedVM.DisplayText = $"T{_collisionMesh.Triangles.IndexOf(t)}: V({t.V1},{t.V2},{t.V3}) {t.SurfaceType}";
+            var index = MeshItemListBox.SelectedIndex;
+            MeshItemListBox.Items.Refresh();
+            MeshItemListBox.SelectedIndex = index;
+        }
+
+        private void MeshWaterField_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_isUpdatingFromCode || _collisionMesh == null) return;
+
+            var selectedVM = (MeshItemViewModel)MeshItemListBox.SelectedItem;
+            if (selectedVM == null || !(selectedVM.Target is WaterBox wb)) return;
+
+            if (int.TryParse(MeshWaterIDText.Text, out int id)) wb.Id = id;
+            if (int.TryParse(MeshWaterX1Text.Text, out int x1)) wb.X1 = x1;
+            if (int.TryParse(MeshWaterZ1Text.Text, out int z1)) wb.Z1 = z1;
+            if (int.TryParse(MeshWaterX2Text.Text, out int x2)) wb.X2 = x2;
+            if (int.TryParse(MeshWaterZ2Text.Text, out int z2)) wb.Z2 = z2;
+            if (int.TryParse(MeshWaterYText.Text, out int y)) wb.Y = y;
+
+            selectedVM.DisplayText = $"W{wb.Id}: X({wb.X1}..{wb.X2}) Z({wb.Z1}..{wb.Z2}) Y={wb.Y}";
+            var index = MeshItemListBox.SelectedIndex;
+            MeshItemListBox.Items.Refresh();
+            MeshItemListBox.SelectedIndex = index;
+        }
+
+        private void AddMeshItem_Click(object sender, RoutedEventArgs e)
+        {
+            if (_collisionMesh == null || MeshTypeSelector == null) return;
+
+            var selectedItem = (ComboBoxItem)MeshTypeSelector.SelectedItem;
+            if (selectedItem == null) return;
+            string type = selectedItem.Tag.ToString();
+
+            if (type == "ColVertices")
+            {
+                var newV = new CollisionVertex(0, 0, 0);
+                _collisionMesh.Vertices.Add(newV);
+            }
+            else if (type == "ColTriangles")
+            {
+                var newT = new CollisionTriangle(0, 0, 0, "SURFACE_DEFAULT");
+                _collisionMesh.Triangles.Add(newT);
+            }
+            else if (type == "WaterBoxes")
+            {
+                if (_collisionMesh.WaterBoxes == null) _collisionMesh.WaterBoxes = new List<WaterBox>();
+                var newWb = new WaterBox(_collisionMesh.WaterBoxes.Count + 1, 0, 0, 0, 0, 0);
+                _collisionMesh.WaterBoxes.Add(newWb);
+            }
+
+            RefreshMeshList();
+            MeshItemListBox.SelectedIndex = MeshItemListBox.Items.Count - 1;
+            MeshItemListBox.ScrollIntoView(MeshItemListBox.SelectedItem);
+        }
+
+        private void RemoveMeshItem_Click(object sender, RoutedEventArgs e)
+        {
+            if (_collisionMesh == null || MeshItemListBox.SelectedItem == null) return;
+
+            var selectedVM = (MeshItemViewModel)MeshItemListBox.SelectedItem;
+            int prevIndex = MeshItemListBox.SelectedIndex;
+
+            if (selectedVM.Target is CollisionVertex v)
+            {
+                _collisionMesh.Vertices.Remove(v);
+            }
+            else if (selectedVM.Target is CollisionTriangle t)
+            {
+                _collisionMesh.Triangles.Remove(t);
+            }
+            else if (selectedVM.Target is WaterBox wb)
+            {
+                _collisionMesh.WaterBoxes?.Remove(wb);
+            }
+
+            RefreshMeshList();
+            if (MeshItemListBox.Items.Count > 0)
+            {
+                MeshItemListBox.SelectedIndex = Math.Clamp(prevIndex, 0, MeshItemListBox.Items.Count - 1);
+            }
+        }
+
+        private void SaveMeshChanges_Click(object sender, RoutedEventArgs e)
+        {
+            if (_collisionMesh == null || string.IsNullOrEmpty(_collisionFilePath)) return;
+
+            var meshService = new LevelMeshService();
+            if (meshService.SaveCollisionMesh(_collisionFilePath, _collisionMesh))
+            {
+                MessageBox.Show("Collision mesh changes saved successfully! The 3D viewport will now reload to apply the updates.", "Mesh Saved", MessageBoxButton.OK, MessageBoxImage.Information);
+                RequestReload?.Invoke(this, EventArgs.Empty);
+            }
+            else
+            {
+                MessageBox.Show("Failed to save collision mesh changes. Please make sure the file is writeable.", "Save Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void SelectCollisionTriangleInUI(int index)
+        {
+            if (_collisionMesh == null || index < 0 || index >= _collisionMesh.Triangles.Count) return;
+
+            // Switch to Mesh tab
+            SidebarTabControl.SelectedIndex = 2;
+
+            // Select "Collision Triangles"
+            MeshTypeSelector.SelectedIndex = 1;
+
+            var targetTri = _collisionMesh.Triangles[index];
+            var items = MeshItemListBox.ItemsSource as List<MeshItemViewModel>;
+            if (items != null)
+            {
+                var match = items.FirstOrDefault(item => item.Target == targetTri);
+                if (match != null)
+                {
+                    MeshItemListBox.SelectedItem = match;
+                    MeshItemListBox.ScrollIntoView(match);
+                }
+            }
+        }
+
+        private void SelectVisualVertexInUI(int index)
+        {
+            if (_collisionMesh == null || _renderer == null || !_renderer.SelectedMeshPoint.HasValue) return;
+
+            var pt = _renderer.SelectedMeshPoint.Value;
+
+            double minDist = double.MaxValue;
+            CollisionVertex? closestVert = null;
+            for (int i = 0; i < _collisionMesh.Vertices.Count; i++)
+            {
+                var v = _collisionMesh.Vertices[i];
+                double d = Math.Sqrt(Math.Pow(v.X - pt.X, 2) + Math.Pow(v.Y - pt.Y, 2) + Math.Pow(v.Z - pt.Z, 2));
+                if (d < minDist)
+                {
+                    minDist = d;
+                    closestVert = v;
+                }
+            }
+
+            if (closestVert != null && minDist < 200)
+            {
+                // Switch to Mesh tab
+                SidebarTabControl.SelectedIndex = 2;
+                // Select "Collision Vertices"
+                MeshTypeSelector.SelectedIndex = 0;
+
+                var items = MeshItemListBox.ItemsSource as List<MeshItemViewModel>;
+                if (items != null)
+                {
+                    var match = items.FirstOrDefault(item => item.Target == closestVert);
+                    if (match != null)
+                    {
+                        MeshItemListBox.SelectedItem = match;
+                        MeshItemListBox.ScrollIntoView(match);
+                    }
+                }
+            }
         }
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)

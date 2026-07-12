@@ -113,13 +113,38 @@
                                     <ComboBoxItem Content="Normal Inversion"/>
                                     <ComboBoxItem Content="Texture Scrambler (UV Size)"/>
                                     <ComboBoxItem Content="Polygon Exploder"/>
-                                    <ComboBoxItem Content="Wireframe Conversion"/>
+                                    <ComboBoxItem Content="Voxelizer Snap"/>
                                     <ComboBoxItem Content="UV Swap"/>
                                     <ComboBoxItem Content="Scale Distortion"/>
                                 </ComboBox>
                             </DockPanel>
                         </StackPanel>
                         
+                        <CheckBox x:Name="RandomizeMarioColorsCheck" Content="Randomize Mario Colors (Shirt, Overalls, Cap)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="RandomizeMarioColorsCheck_Toggle" Unchecked="RandomizeMarioColorsCheck_Toggle"/>
+                        <!-- Sub-options for Mario Colors -->
+                        <StackPanel x:Name="MarioColorsOptionsPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <DockPanel Margin="0,0,0,4">
+                                <TextBlock Text="Target Area:" Foreground="#999999" VerticalAlignment="Center" Width="80"/>
+                                <ComboBox x:Name="MarioColorsAreaComboBox" SelectedIndex="0" Height="24" Width="200" HorizontalAlignment="Left">
+                                    <ComboBoxItem Content="Everything (All Areas)"/>
+                                    <ComboBoxItem Content="Shirt &amp; Cap Only"/>
+                                    <ComboBoxItem Content="Overalls Only"/>
+                                    <ComboBoxItem Content="Gloves Only"/>
+                                    <ComboBoxItem Content="Shoes &amp; Hair Only"/>
+                                    <ComboBoxItem Content="Skin Only"/>
+                                    <ComboBoxItem Content="Buttons Only"/>
+                                </ComboBox>
+                            </DockPanel>
+                            <DockPanel>
+                                <TextBlock Text="Mode:" Foreground="#999999" VerticalAlignment="Center" Width="80"/>
+                                <ComboBox x:Name="MarioColorsModeComboBox" SelectedIndex="0" Height="24" Width="200" HorizontalAlignment="Left">
+                                    <ComboBoxItem Content="Full Shaded Random"/>
+                                    <ComboBoxItem Content="Invert Original Colors"/>
+                                    <ComboBoxItem Content="Channel Swap (Hue Shift)"/>
+                                    <ComboBoxItem Content="Psychedelic Neon Glow"/>
+                                </ComboBox>
+                            </DockPanel>
+                        </StackPanel>
                         <CheckBox x:Name="TargetModelsCheck" Content="Vertices / Custom 3D Models" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="True"/>
                         <CheckBox x:Name="TargetGoddardCheck" Content="Goddard Physics &amp; Mario Face Vertices" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="True" Checked="TargetGoddardCheck_Toggle" Unchecked="TargetGoddardCheck_Toggle"/>
                         <!-- Sub-options for Goddard Corruptions -->
@@ -177,7 +202,7 @@
                         <CheckBox x:Name="RandomizeTexturesCheck" Content="Randomize Game Textures (Glitched PNGs)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="RandomizeTexturesCheck_Toggle" Unchecked="RandomizeTexturesCheck_Toggle"/>
                         <!-- Sub-options for texture randomizer -->
                         <StackPanel x:Name="TextureRandomizeOptionsPanel" Margin="20,0,0,8" Visibility="Collapsed">
-                            <DockPanel>
+                            <DockPanel Margin="0,0,0,6">
                                 <TextBlock Text="Mode:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                 <ComboBox x:Name="TextureRandomizeModeComboBox" SelectedIndex="0" Height="24" Width="200" HorizontalAlignment="Left">
                                     <ComboBoxItem Content="Texture Swapping (Shuffle)"/>
@@ -188,6 +213,14 @@
                                     <ComboBoxItem Content="Pixelate / Mosaic"/>
                                 </ComboBox>
                             </DockPanel>
+                            
+                            <DockPanel Margin="0,0,0,6">
+                                <TextBlock Text="Target:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <RadioButton x:Name="TextureRandomizeAllRadio" Content="All Textures" IsChecked="True" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="0,0,15,0" Checked="TextureTarget_Changed" Unchecked="TextureTarget_Changed"/>
+                                <RadioButton x:Name="TextureRandomizeSelectedRadio" Content="Selected Only" Foreground="#CCCCCC" VerticalAlignment="Center" Checked="TextureTarget_Changed" Unchecked="TextureTarget_Changed"/>
+                            </DockPanel>
+                            
+                            <Button x:Name="SelectTexturesButton" Content="📁 Select &amp; Preview Textures..." Click="SelectTexturesButton_Click" HorizontalAlignment="Left" Padding="12,4" Margin="47,0,0,4" Visibility="Collapsed"/>
                         </StackPanel>
                     </StackPanel>
                 </Border>

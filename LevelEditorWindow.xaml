@@ -67,6 +67,27 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#3F3F46"/>
+            <Setter Property="Padding" Value="4"/>
+            <Style.Resources>
+                <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#2D2D30" />
+                <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="White" />
+            </Style.Resources>
+        </Style>
+
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#3E3E42"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
     
     <Grid>
@@ -218,7 +239,7 @@
                     </Border>
 
                     <!-- Object/Warp List -->
-                    <TabControl Grid.Row="1" Margin="0,5">
+                    <TabControl x:Name="SidebarTabControl" Grid.Row="1" Margin="0,5">
                         <TabItem Header="Objects">
                             <TreeView x:Name="ObjectTreeView" Background="Transparent" BorderThickness="0"
                                       SelectedItemChanged="ObjectTreeView_SelectedItemChanged" Margin="0,5">
@@ -244,11 +265,11 @@
                                 
                                 <StackPanel Grid.Row="0" Margin="0,0,0,5">
                                     <TextBlock Text="Select Camera Path:" Foreground="#CCCCCC" Margin="0,0,0,3"/>
-                                    <ComboBox x:Name="SplineSelector" SelectionChanged="SplineSelector_SelectionChanged" Background="White" Foreground="Black" BorderBrush="#3F3F46">
-                                        <ComboBoxItem Content="Intro Camera Path (Position)" Tag="sIntroStartToPipePosition" Foreground="Black"/>
-                                        <ComboBoxItem Content="Intro Camera Path (Focus)" Tag="sIntroStartToPipeFocus" Foreground="Black"/>
-                                        <ComboBoxItem Content="Intro Pipe to Dialog (Position)" Tag="sIntroPipeToDialogPosition" Foreground="Black"/>
-                                        <ComboBoxItem Content="Intro Pipe to Dialog (Focus)" Tag="sIntroPipeToDialogFocus" Foreground="Black"/>
+                                    <ComboBox x:Name="SplineSelector" SelectionChanged="SplineSelector_SelectionChanged">
+                                        <ComboBoxItem Content="Intro Camera Path (Position)" Tag="sIntroStartToPipePosition"/>
+                                        <ComboBoxItem Content="Intro Camera Path (Focus)" Tag="sIntroStartToPipeFocus"/>
+                                        <ComboBoxItem Content="Intro Pipe to Dialog (Position)" Tag="sIntroPipeToDialogPosition"/>
+                                        <ComboBoxItem Content="Intro Pipe to Dialog (Focus)" Tag="sIntroPipeToDialogFocus"/>
                                     </ComboBox>
                                 </StackPanel>
                                 
@@ -308,6 +329,133 @@
                                     <Button Grid.Row="0" Grid.Column="1" Content="Remove Point" Click="RemoveSplinePoint_Click" Margin="2" Background="#D13438" Foreground="White" BorderThickness="0" Padding="5"/>
                                     <Button Grid.Row="1" Grid.ColumnSpan="2" Content="🎥 Play Path Preview" Click="PlayPathPreview_Click" Margin="2,5" Background="#107C41" Foreground="White" BorderThickness="0" Padding="6"/>
                                 </Grid>
+                            </Grid>
+                        </TabItem>
+                        <TabItem Header="Mesh">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/> <!-- Dropdown selection -->
+                                    <RowDefinition Height="Auto"/> <!-- List of items (fixed height) -->
+                                    <RowDefinition Height="*"/>    <!-- Scrollable fields and actions -->
+                                </Grid.RowDefinitions>
+                                
+                                <StackPanel Grid.Row="0" Margin="0,0,0,5">
+                                    <TextBlock Text="Select Geometry Type:" Foreground="#CCCCCC" Margin="0,0,0,3"/>
+                                    <ComboBox x:Name="MeshTypeSelector" SelectionChanged="MeshTypeSelector_SelectionChanged">
+                                        <ComboBoxItem Content="Collision Vertices" Tag="ColVertices" IsSelected="True"/>
+                                        <ComboBoxItem Content="Collision Triangles" Tag="ColTriangles"/>
+                                        <ComboBoxItem Content="Water Boxes" Tag="WaterBoxes"/>
+                                    </ComboBox>
+                                </StackPanel>
+                                
+                                <ListBox Grid.Row="1" x:Name="MeshItemListBox" Height="100" SelectionChanged="MeshItemListBox_SelectionChanged" Background="#252526" Foreground="White" BorderBrush="#3F3F46" Margin="0,5">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding DisplayText}" Foreground="White" FontSize="12"/>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                                
+                                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,5">
+                                    <StackPanel>
+                                        <!-- Vertex Editor Fields -->
+                                        <StackPanel x:Name="MeshVertexEditorFields" Visibility="Collapsed" Margin="0,5">
+                                            <Grid Margin="0,2">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                <TextBlock Text="X:" Foreground="#9CDCFE" VerticalAlignment="Center"/>
+                                                <TextBox Grid.Column="1" x:Name="MeshVertXText" TextChanged="MeshVertField_TextChanged" Background="#2D2D30" Foreground="White" BorderBrush="#3F3F46" Padding="3"/>
+                                            </Grid>
+                                            <Grid Margin="0,2">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                <TextBlock Text="Y:" Foreground="#9CDCFE" VerticalAlignment="Center"/>
+                                                <TextBox Grid.Column="1" x:Name="MeshVertYText" TextChanged="MeshVertField_TextChanged" Background="#2D2D30" Foreground="White" BorderBrush="#3F3F46" Padding="3"/>
+                                            </Grid>
+                                            <Grid Margin="0,2">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                <TextBlock Text="Z:" Foreground="#9CDCFE" VerticalAlignment="Center"/>
+                                                <TextBox Grid.Column="1" x:Name="MeshVertZText" TextChanged="MeshVertField_TextChanged" Background="#2D2D30" Foreground="White" BorderBrush="#3F3F46" Padding="3"/>
+                                            </Grid>
+                                        </StackPanel>
+
+                                        <!-- Triangle Editor Fields -->
+                                        <StackPanel x:Name="MeshTriangleEditorFields" Visibility="Collapsed" Margin="0,5">
+                                            <Grid Margin="0,2">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                <TextBlock Text="V1:" Foreground="#9CDCFE" VerticalAlignment="Center"/>
+                                                <TextBox Grid.Column="1" x:Name="MeshTriV1Text" TextChanged="MeshTriField_TextChanged" Background="#2D2D30" Foreground="White" BorderBrush="#3F3F46" Padding="3"/>
+                                            </Grid>
+                                            <Grid Margin="0,2">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                <TextBlock Text="V2:" Foreground="#9CDCFE" VerticalAlignment="Center"/>
+                                                <TextBox Grid.Column="1" x:Name="MeshTriV2Text" TextChanged="MeshTriField_TextChanged" Background="#2D2D30" Foreground="White" BorderBrush="#3F3F46" Padding="3"/>
+                                            </Grid>
+                                            <Grid Margin="0,2">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                <TextBlock Text="V3:" Foreground="#9CDCFE" VerticalAlignment="Center"/>
+                                                <TextBox Grid.Column="1" x:Name="MeshTriV3Text" TextChanged="MeshTriField_TextChanged" Background="#2D2D30" Foreground="White" BorderBrush="#3F3F46" Padding="3"/>
+                                            </Grid>
+                                            <Grid Margin="0,2">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                <TextBlock Text="Surface:" Foreground="#9CDCFE" VerticalAlignment="Center"/>
+                                                <ComboBox Grid.Column="1" x:Name="MeshTriSurfaceSelector" SelectionChanged="MeshTriSurfaceSelector_SelectionChanged"/>
+                                            </Grid>
+                                            <Grid Margin="0,2">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                <TextBlock Text="Param:" Foreground="#9CDCFE" VerticalAlignment="Center"/>
+                                                <TextBox Grid.Column="1" x:Name="MeshTriParamText" TextChanged="MeshTriField_TextChanged" Background="#2D2D30" Foreground="White" BorderBrush="#3F3F46" Padding="3"/>
+                                            </Grid>
+                                        </StackPanel>
+
+                                        <!-- Water Box Editor Fields -->
+                                        <StackPanel x:Name="MeshWaterEditorFields" Visibility="Collapsed" Margin="0,5">
+                                            <Grid Margin="0,2">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                <TextBlock Text="ID:" Foreground="#9CDCFE" VerticalAlignment="Center"/>
+                                                <TextBox Grid.Column="1" x:Name="MeshWaterIDText" TextChanged="MeshWaterField_TextChanged" Background="#2D2D30" Foreground="White" BorderBrush="#3F3F46" Padding="3"/>
+                                            </Grid>
+                                            <Grid Margin="0,2">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                <TextBlock Text="X1:" Foreground="#9CDCFE" VerticalAlignment="Center"/>
+                                                <TextBox Grid.Column="1" x:Name="MeshWaterX1Text" TextChanged="MeshWaterField_TextChanged" Background="#2D2D30" Foreground="White" BorderBrush="#3F3F46" Padding="3"/>
+                                            </Grid>
+                                            <Grid Margin="0,2">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                <TextBlock Text="Z1:" Foreground="#9CDCFE" VerticalAlignment="Center"/>
+                                                <TextBox Grid.Column="1" x:Name="MeshWaterZ1Text" TextChanged="MeshWaterField_TextChanged" Background="#2D2D30" Foreground="White" BorderBrush="#3F3F46" Padding="3"/>
+                                            </Grid>
+                                            <Grid Margin="0,2">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                <TextBlock Text="X2:" Foreground="#9CDCFE" VerticalAlignment="Center"/>
+                                                <TextBox Grid.Column="1" x:Name="MeshWaterX2Text" TextChanged="MeshWaterField_TextChanged" Background="#2D2D30" Foreground="White" BorderBrush="#3F3F46" Padding="3"/>
+                                            </Grid>
+                                            <Grid Margin="0,2">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                <TextBlock Text="Z2:" Foreground="#9CDCFE" VerticalAlignment="Center"/>
+                                                <TextBox Grid.Column="1" x:Name="MeshWaterZ2Text" TextChanged="MeshWaterField_TextChanged" Background="#2D2D30" Foreground="White" BorderBrush="#3F3F46" Padding="3"/>
+                                            </Grid>
+                                            <Grid Margin="0,2">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                <TextBlock Text="Y:" Foreground="#9CDCFE" VerticalAlignment="Center"/>
+                                                <TextBox Grid.Column="1" x:Name="MeshWaterYText" TextChanged="MeshWaterField_TextChanged" Background="#2D2D30" Foreground="White" BorderBrush="#3F3F46" Padding="3"/>
+                                            </Grid>
+                                        </StackPanel>
+
+                                        <!-- Mesh Editor Actions -->
+                                        <Grid Margin="0,5">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+                                            <Button Grid.Row="0" Grid.Column="0" Content="Add Item" Click="AddMeshItem_Click" Margin="2" Background="#007ACC" Foreground="White" BorderThickness="0" Padding="5"/>
+                                            <Button Grid.Row="0" Grid.Column="1" Content="Remove Item" Click="RemoveMeshItem_Click" Margin="2" Background="#D13438" Foreground="White" BorderThickness="0" Padding="5"/>
+                                            <Button Grid.Row="1" Grid.ColumnSpan="2" Content="💾 Save Mesh Changes" Click="SaveMeshChanges_Click" Margin="2,5" Background="#107C41" Foreground="White" BorderThickness="0" Padding="6"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </ScrollViewer>
                             </Grid>
                         </TabItem>
                     </TabControl>

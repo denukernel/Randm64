@@ -10,6 +10,9 @@ Randm64 is an advanced, professional modding platform and chaos orchestrator for
 - **Real-Time Render**: High-performance visualization of level geometry, visual meshes, and collision triangles using OpenTK.
 - **Object Manipulation**: Move, rotate, scale, or snap actors in 3D.
 - **Drop to Ground**: Automatically drop selected entities directly onto collision surfaces below.
+- **Integrated Level Mesh Editor**: Edit collision vertices, collision triangles, and water boxes directly inside a sidebar tab of the main level editor window.
+- **Viewport Selection Sync**: Ctrl+Clicking a collision triangle or vertex in the 3D viewport instantly switches the tab and highlights/selects the element in the list.
+- **Keyboard Translation Tools**: Translate vertices, triangles, or water boxes in real-time along absolute axes using Arrow keys (`Left/Right/Up/Down`) and `PageUp/PageDown` (hold `Shift` for precision steps), with thread-safe live-redrawing in the viewport.
 - **Splines and Warp Editor**: Build custom camera/movement paths and configure level connection warp portals.
 - **Painting Editor**: Edit castle painting behavior scripts and texture assignments.
 

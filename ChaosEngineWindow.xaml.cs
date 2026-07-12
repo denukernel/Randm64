@@ -20,6 +20,7 @@ namespace Sm64DecompLevelViewer
 
         private readonly string _presetsDir;
         private bool _isLoadingPreset = false;
+        private List<string> _selectedTextures = new();
 
         public ChaosEngineWindow(string projectRoot)
         {
@@ -48,6 +49,9 @@ namespace Sm64DecompLevelViewer
             bool targetGoddard = TargetGoddardCheck.IsChecked == true;
             int goddardMode = GoddardModeComboBox.SelectedIndex;
             int mode = ModeComboBox.SelectedIndex;
+            bool randomizeMarioColors = RandomizeMarioColorsCheck.IsChecked == true;
+            int marioColorsArea = MarioColorsAreaComboBox.SelectedIndex;
+            int marioColorsMode = MarioColorsModeComboBox.SelectedIndex;
 
             bool randomizeSkybox = RandomizeSkyboxCheck.IsChecked == true;
             bool randomizeText = RandomizeTextCheck.IsChecked == true;
@@ -76,7 +80,7 @@ namespace Sm64DecompLevelViewer
 
             if (!targetMusic && !targetSounds && !randomizeDl && !targetModels && !targetGoddard && !shuffleSounds &&
                 !randomizeSkybox && !randomizeText && !jumpWeird && !jumpDeath && !limboMario && !alienSound && !randomizeTextures &&
-                !glitchAnimations && !glitchHud && !replaceSfx)
+                !glitchAnimations && !glitchHud && !replaceSfx && !randomizeMarioColors)
             {
                 MessageBox.Show("Please select at least one target asset type or cheat to inflict.", "No Targets Selected", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
@@ -486,11 +490,15 @@ namespace Sm64DecompLevelViewer
                             }
                         }
 
-                        // Actors always get scanned since they contain models/DLs
-                        string actorsDir = Path.Combine(_projectRoot, "actors");
-                        if (Directory.Exists(actorsDir))
+                        // Actors only get scanned if "All Levels" is selected (since they are globally shared across all levels)
+                        if (selectedLevel == "All Levels")
                         {
-                            filesToCorrupt.AddRange(Directory.GetFiles(actorsDir, "*.c", SearchOption.AllDirectories));
+                            string actorsDir = Path.Combine(_projectRoot, "actors");
+                            if (Directory.Exists(actorsDir))
+                            {
+                                filesToCorrupt.AddRange(Directory.GetFiles(actorsDir, "*.c", SearchOption.AllDirectories));
+                                filesToCorrupt.AddRange(Directory.GetFiles(actorsDir, "*.inc.c", SearchOption.AllDirectories));
+                            }
                         }
 
                         string editorLevelsDir = Path.Combine(_projectRoot, "leveleditor", "levels");
@@ -509,11 +517,16 @@ namespace Sm64DecompLevelViewer
                                 filesToCorrupt.AddRange(Directory.GetFiles(editorLevelsDir, "*.c", SearchOption.AllDirectories));
                             }
                         }
+                    }
 
-                        string editorActorsDir = Path.Combine(_projectRoot, "leveleditor", "actors");
-                        if (Directory.Exists(editorActorsDir))
+                    // 3b. Mario Clothing Colors
+                    if (randomizeMarioColors)
+                    {
+                        string marioDir = Path.Combine(_projectRoot, "actors", "mario");
+                        if (Directory.Exists(marioDir))
                         {
-                            filesToCorrupt.AddRange(Directory.GetFiles(editorActorsDir, "*.c", SearchOption.AllDirectories));
+                            filesToCorrupt.AddRange(Directory.GetFiles(marioDir, "*.c", SearchOption.AllDirectories));
+                            filesToCorrupt.AddRange(Directory.GetFiles(marioDir, "*.inc.c", SearchOption.AllDirectories));
                         }
                     }
 
@@ -538,9 +551,29 @@ namespace Sm64DecompLevelViewer
                     if (randomizeTextures)
                     {
                         string texDir = Path.Combine(_projectRoot, "textures");
+                        string actorsDir = Path.Combine(_projectRoot, "actors");
+
+                        var pngFilesList = new List<string>();
                         if (Directory.Exists(texDir))
                         {
-                            var pngFiles = Directory.GetFiles(texDir, "*.png", SearchOption.AllDirectories);
+                            pngFilesList.AddRange(Directory.GetFiles(texDir, "*.png", SearchOption.AllDirectories));
+                        }
+                        if (Directory.Exists(actorsDir))
+                        {
+                            pngFilesList.AddRange(Directory.GetFiles(actorsDir, "*.png", SearchOption.AllDirectories));
+                        }
+
+                        bool randomizeSelectedOnly = false;
+                        Dispatcher.Invoke(() => {
+                            randomizeSelectedOnly = TextureRandomizeSelectedRadio.IsChecked == true;
+                        });
+
+                        if (randomizeSelectedOnly)
+                        {
+                            var selectedSet = new HashSet<string>(_selectedTextures.Select(p => Path.Combine(_projectRoot, p.Replace('/', Path.DirectorySeparatorChar))), StringComparer.OrdinalIgnoreCase);
+                            pngFilesList = pngFilesList.Where(f => selectedSet.Contains(f)).ToList();
+                        }
+                        var pngFiles = pngFilesList.ToArray();
 
                             if (textureMode == 0) // Texture Swapping (Shuffle)
                             {
@@ -616,7 +649,6 @@ namespace Sm64DecompLevelViewer
                                     filesToCorrupt.Add(file);
                                 }
                             }
-                        }
                     }
 
                     // 6. HUD drawing
@@ -698,6 +730,10 @@ namespace Sm64DecompLevelViewer
                             }
                             else if (file.EndsWith(".inc.c", StringComparison.OrdinalIgnoreCase) || ext == ".c" || ext == ".h")
                             {
+                                if (randomizeMarioColors && file.Contains("mario"))
+                                {
+                                    CorruptMarioColorsFile(file, marioColorsArea, marioColorsMode);
+                                }
                                 if (randomizeDl)
                                 {
                                     CorruptDisplayListFile(file, intensity, dlMode);
@@ -775,6 +811,14 @@ namespace Sm64DecompLevelViewer
             }
         }
 
+        private void RandomizeMarioColorsCheck_Toggle(object sender, RoutedEventArgs e)
+        {
+            if (MarioColorsOptionsPanel != null)
+            {
+                MarioColorsOptionsPanel.Visibility = RandomizeMarioColorsCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
         private void TargetMusicNotesCheck_Toggle(object sender, RoutedEventArgs e)
         {
             if (MusicNotesOptionsPanel != null)
@@ -796,6 +840,23 @@ namespace Sm64DecompLevelViewer
             if (TextureRandomizeOptionsPanel != null)
             {
                 TextureRandomizeOptionsPanel.Visibility = RandomizeTexturesCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private void TextureTarget_Changed(object sender, RoutedEventArgs e)
+        {
+            if (SelectTexturesButton != null && TextureRandomizeSelectedRadio != null)
+            {
+                SelectTexturesButton.Visibility = TextureRandomizeSelectedRadio.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private void SelectTexturesButton_Click(object sender, RoutedEventArgs e)
+        {
+            var window = new TextureSelectionWindow(_projectRoot, _selectedTextures) { Owner = this };
+            if (window.ShowDialog() == true)
+            {
+                _selectedTextures = window.SelectedRelativePaths;
             }
         }
 
@@ -1040,7 +1101,12 @@ namespace Sm64DecompLevelViewer
         {
             var service = new Services.M64Service();
             var tracks = service.LoadM64(filePath);
-            if (tracks == null || tracks.Count == 0) return;
+            if (tracks == null || tracks.Count == 0)
+            {
+                // Fall back to raw binary corruption if structured midi parsing fails
+                CorruptBinaryFile(filePath, intensity, 0);
+                return;
+            }
 
             switch (m64Mode)
             {
@@ -1967,6 +2033,19 @@ namespace Sm64DecompLevelViewer
             }
         }
 
+        private int ParseIntHexSafe(string val)
+        {
+            val = val.Trim();
+            if (val.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            {
+                if (int.TryParse(val.Substring(2), System.Globalization.NumberStyles.HexNumber, null, out int hex))
+                    return hex;
+            }
+            if (int.TryParse(val, out int res))
+                return res;
+            return 0;
+        }
+
         private void CorruptDisplayListFile(string filePath, double intensity, int dlMode)
         {
             try
@@ -2027,12 +2106,12 @@ namespace Sm64DecompLevelViewer
                             break;
 
                         case 2: // Normal Inversion
-                            if (int.TryParse(r, out int nr) && int.TryParse(g, out int ng) && int.TryParse(b, out int nb))
-                            {
-                                if (nr >= -128 && nr <= 127) r = (-nr).ToString();
-                                if (ng >= -128 && ng <= 127) g = (-ng).ToString();
-                                if (nb >= -128 && nb <= 127) b = (-nb).ToString();
-                            }
+                            int nr = ParseIntHexSafe(r);
+                            int ng = ParseIntHexSafe(g);
+                            int nb = ParseIntHexSafe(b);
+                            r = $"0x{(byte)(-nr):X2}";
+                            g = $"0x{(byte)(-ng):X2}";
+                            b = $"0x{(byte)(-nb):X2}";
                             break;
 
                         case 3: // Texture Scrambler (UV Size)
@@ -2070,6 +2149,11 @@ namespace Sm64DecompLevelViewer
                 {
                     // Inject clear lighting geometry mode inside Display Lists to achieve full Bowser boss level bright color glow
                     newContent = Regex.Replace(newContent, @"(static const Gfx [a-zA-Z0-9_]+\[\]\s*=\s*\{)", "$1\n    gsSPClearGeometryMode(G_LIGHTING),");
+                }
+                else if (dlMode == 1) // Faceless Mario (No UVs)
+                {
+                    // Enable Environment Mapping (Texture Coordinate Generation) to strip static UVs and force shifting textures/crystal reflections
+                    newContent = Regex.Replace(newContent, @"(static const Gfx [a-zA-Z0-9_]+\[\]\s*=\s*\{)", "$1\n    gsSPSetGeometryMode(G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR),");
                 }
 
                 File.WriteAllText(filePath, newContent);
@@ -2236,6 +2320,9 @@ namespace Sm64DecompLevelViewer
                 TargetModelsCheck.IsChecked = true;
                 TargetGoddardCheck.IsChecked = true;
                 GoddardModeComboBox.SelectedIndex = 0;
+                RandomizeMarioColorsCheck.IsChecked = false;
+                MarioColorsAreaComboBox.SelectedIndex = 0;
+                MarioColorsModeComboBox.SelectedIndex = 0;
                 
                 GlitchAnimationsCheck.IsChecked = false;
                 AnimationGlitcherModeComboBox.SelectedIndex = 0;
@@ -2243,6 +2330,8 @@ namespace Sm64DecompLevelViewer
                 HudGlitcherModeComboBox.SelectedIndex = 0;
                 RandomizeTexturesCheck.IsChecked = false;
                 TextureRandomizeModeComboBox.SelectedIndex = 0;
+                TextureRandomizeAllRadio.IsChecked = true;
+                _selectedTextures.Clear();
                 ModeComboBox.SelectedIndex = 0;
                 RandomizeSkyboxCheck.IsChecked = false;
                 RandomizeTextCheck.IsChecked = false;
@@ -2290,6 +2379,9 @@ namespace Sm64DecompLevelViewer
                 TargetModelsCheck.IsChecked = preset.TargetModels;
                 TargetGoddardCheck.IsChecked = preset.TargetGoddard;
                 GoddardModeComboBox.SelectedIndex = preset.GoddardMode;
+                RandomizeMarioColorsCheck.IsChecked = preset.RandomizeMarioColors;
+                MarioColorsAreaComboBox.SelectedIndex = preset.MarioColorsArea;
+                MarioColorsModeComboBox.SelectedIndex = preset.MarioColorsMode;
 
                 GlitchAnimationsCheck.IsChecked = preset.GlitchAnimations;
                 AnimationGlitcherModeComboBox.SelectedIndex = preset.AnimationGlitcherMode;
@@ -2299,6 +2391,15 @@ namespace Sm64DecompLevelViewer
 
                 RandomizeTexturesCheck.IsChecked = preset.RandomizeTextures;
                 TextureRandomizeModeComboBox.SelectedIndex = preset.TextureRandomizeMode;
+                if (preset.TextureRandomizeSelectedOnly)
+                {
+                    TextureRandomizeSelectedRadio.IsChecked = true;
+                }
+                else
+                {
+                    TextureRandomizeAllRadio.IsChecked = true;
+                }
+                _selectedTextures = preset.TextureRandomizeSelectedPaths ?? new List<string>();
 
                 ModeComboBox.SelectedIndex = preset.ModeIndex;
                 RandomizeSkyboxCheck.IsChecked = preset.RandomizeSkybox;
@@ -2327,7 +2428,9 @@ namespace Sm64DecompLevelViewer
                 GlitchAnimationsCheck_Toggle(null, null);
                 GlitchHudCheck_Toggle(null, null);
                 RandomizeTexturesCheck_Toggle(null, null);
+                TextureTarget_Changed(null, null);
                 RandomizeTextCheck_Toggle(null, null);
+                RandomizeMarioColorsCheck_Toggle(null, null);
                 M64Radio_Checked(null, null);
             }
         }
@@ -2368,6 +2471,9 @@ namespace Sm64DecompLevelViewer
                 TargetModels = TargetModelsCheck.IsChecked == true,
                 TargetGoddard = TargetGoddardCheck.IsChecked == true,
                 GoddardMode = GoddardModeComboBox.SelectedIndex,
+                RandomizeMarioColors = RandomizeMarioColorsCheck.IsChecked == true,
+                MarioColorsArea = MarioColorsAreaComboBox.SelectedIndex,
+                MarioColorsMode = MarioColorsModeComboBox.SelectedIndex,
 
                 GlitchAnimations = GlitchAnimationsCheck.IsChecked == true,
                 AnimationGlitcherMode = AnimationGlitcherModeComboBox.SelectedIndex,
@@ -2377,6 +2483,8 @@ namespace Sm64DecompLevelViewer
 
                 RandomizeTextures = RandomizeTexturesCheck.IsChecked == true,
                 TextureRandomizeMode = TextureRandomizeModeComboBox.SelectedIndex,
+                TextureRandomizeSelectedOnly = TextureRandomizeSelectedRadio.IsChecked == true,
+                TextureRandomizeSelectedPaths = _selectedTextures.ToList(),
 
                 ModeIndex = ModeComboBox.SelectedIndex,
                 RandomizeSkybox = RandomizeSkyboxCheck.IsChecked == true,
@@ -2429,6 +2537,212 @@ namespace Sm64DecompLevelViewer
                 }
             }
         }
+
+        private void CorruptMarioColorsFile(string filePath, int targetArea, int marioColorsMode)
+        {
+            try
+            {
+                // Create backup first
+                string backupPath = filePath + ".bak";
+                if (!File.Exists(backupPath))
+                {
+                    File.Copy(filePath, backupPath);
+                }
+
+                string content = File.ReadAllText(filePath);
+                bool modified = false;
+
+                // Pattern 1: gdSPDefLights1 macro
+                var regexGdSP = new Regex(@"(static\s+const\s+)?(Lights1)\s+(\w+)\s*=\s*gdSPDefLights1\s*\(\s*([0-9a-fA-FxX\s,\-\+]+)\s*\)\s*;", RegexOptions.Singleline);
+                
+                // Pattern 2: Light_t / Lights1 brace structs
+                var regexStruct = new Regex(@"(static\s+const\s+)?(Light_t|Lights1)\s+(\w+)\s*=\s*\{([^{}]*\{[^{}]*\}[^{}]*)*\};", RegexOptions.Singleline);
+
+                string newContent = regexGdSP.Replace(content, m =>
+                {
+                    string structName = m.Groups[3].Value.ToLower();
+                    string argsStr = m.Groups[4].Value;
+                    string[] args = argsStr.Split(',').Select(a => a.Trim()).ToArray();
+
+                    if (args.Length < 6) return m.Value;
+
+                    bool shouldRandomize = false;
+                    switch (targetArea)
+                    {
+                        case 0: shouldRandomize = true; break;
+                        case 1: if (structName.Contains("red")) shouldRandomize = true; break;
+                        case 2: if (structName.Contains("blue")) shouldRandomize = true; break;
+                        case 3: if (structName.Contains("white")) shouldRandomize = true; break;
+                        case 4: if (structName.Contains("brown")) shouldRandomize = true; break;
+                        case 5: if (structName.Contains("skin")) shouldRandomize = true; break;
+                        case 6: if (structName.Contains("yellow")) shouldRandomize = true; break;
+                    }
+
+                    if (!shouldRandomize) return m.Value;
+
+                    modified = true;
+
+                    int avR = 0, avG = 0, avB = 0;
+                    int dvR = 0, dvG = 0, dvB = 0;
+
+                    if (marioColorsMode == 1) // Invert Original Colors
+                    {
+                        avR = 255 - ParseIntHexSafe(args[0]);
+                        avG = 255 - ParseIntHexSafe(args[1]);
+                        avB = 255 - ParseIntHexSafe(args[2]);
+                        dvR = 255 - ParseIntHexSafe(args[3]);
+                        dvG = 255 - ParseIntHexSafe(args[4]);
+                        dvB = 255 - ParseIntHexSafe(args[5]);
+                    }
+                    else if (marioColorsMode == 2) // Channel Swap (Hue Shift)
+                    {
+                        avR = ParseIntHexSafe(args[1]);
+                        avG = ParseIntHexSafe(args[2]);
+                        avB = ParseIntHexSafe(args[0]);
+                        dvR = ParseIntHexSafe(args[4]);
+                        dvG = ParseIntHexSafe(args[5]);
+                        dvB = ParseIntHexSafe(args[3]);
+                    }
+                    else if (marioColorsMode == 3) // Psychedelic Neon Glow
+                    {
+                        dvR = _random.Next(0, 2) * 255;
+                        dvG = _random.Next(0, 2) * 255;
+                        dvB = _random.Next(0, 2) * 255;
+                        if (dvR == 0 && dvG == 0 && dvB == 0) dvR = 255;
+
+                        avR = dvG;
+                        avG = dvB;
+                        avB = dvR;
+                    }
+                    else // Full Shaded Random (Mode 0)
+                    {
+                        dvR = _random.Next(0, 256);
+                        dvG = _random.Next(0, 256);
+                        dvB = _random.Next(0, 256);
+
+                        avR = dvR / 2;
+                        avG = dvG / 2;
+                        avB = dvB / 2;
+                    }
+
+                    string remaining = string.Join(", ", args.Skip(6));
+                    if (!string.IsNullOrEmpty(remaining)) remaining = ", " + remaining;
+
+                    return $"{m.Groups[1].Value}{m.Groups[2].Value} {m.Groups[3].Value} = gdSPDefLights1(\n    0x{avR:X2}, 0x{avG:X2}, 0x{avB:X2},\n    0x{dvR:X2}, 0x{dvG:X2}, 0x{dvB:X2}{remaining}\n);";
+                });
+
+                newContent = regexStruct.Replace(newContent, m =>
+                {
+                    string structName = m.Groups[3].Value.ToLower();
+                    string structBody = m.Value;
+
+                    bool shouldRandomize = false;
+                    switch (targetArea)
+                    {
+                        case 0: shouldRandomize = true; break;
+                        case 1: if (structName.Contains("red")) shouldRandomize = true; break;
+                        case 2: if (structName.Contains("blue")) shouldRandomize = true; break;
+                        case 3: if (structName.Contains("white")) shouldRandomize = true; break;
+                        case 4: if (structName.Contains("brown")) shouldRandomize = true; break;
+                        case 5: if (structName.Contains("skin")) shouldRandomize = true; break;
+                        case 6: if (structName.Contains("yellow")) shouldRandomize = true; break;
+                    }
+
+                    if (!shouldRandomize) return m.Value;
+
+                    modified = true;
+
+                    byte rv = 0, gv = 0, bv = 0;
+                    byte ambR = 0, ambG = 0, ambB = 0;
+
+                    if (marioColorsMode == 1) // Invert Original Colors
+                    {
+                        var colorRegex = new Regex(@"\{\s*(0x[0-9a-fA-F]+|\d+)\s*,\s*(0x[0-9a-fA-F]+|\d+)\s*,\s*(0x[0-9a-fA-F]+|\d+)\s*\}");
+                        var matches = colorRegex.Matches(structBody);
+                        if (matches.Count >= 1)
+                        {
+                            int origR = ParseIntHexSafe(matches[0].Groups[1].Value);
+                            int origG = ParseIntHexSafe(matches[0].Groups[2].Value);
+                            int origB = ParseIntHexSafe(matches[0].Groups[3].Value);
+
+                            rv = (byte)(255 - origR);
+                            gv = (byte)(255 - origG);
+                            bv = (byte)(255 - origB);
+
+                            ambR = (byte)(rv / 4);
+                            ambG = (byte)(gv / 4);
+                            ambB = (byte)(bv / 4);
+                        }
+                        else return m.Value;
+                    }
+                    else if (marioColorsMode == 2) // Channel Swap (Hue Shift)
+                    {
+                        var colorRegex = new Regex(@"\{\s*(0x[0-9a-fA-F]+|\d+)\s*,\s*(0x[0-9a-fA-F]+|\d+)\s*,\s*(0x[0-9a-fA-F]+|\d+)\s*\}");
+                        var matches = colorRegex.Matches(structBody);
+                        if (matches.Count >= 1)
+                        {
+                            int origR = ParseIntHexSafe(matches[0].Groups[1].Value);
+                            int origG = ParseIntHexSafe(matches[0].Groups[2].Value);
+                            int origB = ParseIntHexSafe(matches[0].Groups[3].Value);
+
+                            rv = (byte)origG;
+                            gv = (byte)origB;
+                            bv = (byte)origR;
+
+                            ambR = (byte)(rv / 4);
+                            ambG = (byte)(gv / 4);
+                            ambB = (byte)(bv / 4);
+                        }
+                        else return m.Value;
+                    }
+                    else if (marioColorsMode == 3) // Psychedelic Neon Glow
+                    {
+                        rv = (byte)(_random.Next(0, 2) * 255);
+                        gv = (byte)(_random.Next(0, 2) * 255);
+                        bv = (byte)(_random.Next(0, 2) * 255);
+                        if (rv == 0 && gv == 0 && bv == 0) rv = 255;
+
+                        ambR = gv;
+                        ambG = bv;
+                        ambB = rv;
+                    }
+                    else // Full Shaded Random (Mode 0)
+                    {
+                        rv = (byte)_random.Next(0, 256);
+                        gv = (byte)_random.Next(0, 256);
+                        bv = (byte)_random.Next(0, 256);
+
+                        ambR = (byte)(rv / 4);
+                        ambG = (byte)(gv / 4);
+                        ambB = (byte)(bv / 4);
+                    }
+
+                    var repColorRegex = new Regex(@"\{\s*(0x[0-9a-fA-F]+|\d+)\s*,\s*(0x[0-9a-fA-F]+|\d+)\s*,\s*(0x[0-9a-fA-F]+|\d+)\s*\}");
+                    int matchCount = 0;
+                    return repColorRegex.Replace(structBody, cm =>
+                    {
+                        matchCount++;
+                        if (matchCount <= 2)
+                        {
+                            return $"{{ 0x{rv:X2}, 0x{gv:X2}, 0x{bv:X2} }}";
+                        }
+                        else
+                        {
+                            return $"{{ 0x{ambR:X2}, 0x{ambG:X2}, 0x{ambB:X2} }}";
+                        }
+                    });
+                });
+
+                if (modified)
+                {
+                    File.WriteAllText(filePath, newContent);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error corrupting Mario colors in {filePath}: {ex.Message}");
+            }
+        }
     }
 
     public class ChaosPreset
@@ -2456,6 +2770,9 @@ namespace Sm64DecompLevelViewer
         public bool TargetModels { get; set; } = true;
         public bool TargetGoddard { get; set; } = true;
         public int GoddardMode { get; set; } = 0;
+        public bool RandomizeMarioColors { get; set; } = false;
+        public int MarioColorsArea { get; set; } = 0;
+        public int MarioColorsMode { get; set; } = 0;
 
         public bool GlitchAnimations { get; set; } = false;
         public int AnimationGlitcherMode { get; set; } = 0;
@@ -2465,6 +2782,8 @@ namespace Sm64DecompLevelViewer
 
         public bool RandomizeTextures { get; set; } = false;
         public int TextureRandomizeMode { get; set; } = 0;
+        public bool TextureRandomizeSelectedOnly { get; set; } = false;
+        public List<string> TextureRandomizeSelectedPaths { get; set; } = new();
 
         public int ModeIndex { get; set; } = 0;
         public bool RandomizeSkybox { get; set; } = false;

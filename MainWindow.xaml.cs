@@ -838,7 +838,7 @@ public partial class MainWindow : Window
                     
                     // Open the new Level Editor window
                     var settings = _settingsService.LoadSettings();
-                    var editor = new LevelEditorWindow(objects, collisionMesh, visualMesh, projectRoot ?? "", areaIndex, supportedModels, settings);
+                    var editor = new LevelEditorWindow(objects, collisionMesh, visualMesh, projectRoot ?? "", areaIndex, supportedModels, settings, collisionFilePath ?? "");
                     
                     editor.RequestReload += (s, ev) =>
                     {

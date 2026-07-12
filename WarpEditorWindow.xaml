@@ -40,9 +40,13 @@
 
         <Style TargetType="ComboBox">
             <Setter Property="Background" Value="#2D2D30"/>
-            <Setter Property="Foreground" Value="Black"/>
+            <Setter Property="Foreground" Value="White"/>
             <Setter Property="BorderBrush" Value="#3F3F46"/>
             <Setter Property="Padding" Value="4"/>
+            <Style.Resources>
+                <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#2D2D30" />
+                <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="White" />
+            </Style.Resources>
         </Style>
     </Window.Resources>
 

@@ -31,15 +31,22 @@ namespace Sm64DecompLevelViewer.Services
                     return false;
                 }
 
-                // Find the end of the line containing COL_TRI_STOP
-                int triStopLineEnd = content.IndexOf("\n", triStopIndex);
-                if (triStopLineEnd != -1)
+                // Slice starting exactly after the COL_TRI_STOP(), token to preserve the rest of the line
+                int sliceStart = content.IndexOf("COL_TRI_STOP()", triStopIndex);
+                if (sliceStart != -1)
                 {
-                    triStopLineEnd++; // include the newline character
+                    sliceStart += "COL_TRI_STOP()".Length;
+                    if (sliceStart < content.Length && content[sliceStart] == ',')
+                    {
+                        sliceStart++;
+                    }
                 }
                 else
                 {
-                    triStopLineEnd = triStopIndex + 12; // fallback
+                    // Fallback to end of line if formatting is different
+                    sliceStart = content.IndexOf("\n", triStopIndex);
+                    if (sliceStart != -1) sliceStart++;
+                    else sliceStart = triStopIndex + 12;
                 }
 
                 // Generate new collision geometry block
@@ -76,7 +83,7 @@ namespace Sm64DecompLevelViewer.Services
 
                 // Replace the block
                 string before = content.Substring(0, vertexInitIndex);
-                string after = content.Substring(triStopLineEnd);
+                string after = content.Substring(sliceStart);
 
                 // Strip existing water boxes from after block
                 string cleanedAfter = Regex.Replace(after, @"\s*COL_WATER_BOX_INIT\(\d+\),?", "");
