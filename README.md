@@ -1,4 +1,6 @@
-# Randm64
+# Randm64 
+<img width="64" height="64" alt="image" src="https://github.com/user-attachments/assets/11263792-9552-410c-80df-3d89a3d593d0" />
+
 
 Randm64 is an advanced, professional modding platform and chaos orchestrator for Super Mario 64 decompilation projects. It extends beyond simple level editing, providing a complete suite of low-level ROM corruption, sequence translation, custom entity builders, and code patching engines.
 
@@ -7,6 +9,7 @@ Randm64 is an advanced, professional modding platform and chaos orchestrator for
 
 
 ## Key Features
+<img width="128" height="128" alt="level_editor_icon" src="https://github.com/user-attachments/assets/7a0e20ea-42b7-49ff-bfd7-524dbefbb09a" />
 
 ### 📐 3D Geometry and Level Editor
 - **Real-Time Render**: High-performance visualization of level geometry, visual meshes, and collision triangles using OpenTK.
