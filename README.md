@@ -147,6 +147,12 @@ All settings, custom layouts, themes, and presets are saved to your user documen
 ### What if the compiled ROM or PC port game crashes at startup?
 Because the Chaos Engine randomizes asset data and the Behavior Builder registers custom logic handlers, selecting unsupported behavior combinations or applying extreme corruption configurations can occasionally cause the game to freeze or crash. You can easily revert all source code modifications by clicking the **Git / WSL Patches** button in the dashboard and choosing to revert changes to restore your repository to a clean state. We are not responsible for any game crashes, save file loss, or build errors resulting from experimental modifications.
 
+### How does Randm64 compare to legacy SM64 editors like Toad's Tool 64, Quad64, Yoshit64, or SM64 ROM Manager?
+Unlike legacy editors that directly modify compiled binary ROM files (which often results in resource conflicts, severe limitations, and unstable files), Randm64 is designed from the ground up for **SM64 decompilation source repositories**. It operates at the source code level, letting you generate clean C code behaviors, edit meshes natively, swap sounds, and build clean ROMs or native PC port binaries without the typical binary-hacking constraints.
+
+### How does it compare to Blender-based tools like Fast64?
+While Fast64 is a powerful Blender plugin designed for full custom level importing, custom modeling, and advanced visual layouts, it carries a steep learning curve requiring Blender proficiency. Randm64 is a lightweight, standalone, and high-performance native Windows editor that combines a 3D level editor, custom behavior code builder, sequence editor, sound sample editor, and a low-level chaos engine all in a single, user-friendly interface—no external 3D modeling programs required.
+
 ## Reporting Issues and Bugs
 If you find any bugs, UI glitches, or errors within the Randm64 application itself, please file a report on our [GitHub Issues](https://github.com/denukernel/Randm64/issues) page. Please include:
 - Steps to reproduce the bug.
