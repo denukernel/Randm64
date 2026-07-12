@@ -144,6 +144,15 @@ WSL automatically mounts your Windows drives under `/mnt/` (for example, `C:\` i
 ### Where are my settings and presets saved?
 All settings, custom layouts, themes, and presets are saved to your user documents folder under `My Documents/Randm64/`. This makes it easy to back up or share presets with others.
 
+### What if the compiled ROM or PC port game crashes at startup?
+Because the Chaos Engine randomizes asset data and the Behavior Builder registers custom logic handlers, selecting unsupported behavior combinations or applying extreme corruption configurations can occasionally cause the game to freeze or crash. You can easily revert all source code modifications by clicking the **Git / WSL Patches** button in the dashboard and choosing to revert changes to restore your repository to a clean state. We are not responsible for any game crashes, save file loss, or build errors resulting from experimental modifications.
+
+## Reporting Issues and Bugs
+If you find any bugs, UI glitches, or errors within the Randm64 application itself, please file a report on our [GitHub Issues](https://github.com/denukernel/Randm64/issues) page. Please include:
+- Steps to reproduce the bug.
+- The repository version/branch you are editing (e.g., standard US decomp, pc-port, coop).
+- Any log file traces or error windows that appeared.
+
 ## Technical Stack
 - **C# / .NET 8**
 - **WPF** (Windows Presentation Foundation)
