@@ -120,12 +120,20 @@ If you plan to compile SM64 ROMs using the built-in Build menu:
    sudo apt update && sudo apt install -y build-essential git binutils-mips-linux-gnu zlib1g-dev libaudiofile-dev pkg-config
    ```
 
+## FAQ
+
+### Does it work with the Super Mario 64 PC Port?
+Yes! The 3D Level Editor, Custom Behavior Builder, and Sound Replacer work seamlessly with PC Port repositories (like `sm64ex`, `sm64-port`, and `sm64ex-coop` / `coop`). However, low-level ROM memory injections (such as Goddard face deforming) are designed specifically for N64 emulators/ROM compilation and may not apply to PC-native executables.
+
 ### Does it work on Windows drives (C:, D:, etc.)?
 Yes! You do not need to clone your repository inside the internal WSL filesystem (for example, `/home/username/`).
 WSL automatically mounts your Windows drives under `/mnt/` (for example, `C:\` is mounted at `/mnt/c/`).
 1. Place your SM64 decomp repository folder anywhere on your computer (like your Downloads folder: `C:\Users\...\Downloads\sm64`).
 2. Place a valid `baserom.us.z64` (or target region) inside your repository root folder.
 3. Open Randm64, select the repository folder, and compile. The build engine runs commands directly on the Windows host folder via the WSL mounts, and output files will compile directly on your host drive!
+
+### Where are my settings and presets saved?
+All settings, custom layouts, themes, and presets are saved to your user documents folder under `My Documents/Randm64/`. This makes it easy to back up or share presets with others.
 
 ## Technical Stack
 - **C# / .NET 8**
