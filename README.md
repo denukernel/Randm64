@@ -101,7 +101,7 @@ Randm64 stores user preferences and mod assets inside the user's Documents folde
 
 ### Prerequisites
 - [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- A Super Mario 64 Decompilation project folder (like sm64, pc-port, coop).
+- A Super Mario 64 Decompilation project folder (like sm64, pc-port, coop). **Note**: The target repository must have been compiled/built at least once prior to opening the level editor. This ensures all compressed texture assets (such as MIO0 segments) are generated and available for extraction by the editor's renderer.
 
 ### Build and Run
 1. Open the solution file `Randm64.csproj` in Visual Studio.
@@ -130,6 +130,9 @@ Yes! As long as the repository maintains the standard folder structure of the SM
 
 ### Can it edit pre-compiled ROM Hacks (traditional `.z64` / `.n64` files)?
 No. Randm64 is designed to operate on **source code repositories** (decompilation projects). This allows you to edit levels, behaviors, and sounds at the source level and build clean ROMs or native PC executables, which is much more stable and extensible than modifying compiled binaries.
+
+### Why are textures not loading or showing up as black/missing in the 3D Level Editor?
+You must compile/build your SM64 repository at least once before opening a level inside the editor. Decompilation repos store textures in custom formats that are processed and extracted into build binaries (such as `.mio0` compressed files) during compilation. The editor parses these compiled assets to render level textures; if the project has never been compiled, these assets will be missing.
 
 ### Does it work on Windows drives (C:, D:, etc.)?
 Yes! You do not need to clone your repository inside the internal WSL filesystem (for example, `/home/username/`).
