@@ -61,11 +61,11 @@
                 <StackPanel Margin="0,0,0,15">
                     <TextBlock Text="Select Editor Theme: " Foreground="#CCCCCC" Margin="0,0,0,5"/>
                     <ComboBox x:Name="ThemeComboBox" Height="26" Background="#252526" Foreground="White" SelectionChanged="ThemeComboBox_SelectionChanged">
-                        <ComboBoxItem Content="Dark"/>
-                        <ComboBoxItem Content="Light"/>
-                        <ComboBoxItem Content="Cyberpunk (Neon)"/>
-                        <ComboBoxItem Content="Forest Green"/>
-                        <ComboBoxItem Content="Royal Purple"/>
+                        <ComboBoxItem Content="Dark" Background="#252526" Foreground="White"/>
+                        <ComboBoxItem Content="Light" Background="#252526" Foreground="White"/>
+                        <ComboBoxItem Content="Cyberpunk (Neon)" Background="#252526" Foreground="White"/>
+                        <ComboBoxItem Content="Forest Green" Background="#252526" Foreground="White"/>
+                        <ComboBoxItem Content="Royal Purple" Background="#252526" Foreground="White"/>
                     </ComboBox>
                 </StackPanel>
 
