@@ -127,12 +127,32 @@
                             </DockPanel>
                         </StackPanel>
 
+                        <CheckBox x:Name="RandomizeCollisionCheck" Content="Collision (mesh) Randomizer" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="RandomizeCollisionCheck_Toggle" Unchecked="RandomizeCollisionCheck_Toggle"/>
+                        <!-- Sub-options for Collision Randomizer -->
+                        <StackPanel x:Name="CollisionRandomizerPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <DockPanel>
+                                <TextBlock Text="Mode:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox x:Name="CollisionRandomizerModeComboBox" SelectedIndex="0" Height="24" Width="220" HorizontalAlignment="Left">
+                                    <ComboBoxItem Content="Slippery Ice (Force Surface Slide)"/>
+                                    <ComboBoxItem Content="Super Bounce (Trampoline/High Jump)"/>
+                                    <ComboBoxItem Content="Death Floors (Quicksand / Instant Death)"/>
+                                    <ComboBoxItem Content="Water / Toxic Haze (Poison Gas / Water Surface)"/>
+                                    <ComboBoxItem Content="Climbable / Wall-kick Everywhere"/>
+                                    <ComboBoxItem Content="Windy / Gusty Floors (Strong Wind/Blow)"/>
+                                    <ComboBoxItem Content="Sinking/Quick-Sinking Sand"/>
+                                    <ComboBoxItem Content="Surface Noise / Jitter Geometry"/>
+                                    <ComboBoxItem Content="Giant Slopes (Angle Warper)"/>
+                                    <ComboBoxItem Content="Complete Chaos (Randomize all surface types)"/>
+                                </ComboBox>
+                            </DockPanel>
+                        </StackPanel>
+
                         <CheckBox x:Name="DlExclusionCheck" Content="Display List Exclusion Mode" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="DlExclusionCheck_Toggle" Unchecked="DlExclusionCheck_Toggle"/>
                         <!-- Sub-options for Display List Exclusion Mode -->
                         <StackPanel x:Name="DlExclusionPanel" Margin="20,0,0,8" Visibility="Collapsed">
                             <Button Content="Configure Exclusions..." Click="OpenDlExclusionWindow_Click" Height="26" Width="220" HorizontalAlignment="Left" Background="#007ACC" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Cursor="Hand" Margin="0,0,0,8"/>
                         </StackPanel>
-                        
+
                         <CheckBox x:Name="RandomizeMarioColorsCheck" Content="Randomize Mario Colors (Shirt, Overalls, Cap)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="RandomizeMarioColorsCheck_Toggle" Unchecked="RandomizeMarioColorsCheck_Toggle"/>
                         <!-- Sub-options for Mario Colors -->
                         <StackPanel x:Name="MarioColorsOptionsPanel" Margin="20,0,0,8" Visibility="Collapsed">
