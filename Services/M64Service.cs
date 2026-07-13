@@ -274,7 +274,7 @@ namespace Sm64DecompLevelViewer.Services
             return tracks;
         }
 
-        public M64SaveResult SaveM64(string filePath, List<M64Track> tracks)
+        public M64SaveResult SaveM64(string filePath, List<M64Track> tracks, bool isNotesModified = true)
         {
             var result = new M64SaveResult();
             try
@@ -289,6 +289,45 @@ namespace Sm64DecompLevelViewer.Services
                 result.OriginalSize = File.Exists(backupPath) ? (int)new FileInfo(backupPath).Length : (File.Exists(filePath) ? (int)new FileInfo(filePath).Length : 0);
 
                 var warnings = new List<string>();
+
+                if (!isNotesModified)
+                {
+                    try
+                    {
+                        string sourcePath = File.Exists(backupPath) ? backupPath : filePath;
+                        byte[] fileBytes = File.ReadAllBytes(sourcePath);
+
+                        foreach (var track in tracks)
+                        {
+                            if (_chanVolumeOffsets.TryGetValue(track.ChannelIndex, out int volOffset) && volOffset < fileBytes.Length)
+                            {
+                                fileBytes[volOffset] = track.Volume;
+                            }
+                            if (_chanInstrumentOffsets.TryGetValue(track.ChannelIndex, out int instOffset) && instOffset < fileBytes.Length)
+                            {
+                                fileBytes[instOffset] = track.Instrument;
+                            }
+                            if (_chanBankOffsets.TryGetValue(track.ChannelIndex, out int bankOffset) && bankOffset < fileBytes.Length)
+                            {
+                                fileBytes[bankOffset] = track.Bank;
+                            }
+                        }
+
+                        File.WriteAllBytes(filePath, fileBytes);
+                        result.FileSize = fileBytes.Length;
+
+                        foreach (var track in tracks)
+                        {
+                            result.SavedChannels.Add($"Channel {track.ChannelIndex} (Volume {track.Volume}, Instrument {track.Instrument})");
+                        }
+
+                        return result;
+                    }
+                    catch (Exception ex)
+                    {
+                        warnings.Add($"Direct patch fallback failed: {ex.Message}. Reconstructing layers instead.");
+                    }
+                }
 
                 // Check active channels limit
                 int activeChannelsCount = 0;
@@ -360,15 +399,27 @@ namespace Sm64DecompLevelViewer.Services
 
                                 bool layerOverlapWarning = false;
                                 int lastNoteEnd = 0;
-
                                 int lastTick = 0;
-                                foreach (var note in notes)
+                                int lastPlayPercentage = 0;
+
+                                for (int idx = 0; idx < notes.Count; idx++)
                                 {
+                                    var note = notes[idx];
                                     if (note.StartTick < lastNoteEnd)
                                     {
                                         layerOverlapWarning = true;
                                     }
                                     lastNoteEnd = note.StartTick + note.DurationTicks;
+
+                                    int stepSize = note.DurationTicks;
+                                    if (note.CommandType == 2)
+                                    {
+                                        stepSize = lastPlayPercentage;
+                                    }
+                                    else
+                                    {
+                                        lastPlayPercentage = note.DurationTicks;
+                                    }
 
                                     int delay = note.StartTick - lastTick;
                                     if (delay > 0)
@@ -398,7 +449,7 @@ namespace Sm64DecompLevelViewer.Services
                                         bw.Write(note.Gate);
                                     }
 
-                                    lastTick = note.StartTick + note.DurationTicks;
+                                    lastTick = note.StartTick + stepSize;
                                 }
 
                                 if (layerOverlapWarning)
@@ -573,8 +624,20 @@ namespace Sm64DecompLevelViewer.Services
 
                             var notes = layers[i];
                             int lastTick = 0;
-                            foreach (var note in notes)
+                            int lastPlayPercentage = 0;
+                            for (int idx = 0; idx < notes.Count; idx++)
                             {
+                                var note = notes[idx];
+                                int stepSize = note.DurationTicks;
+                                if (note.CommandType == 2)
+                                {
+                                    stepSize = lastPlayPercentage;
+                                }
+                                else
+                                {
+                                    lastPlayPercentage = note.DurationTicks;
+                                }
+
                                 int delay = note.StartTick - lastTick;
                                 if (delay > 0)
                                 {
@@ -603,7 +666,7 @@ namespace Sm64DecompLevelViewer.Services
                                     bw.Write(note.Gate);
                                 }
 
-                                lastTick = note.StartTick + note.DurationTicks;
+                                lastTick = note.StartTick + stepSize;
                             }
                             bw.Write((byte)0xff); // end layer
                         }

@@ -36,6 +36,7 @@ namespace Sm64DecompLevelViewer
         private readonly double _ticksPerBeat = 48; // Quarter note division
         private bool _isPlaying = false;
         private bool _isUpdatingUi = false;
+        private bool _isNotesModified = false;
 
         // UI Grid Settings
         private const double KEY_HEIGHT = 22;
@@ -275,6 +276,7 @@ namespace Sm64DecompLevelViewer
                     }
                     
                     _sequenceTracks = _m64Service.LoadM64(_activeM64Path);
+                    _isNotesModified = false;
                     SetupInstrumentSelector();
 
                     if (ChannelSelector != null)
@@ -576,6 +578,7 @@ namespace Sm64DecompLevelViewer
                 }
 
                 _sequenceTracks = _m64Service.LoadM64(_activeM64Path);
+                _isNotesModified = false;
                 SetupInstrumentSelector();
 
                 if (ChannelSelector != null)
@@ -1052,6 +1055,11 @@ namespace Sm64DecompLevelViewer
                 _midiPlayer.NoteOff(ch, _selectedNote.Pitch);
             }
 
+            if (_isDraggingNote || _isResizingNote)
+            {
+                _isNotesModified = true;
+            }
+
             _selectedNoteRect = null;
             _selectedNote = null;
             _isDraggingNote = false;
@@ -1436,7 +1444,7 @@ namespace Sm64DecompLevelViewer
         {
             if (string.IsNullOrEmpty(_activeM64Path)) return;
 
-            var result = _m64Service.SaveM64(_activeM64Path, _sequenceTracks);
+            var result = _m64Service.SaveM64(_activeM64Path, _sequenceTracks, _isNotesModified);
 
             _lastSavedDetails = $"M64 SAVED DETAILS:\n\n" +
                                 $"File Path: {_activeM64Path}\n" +
@@ -1483,6 +1491,7 @@ namespace Sm64DecompLevelViewer
 
         private void PushUndoState()
         {
+            _isNotesModified = true;
             if (_currentTrack == null) return;
             var state = _currentTrack.Notes.Select(n => new M64Note
             {
