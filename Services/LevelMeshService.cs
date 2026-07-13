@@ -55,7 +55,10 @@ namespace Sm64DecompLevelViewer.Services
                 
                 foreach (var v in mesh.Vertices)
                 {
-                    sb.AppendLine($"    COL_VERTEX({v.X}, {v.Y}, {v.Z}),");
+                    int clampedX = Math.Clamp(v.X, -32500, 32500);
+                    int clampedY = Math.Clamp(v.Y, -32500, 32500);
+                    int clampedZ = Math.Clamp(v.Z, -32500, 32500);
+                    sb.AppendLine($"    COL_VERTEX({clampedX}, {clampedY}, {clampedZ}),");
                 }
 
                 // Group triangles by SurfaceType
@@ -65,12 +68,14 @@ namespace Sm64DecompLevelViewer.Services
 
                 foreach (var group in groupedTriangles)
                 {
+                    bool isSpecial = IsSpecialSurface(group.Key);
                     sb.AppendLine($"    COL_TRI_INIT({group.Key}, {group.Count()}),");
                     foreach (var tri in group)
                     {
-                        if (tri.SpecialParam.HasValue)
+                        if (isSpecial)
                         {
-                            sb.AppendLine($"    COL_TRI_SPECIAL({tri.V1}, {tri.V2}, {tri.V3}, 0x{tri.SpecialParam.Value:X}),");
+                            int param = tri.SpecialParam ?? 0;
+                            sb.AppendLine($"    COL_TRI_SPECIAL({tri.V1}, {tri.V2}, {tri.V3}, 0x{param:X}),");
                         }
                         else
                         {
@@ -197,6 +202,17 @@ namespace Sm64DecompLevelViewer.Services
                 LogService.Log($"Error saving visual mesh array '{arrayName}': {ex.Message}");
                 return false;
             }
+        }
+
+        private static bool IsSpecialSurface(string name)
+        {
+            return name == "SURFACE_0004" ||
+                   name == "SURFACE_FLOWING_WATER" ||
+                   name == "SURFACE_DEEP_MOVING_QUICKSAND" ||
+                   name == "SURFACE_SHALLOW_MOVING_QUICKSAND" ||
+                   name == "SURFACE_MOVING_QUICKSAND" ||
+                   name == "SURFACE_HORIZONTAL_WIND" ||
+                   name == "SURFACE_INSTANT_MOVING_QUICKSAND";
         }
     }
 }
