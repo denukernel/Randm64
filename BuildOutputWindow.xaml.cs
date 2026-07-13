@@ -13,6 +13,8 @@ namespace Sm64DecompLevelViewer
         private readonly AppSettings? _settings;
         private readonly string? _gitUrlToClone;
         private readonly bool _isRevertMode = false;
+        private readonly List<string>? _bakFilesToRestore;
+        private readonly bool _runGitRevert = false;
         private bool _isBuildSuccessful = false;
 
         public bool IsSuccessful => _isBuildSuccessful;
@@ -40,15 +42,23 @@ namespace Sm64DecompLevelViewer
         }
 
         // Constructor for revert mode
-        public BuildOutputWindow(string projectRoot, bool isRevertMode)
+        public BuildOutputWindow(string projectRoot, List<string>? bakFilesToRestore, bool runGitRevert)
         {
             InitializeComponent();
             _projectRoot = projectRoot;
             _settings = null;
             _gitUrlToClone = null;
-            _isRevertMode = isRevertMode;
+            _isRevertMode = true;
+            _bakFilesToRestore = bakFilesToRestore;
+            _runGitRevert = runGitRevert;
             
             Loaded += async (s, e) => await StartRevertSourceAsync();
+        }
+
+        // Constructor for revert mode (legacy fallback)
+        public BuildOutputWindow(string projectRoot, bool isRevertMode)
+            : this(projectRoot, null, true)
+        {
         }
 
         private async Task StartBuildAsync()
@@ -329,55 +339,74 @@ namespace Sm64DecompLevelViewer
 
         private async Task StartRevertSourceAsync()
         {
-            HeaderTitleText.Text = "REVERTING SOURCE CODE (WSL)...";
+            HeaderTitleText.Text = "REVERTING SOURCE CODE...";
             StatusText.Text = "Reverting code...";
             LogTextBox.AppendText($"> Reverting local changes in project: {_projectRoot}\n");
 
             try
             {
-                // Restore all application backup files (.bak)
+                // Restore backup files
                 try
                 {
-                    var bakFiles = Directory.GetFiles(_projectRoot, "*.bak", SearchOption.AllDirectories);
-                    foreach (var bakFile in bakFiles)
+                    IEnumerable<string> bakFilesToProcess;
+                    if (_bakFilesToRestore != null)
                     {
-                        string originalPath = bakFile.Substring(0, bakFile.Length - 4);
-                        File.Copy(bakFile, originalPath, true);
-                        File.SetLastWriteTime(originalPath, DateTime.Now);
-                        File.Delete(bakFile);
-                        LogTextBox.AppendText($"> Restored from backup: {Path.GetFileName(originalPath)}\n");
+                        bakFilesToProcess = _bakFilesToRestore;
+                    }
+                    else
+                    {
+                        bakFilesToProcess = Directory.Exists(_projectRoot) 
+                            ? Directory.GetFiles(_projectRoot, "*.bak", SearchOption.AllDirectories) 
+                            : Array.Empty<string>();
+                    }
+
+                    foreach (var bakFile in bakFilesToProcess)
+                    {
+                        if (File.Exists(bakFile))
+                        {
+                            string originalPath = bakFile.Substring(0, bakFile.Length - 4);
+                            File.Copy(bakFile, originalPath, true);
+                            File.SetLastWriteTime(originalPath, DateTime.Now);
+                            File.Delete(bakFile);
+                            LogTextBox.AppendText($"> Restored from backup: {Path.GetFileName(originalPath)}\n");
+                        }
                     }
                 }
                 catch (Exception ex)
                 {
                     LogTextBox.AppendText($"> Warning restoring backups: {ex.Message}\n");
                 }
-                // Run wsl git checkout -f
-                LogTextBox.AppendText("> Running 'git checkout -f' inside WSL...\n");
 
-                var startInfo = new ProcessStartInfo
+                bool checkoutSuccess = true;
+                if (_runGitRevert)
                 {
-                    FileName = "wsl",
-                    Arguments = "sh -c \"git checkout -f && git clean -fd && python3 extract_assets.py us\"",
-                    WorkingDirectory = _projectRoot,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
+                    // Run wsl git checkout -f
+                    LogTextBox.AppendText("> Running 'git checkout -f' inside WSL...\n");
 
-                bool checkoutSuccess = false;
-                using (var process = new Process { StartInfo = startInfo })
-                {
-                    process.OutputDataReceived += (s, e) => AppendLog(e.Data);
-                    process.ErrorDataReceived += (s, e) => AppendLog(e.Data);
+                    var startInfo = new ProcessStartInfo
+                    {
+                        FileName = "wsl",
+                        Arguments = "sh -c \"git checkout -f && git clean -fd && python3 extract_assets.py us\"",
+                        WorkingDirectory = _projectRoot,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
 
-                    process.Start();
-                    process.BeginOutputReadLine();
-                    process.BeginErrorReadLine();
+                    checkoutSuccess = false;
+                    using (var process = new Process { StartInfo = startInfo })
+                    {
+                        process.OutputDataReceived += (s, e) => AppendLog(e.Data);
+                        process.ErrorDataReceived += (s, e) => AppendLog(e.Data);
 
-                    await Task.Run(() => process.WaitForExit());
-                    checkoutSuccess = process.ExitCode == 0;
+                        process.Start();
+                        process.BeginOutputReadLine();
+                        process.BeginErrorReadLine();
+
+                        await Task.Run(() => process.WaitForExit());
+                        checkoutSuccess = process.ExitCode == 0;
+                    }
                 }
 
                 if (checkoutSuccess)

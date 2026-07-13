@@ -116,13 +116,17 @@ namespace Sm64DecompLevelViewer
                 }
                 else if (optionsWindow.IsRevertSource)
                 {
-                    var revertWindow = new BuildOutputWindow(_projectRoot, isRevertMode: true);
-                    revertWindow.Owner = this;
-                    revertWindow.ShowDialog();
-
-                    if (revertWindow.IsSuccessful)
+                    var revertSelectWindow = new RevertChangesWindow(_projectRoot) { Owner = this };
+                    if (revertSelectWindow.ShowDialog() == true)
                     {
-                        _onReloadRequest?.Invoke();
+                        var revertWindow = new BuildOutputWindow(_projectRoot, revertSelectWindow.SelectedBackupFiles, revertSelectWindow.RunGitRevert);
+                        revertWindow.Owner = this;
+                        revertWindow.ShowDialog();
+
+                        if (revertWindow.IsSuccessful)
+                        {
+                            _onReloadRequest?.Invoke();
+                        }
                     }
                 }
                 else

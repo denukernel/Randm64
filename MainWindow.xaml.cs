@@ -335,13 +335,17 @@ public partial class MainWindow : Window
             }
             else if (optionsWindow.IsRevertSource)
             {
-                var revertWindow = new BuildOutputWindow(_projectRootPath, isRevertMode: true);
-                revertWindow.Owner = this;
-                revertWindow.ShowDialog();
-
-                if (revertWindow.IsSuccessful)
+                var revertSelectWindow = new RevertChangesWindow(_projectRootPath) { Owner = this };
+                if (revertSelectWindow.ShowDialog() == true)
                 {
-                    LoadLevels();
+                    var revertWindow = new BuildOutputWindow(_projectRootPath, revertSelectWindow.SelectedBackupFiles, revertSelectWindow.RunGitRevert);
+                    revertWindow.Owner = this;
+                    revertWindow.ShowDialog();
+
+                    if (revertWindow.IsSuccessful)
+                    {
+                        LoadLevels();
+                    }
                 }
             }
             else
