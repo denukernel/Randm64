@@ -203,6 +203,7 @@ namespace Sm64DecompLevelViewer.Services
                         {
                             byte cmd = data[pos++];
                             if (cmd == 0xff) break; // end of channel
+                            if (cmd == 0xfb) break; // jump - end of linear channel segment
 
                             if (cmd == 0xc1)
                             {
