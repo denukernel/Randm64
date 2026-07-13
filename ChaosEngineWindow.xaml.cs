@@ -18,6 +18,7 @@ namespace Sm64DecompLevelViewer
         private readonly Random _random = new();
         private readonly List<SoundReplacerWindow.SoundReplacementRule> _sfxReplacementRules = new();
         private readonly List<TextureReplacerWindow.TextureReplacementRule> _textureReplacementRules = new();
+        private readonly List<int> _activeM64Modes = new() { 0, 1, 2, 3, 4, 5 };
 
         private readonly string _presetsDir;
         private bool _isLoadingPreset = false;
@@ -63,7 +64,7 @@ namespace Sm64DecompLevelViewer
             bool randomizeSkybox = RandomizeSkyboxCheck.IsChecked == true;
             bool randomizeText = RandomizeTextCheck.IsChecked == true;
             int textMode = TextRandomizeModeComboBox.SelectedIndex;
-            int m64Mode = MusicNotesModeComboBox.SelectedIndex;
+            int m64Mode = 0; // ignored, randomly selected from _activeM64Modes in CorruptM64SequenceFile
             bool randomizeTextures = RandomizeTexturesCheck.IsChecked == true;
             int textureMode = TextureRandomizeModeComboBox.SelectedIndex;
             
@@ -1403,6 +1404,16 @@ void apply_chaos_intro_camera(struct Camera *c) {
             }
         }
 
+        private void ConfigureM64Modes_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new M64CorruptionWindow(_activeM64Modes) { Owner = this };
+            if (dialog.ShowDialog() == true)
+            {
+                _activeM64Modes.Clear();
+                _activeM64Modes.AddRange(dialog.SelectedModeIds);
+            }
+        }
+
         private void GlitchAnimationsCheck_Toggle(object sender, RoutedEventArgs e)
         {
             if (AnimationGlitcherPanel != null)
@@ -1777,8 +1788,14 @@ void apply_chaos_intro_camera(struct Camera *c) {
             }
         }
 
-        private void CorruptM64SequenceFile(string filePath, double intensity, int m64Mode)
+        private void CorruptM64SequenceFile(string filePath, double intensity, int ignoredMode)
         {
+            int m64Mode = 0;
+            if (_activeM64Modes.Count > 0)
+            {
+                m64Mode = _activeM64Modes[_random.Next(0, _activeM64Modes.Count)];
+            }
+
             byte[] data;
             try
             {
@@ -1795,6 +1812,9 @@ void apply_chaos_intro_camera(struct Camera *c) {
             var volumeOffsets = new List<int>();
             var pitchOffsets = new List<int>();
             var velocityOffsets = new List<int>();
+            var panOffsets = new List<int>();
+            var reverbOffsets = new List<int>();
+            var pitchBendOffsets = new List<int>();
 
             var visited = new HashSet<int>();
             var channelOffsets = new HashSet<int>();
@@ -1807,7 +1827,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             visited.Clear();
             foreach (int chanPos in channelOffsets)
             {
-                ParseChanCommandsForOffsets(data, chanPos, visited, layerOffsets, instrumentOffsets, volumeOffsets);
+                ParseChanCommandsForOffsets(data, chanPos, visited, layerOffsets, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets);
             }
 
             // Parse layers found
@@ -1818,47 +1838,25 @@ void apply_chaos_intro_camera(struct Camera *c) {
             }
 
             // Perform in-place corruption on collected offsets
-            if (m64Mode == 0 || m64Mode == 5)
+            if (m64Mode == 0) // Transpose (Pitch Shift)
             {
                 if (pitchOffsets.Count > 0)
                 {
-                    if (m64Mode == 0)
+                    int pitchOffset = _random.Next(-6, 7);
+                    foreach (int offset in pitchOffsets)
                     {
-                        // Transpose: shift all pitches by the same offset
-                        int pitchOffset = _random.Next(-6, 7);
-                        foreach (int offset in pitchOffsets)
+                        if (_random.NextDouble() < (intensity / 100.0))
                         {
-                            if (_random.NextDouble() < (intensity / 100.0))
-                            {
-                                byte cmd = data[offset];
-                                int pitch = cmd & 0x3f;
-                                int newPitch = Math.Clamp(pitch + pitchOffset, 0, 127);
-                                data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
-                            }
-                        }
-                    }
-                    else
-                    {
-                        // Melody Scrambler (Shuffle pitches in-place)
-                        int shuffleCount = (int)(pitchOffsets.Count * (intensity / 100.0) * 0.1);
-                        if (shuffleCount <= 0) shuffleCount = 1;
-                        for (int s = 0; s < shuffleCount; s++)
-                        {
-                            int idx1 = pitchOffsets[_random.Next(0, pitchOffsets.Count)];
-                            int idx2 = pitchOffsets[_random.Next(0, pitchOffsets.Count)];
-                            byte cmd1 = data[idx1];
-                            byte cmd2 = data[idx2];
-                            byte newCmd1 = (byte)((cmd1 & 0xc0) | (cmd2 & 0x3f));
-                            byte newCmd2 = (byte)((cmd2 & 0xc0) | (cmd1 & 0x3f));
-                            data[idx1] = newCmd1;
-                            data[idx2] = newCmd2;
+                            byte cmd = data[offset];
+                            int pitch = cmd & 0x3f;
+                            int newPitch = Math.Clamp(pitch + pitchOffset, 0, 127);
+                            data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
                         }
                     }
                 }
             }
-            else if (m64Mode == 1)
+            else if (m64Mode == 1) // Tempo Shift (BPM Warp)
             {
-                // Tempo Shift (BPM Warp)
                 foreach (int offset in tempoOffsets)
                 {
                     int tempoOffset = _random.Next(-30, 31);
@@ -1866,9 +1864,8 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     data[offset] = (byte)newTempo;
                 }
             }
-            else if (m64Mode == 2)
+            else if (m64Mode == 2) // Instrument Swap (Orchestration)
             {
-                // Instrument Swap
                 foreach (int offset in instrumentOffsets)
                 {
                     if (_random.NextDouble() < (intensity / 100.0))
@@ -1877,9 +1874,8 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     }
                 }
             }
-            else if (m64Mode == 3)
+            else if (m64Mode == 3) // Duration Glitcher
             {
-                // Duration Glitcher
                 foreach (int offset in pitchOffsets)
                 {
                     byte cmd = data[offset];
@@ -1892,9 +1888,8 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     }
                 }
             }
-            else if (m64Mode == 4)
+            else if (m64Mode == 4) // Velocity Randomizer
             {
-                // Velocity / Volume Randomizer
                 foreach (int offset in volumeOffsets)
                 {
                     if (_random.NextDouble() < (intensity / 100.0))
@@ -1908,6 +1903,234 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     {
                         data[offset] = (byte)_random.Next(10, 128);
                     }
+                }
+            }
+            else if (m64Mode == 5) // Melody Scrambler (Shuffle)
+            {
+                if (pitchOffsets.Count > 0)
+                {
+                    int shuffleCount = (int)(pitchOffsets.Count * (intensity / 100.0) * 0.1);
+                    if (shuffleCount <= 0) shuffleCount = 1;
+                    for (int s = 0; s < shuffleCount; s++)
+                    {
+                        int idx1 = pitchOffsets[_random.Next(0, pitchOffsets.Count)];
+                        int idx2 = pitchOffsets[_random.Next(0, pitchOffsets.Count)];
+                        byte cmd1 = data[idx1];
+                        byte cmd2 = data[idx2];
+                        byte newCmd1 = (byte)((cmd1 & 0xc0) | (cmd2 & 0x3f));
+                        byte newCmd2 = (byte)((cmd2 & 0xc0) | (cmd1 & 0x3f));
+                        data[idx1] = newCmd1;
+                        data[idx2] = newCmd2;
+                    }
+                }
+            }
+            else if (m64Mode == 6) // Octave Jumper (Shift +12 or -12 semitones)
+            {
+                foreach (int offset in pitchOffsets)
+                {
+                    if (_random.NextDouble() < (intensity / 100.0))
+                    {
+                        byte cmd = data[offset];
+                        int pitch = cmd & 0x3f;
+                        int shift = _random.Next(0, 2) == 0 ? 12 : -12;
+                        int newPitch = Math.Clamp(pitch + shift, 0, 127);
+                        data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
+                    }
+                }
+            }
+            else if (m64Mode == 7) // Channel Muter
+            {
+                foreach (int offset in volumeOffsets)
+                {
+                    if (_random.NextDouble() < (intensity / 100.0) * 0.4)
+                    {
+                        data[offset] = 0; // Mute channel
+                    }
+                }
+            }
+            else if (m64Mode == 8) // Pan Scrambler (0, 64, 127)
+            {
+                foreach (int offset in panOffsets)
+                {
+                    if (_random.NextDouble() < (intensity / 100.0))
+                    {
+                        int r = _random.Next(0, 3);
+                        data[offset] = (byte)(r == 0 ? 0 : (r == 1 ? 64 : 127));
+                    }
+                }
+            }
+            else if (m64Mode == 9) // Reverb Maxer
+            {
+                foreach (int offset in reverbOffsets)
+                {
+                    if (_random.NextDouble() < (intensity / 100.0))
+                    {
+                        data[offset] = 127; // Max reverb
+                    }
+                }
+            }
+            else if (m64Mode == 10) // Pitch Bend Chaos
+            {
+                foreach (int offset in pitchBendOffsets)
+                {
+                    if (_random.NextDouble() < (intensity / 100.0))
+                    {
+                        data[offset] = (byte)_random.Next(0, 256); // Scramble pitch bend value
+                    }
+                }
+            }
+            else if (m64Mode == 11) // Note Lengthener (Sustain)
+            {
+                foreach (int offset in pitchOffsets)
+                {
+                    byte cmd = data[offset];
+                    if ((cmd & 0xc0) == 0x80) // note2 has duration parameter at offset+2
+                    {
+                        if (_random.NextDouble() < (intensity / 100.0))
+                        {
+                            int val = data[offset + 2];
+                            data[offset + 2] = (byte)Math.Clamp(val * 4, 10, 255);
+                        }
+                    }
+                }
+            }
+            else if (m64Mode == 12) // Note Shortener (Staccato)
+            {
+                foreach (int offset in pitchOffsets)
+                {
+                    byte cmd = data[offset];
+                    if ((cmd & 0xc0) == 0x80)
+                    {
+                        if (_random.NextDouble() < (intensity / 100.0))
+                        {
+                            data[offset + 2] = (byte)_random.Next(1, 8); // extremely short duration
+                        }
+                    }
+                }
+            }
+            else if (m64Mode == 13) // Major Scale Lock
+            {
+                int[] majorScale = { 0, 2, 4, 5, 7, 9, 11 };
+                foreach (int offset in pitchOffsets)
+                {
+                    if (_random.NextDouble() < (intensity / 100.0))
+                    {
+                        byte cmd = data[offset];
+                        int pitch = cmd & 0x3f;
+                        int noteNum = pitch % 12;
+                        int octave = pitch / 12;
+                        int closest = majorScale.OrderBy(n => Math.Abs(n - noteNum)).First();
+                        int newPitch = Math.Clamp(octave * 12 + closest, 0, 127);
+                        data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
+                    }
+                }
+            }
+            else if (m64Mode == 14) // Minor Scale Lock
+            {
+                int[] minorScale = { 0, 2, 3, 5, 7, 8, 10 };
+                foreach (int offset in pitchOffsets)
+                {
+                    if (_random.NextDouble() < (intensity / 100.0))
+                    {
+                        byte cmd = data[offset];
+                        int pitch = cmd & 0x3f;
+                        int noteNum = pitch % 12;
+                        int octave = pitch / 12;
+                        int closest = minorScale.OrderBy(n => Math.Abs(n - noteNum)).First();
+                        int newPitch = Math.Clamp(octave * 12 + closest, 0, 127);
+                        data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
+                    }
+                }
+            }
+            else if (m64Mode == 15) // Atonal Glitcher
+            {
+                foreach (int offset in pitchOffsets)
+                {
+                    if (_random.NextDouble() < (intensity / 100.0))
+                    {
+                        byte cmd = data[offset];
+                        int newPitch = _random.Next(0, 128);
+                        data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
+                    }
+                }
+            }
+            else if (m64Mode == 16) // Velocity Inverter
+            {
+                foreach (int offset in velocityOffsets)
+                {
+                    if (_random.NextDouble() < (intensity / 100.0))
+                    {
+                        int val = data[offset];
+                        data[offset] = (byte)Math.Clamp(127 - val, 10, 127);
+                    }
+                }
+            }
+            else if (m64Mode == 17) // Dynamic Tremolo
+            {
+                foreach (int offset in volumeOffsets)
+                {
+                    if (_random.NextDouble() < (intensity / 100.0))
+                    {
+                        int val = data[offset];
+                        int mod = _random.Next(0, 2) == 0 ? 30 : -30;
+                        data[offset] = (byte)Math.Clamp(val + mod, 10, 127);
+                    }
+                }
+            }
+            else if (m64Mode == 18) // Transpose Per Channel
+            {
+                int[] channelTransposes = new int[16];
+                for (int c = 0; c < 16; c++)
+                {
+                    channelTransposes[c] = _random.Next(-12, 13);
+                }
+                
+                for (int i = 0; i < pitchOffsets.Count; i++)
+                {
+                    if (_random.NextDouble() < (intensity / 100.0))
+                    {
+                        int offset = pitchOffsets[i];
+                        byte cmd = data[offset];
+                        int pitch = cmd & 0x3f;
+                        int ch = i % 16;
+                        int newPitch = Math.Clamp(pitch + channelTransposes[ch], 0, 127);
+                        data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
+                    }
+                }
+            }
+            else if (m64Mode == 19) // Harmonizer (Octave Duplicator)
+            {
+                for (int i = 0; i < pitchOffsets.Count - 1; i += 2)
+                {
+                    if (_random.NextDouble() < (intensity / 100.0) * 0.5)
+                    {
+                        int offset1 = pitchOffsets[i];
+                        int offset2 = pitchOffsets[i + 1];
+                        byte cmd1 = data[offset1];
+                        int pitch1 = cmd1 & 0x3f;
+                        int newPitch = Math.Clamp(pitch1 + 12, 0, 127);
+                        data[offset2] = (byte)((data[offset2] & 0xc0) | (newPitch & 0x3f));
+                    }
+                }
+            }
+            else if (m64Mode == 20) // Drum Roll Glitcher
+            {
+                foreach (int offset in velocityOffsets)
+                {
+                    if (_random.NextDouble() < (intensity / 100.0) * 0.2)
+                    {
+                        data[offset] = 127;
+                    }
+                }
+            }
+            else if (m64Mode == 21) // Tempo Drifter
+            {
+                int currentTempo = 120;
+                foreach (int offset in tempoOffsets)
+                {
+                    currentTempo = data[offset];
+                    int mod = _random.Next(-15, 16);
+                    data[offset] = (byte)Math.Clamp(currentTempo + mod, 40, 220);
                 }
             }
 
@@ -2029,7 +2252,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             }
         }
 
-        private void ParseChanCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, HashSet<int> layerOffsets, List<int> instrumentOffsets, List<int> volumeOffsets)
+        private void ParseChanCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, HashSet<int> layerOffsets, List<int> instrumentOffsets, List<int> volumeOffsets, List<int> panOffsets, List<int> reverbOffsets, List<int> pitchBendOffsets)
         {
             if (pos < 0 || pos >= data.Length || visited.Contains(pos)) return;
             visited.Add(pos);
@@ -2042,7 +2265,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 if (cmd == 0xfb)
                 {
                     int jumpOffset = (data[pos++] << 8) | data[pos++];
-                    ParseChanCommandsForOffsets(data, jumpOffset, visited, layerOffsets, instrumentOffsets, volumeOffsets);
+                    ParseChanCommandsForOffsets(data, jumpOffset, visited, layerOffsets, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets);
                     break;
                 }
                 else if (cmd == 0xfd)
@@ -2058,6 +2281,21 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 {
                     volumeOffsets.Add(pos);
                     pos++;
+                }
+                else if (cmd == 0xdd) // set pan
+                {
+                    panOffsets.Add(pos);
+                    pos++;
+                }
+                else if (cmd == 0xd4) // set reverb
+                {
+                    reverbOffsets.Add(pos);
+                    pos++;
+                }
+                else if (cmd == 0xe1) // set pitch bend
+                {
+                    pitchBendOffsets.Add(pos);
+                    pos += 3;
                 }
                 else if ((cmd & 0xf0) == 0x90)
                 {
@@ -3286,7 +3524,8 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 IntensifySlider.Value = 10;
                 LevelSelectionComboBox.SelectedIndex = 0;
                 TargetMusicNotesCheck.IsChecked = true;
-                MusicNotesModeComboBox.SelectedIndex = 0;
+                _activeM64Modes.Clear();
+                _activeM64Modes.AddRange(new[] { 0, 1, 2, 3, 4, 5 });
                 M64AllRadio.IsChecked = true;
                 TargetSoundsCheck.IsChecked = true;
                 ShuffleSoundsCheck.IsChecked = false;
@@ -3352,7 +3591,15 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     LevelSelectionComboBox.SelectedIndex = preset.TargetLevelIndex;
 
                 TargetMusicNotesCheck.IsChecked = preset.TargetMusicNotes;
-                MusicNotesModeComboBox.SelectedIndex = preset.MusicNotesMode;
+                _activeM64Modes.Clear();
+                if (preset.ActiveM64Modes != null && preset.ActiveM64Modes.Count > 0)
+                {
+                    _activeM64Modes.AddRange(preset.ActiveM64Modes);
+                }
+                else
+                {
+                    _activeM64Modes.Add(preset.MusicNotesMode);
+                }
                 M64AllRadio.IsChecked = preset.M64All;
                 M64SelectRadio.IsChecked = preset.M64Select;
 
@@ -3463,7 +3710,8 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 TargetLevelIndex = LevelSelectionComboBox.SelectedIndex,
 
                 TargetMusicNotes = TargetMusicNotesCheck.IsChecked == true,
-                MusicNotesMode = MusicNotesModeComboBox.SelectedIndex,
+                MusicNotesMode = _activeM64Modes.FirstOrDefault(),
+                ActiveM64Modes = new List<int>(_activeM64Modes),
                 M64All = M64AllRadio.IsChecked == true,
                 M64Select = M64SelectRadio.IsChecked == true,
 
@@ -3804,6 +4052,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
         
         public bool TargetMusicNotes { get; set; } = true;
         public int MusicNotesMode { get; set; } = 0;
+        public List<int> ActiveM64Modes { get; set; } = new() { 0, 1, 2, 3, 4, 5 };
         public bool M64All { get; set; } = true;
         public bool M64Select { get; set; } = false;
 

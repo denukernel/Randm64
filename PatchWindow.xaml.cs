@@ -220,8 +220,9 @@ namespace Sm64DecompLevelViewer
                 bool skipLakitu = SkipLakituCheck.IsChecked == true;
                 bool start99Lives = Start99LivesCheck.IsChecked == true;
                 bool stageSelect = StageSelectCheck.IsChecked == true;
+                bool audioProtection = AudioProtectionCheck.IsChecked == true;
 
-                if (!skipGoddard && !skipTitle && !skipLakitu && !start99Lives && !stageSelect)
+                if (!skipGoddard && !skipTitle && !skipLakitu && !start99Lives && !stageSelect && !audioProtection)
                 {
                     MessageBox.Show("Please check at least one patch to apply.", "No Patches Selected", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
@@ -458,6 +459,131 @@ namespace Sm64DecompLevelViewer
                     else
                     {
                         LogOutputText.AppendText("Warning: mario.c not found. Skipping starting lives patch.\n");
+                    }
+                }
+
+                // 4. Audio Protection Guard
+                if (audioProtection)
+                {
+                    string playbackFile = Path.Combine(_projectRoot, "src", "audio", "playback.c");
+                    if (File.Exists(playbackFile))
+                    {
+                        string backupPath = playbackFile + ".bak";
+                        if (File.Exists(backupPath))
+                        {
+                            File.Copy(backupPath, playbackFile, true);
+                        }
+                        else
+                        {
+                            File.Copy(playbackFile, backupPath);
+                        }
+                        string content = File.ReadAllText(playbackFile);
+
+                        // 4.1. Patch get_instrument
+                        string targetGetInst = "struct Instrument *get_instrument(s32 bankId, s32 instId) {\r\n    struct Instrument *inst;";
+                        string targetGetInstLF = "struct Instrument *get_instrument(s32 bankId, s32 instId) {\n    struct Instrument *inst;";
+                        string replacementGetInst = "struct Instrument *get_instrument(s32 bankId, s32 instId) {\n    struct Instrument *inst;\n    if (gCtlEntries == NULL || gAlCtlHeader == NULL || bankId < 0 || bankId >= gAlCtlHeader->seqCount) {\n        return NULL;\n    }";
+
+                        if (content.Contains(targetGetInst))
+                        {
+                            content = content.Replace(targetGetInst, replacementGetInst);
+                        }
+                        else if (content.Contains(targetGetInstLF))
+                        {
+                            content = content.Replace(targetGetInstLF, replacementGetInst);
+                        }
+
+                        // 4.2. Patch get_instrument_inner
+                        string targetGetInstInner = "struct Instrument *get_instrument_inner(s32 bankId, s32 instId) {\r\n    struct Instrument *inst;";
+                        string targetGetInstInnerLF = "struct Instrument *get_instrument_inner(s32 bankId, s32 instId) {\n    struct Instrument *inst;";
+                        string replacementGetInstInner = "struct Instrument *get_instrument_inner(s32 bankId, s32 instId) {\n    struct Instrument *inst;\n    if (gCtlEntries == NULL || gAlCtlHeader == NULL || bankId < 0 || bankId >= gAlCtlHeader->seqCount) {\n        return NULL;\n    }";
+
+                        if (content.Contains(targetGetInstInner))
+                        {
+                            content = content.Replace(targetGetInstInner, replacementGetInstInner);
+                        }
+                        else if (content.Contains(targetGetInstInnerLF))
+                        {
+                            content = content.Replace(targetGetInstInnerLF, replacementGetInstInner);
+                        }
+
+                        // 4.3. Patch get_drum
+                        string targetGetDrum = "struct Drum *get_drum(s32 bankId, s32 drumId) {\r\n    struct Drum *drum;";
+                        string targetGetDrumLF = "struct Drum *get_drum(s32 bankId, s32 drumId) {\n    struct Drum *drum;";
+                        string replacementGetDrum = "struct Drum *get_drum(s32 bankId, s32 drumId) {\n    struct Drum *drum;\n    if (gCtlEntries == NULL || gAlCtlHeader == NULL || bankId < 0 || bankId >= gAlCtlHeader->seqCount) {\n        return NULL;\n    }";
+
+                        content = content.Replace(targetGetDrum, replacementGetDrum);
+                        content = content.Replace(targetGetDrumLF, replacementGetDrum);
+
+                        File.WriteAllText(playbackFile, content);
+                        LogOutputText.AppendText("- Applied out-of-bounds guards to src/audio/playback.c.\n");
+                    }
+                    else
+                    {
+                        LogOutputText.AppendText("Warning: src/audio/playback.c not found. Skipping playback patch.\n");
+                    }
+
+                    string seqPlayerFile = Path.Combine(_projectRoot, "src", "audio", "seqplayer.c");
+                    if (File.Exists(seqPlayerFile))
+                    {
+                        string backupPath = seqPlayerFile + ".bak";
+                        if (File.Exists(backupPath))
+                        {
+                            File.Copy(backupPath, seqPlayerFile, true);
+                        }
+                        else
+                        {
+                            File.Copy(seqPlayerFile, backupPath);
+                        }
+                        string content = File.ReadAllText(seqPlayerFile);
+
+                        // 4.4. Patch get_instrument in seqplayer.c (C89 compliant - after pad declaration/VERSION checks)
+                        string targetSeqGetInstEU = "#if defined(VERSION_EU) || defined(VERSION_SH) || defined(VERSION_CN)\r\n    inst = get_instrument_inner(seqChannel->bankId, instId);";
+                        string targetSeqGetInstEULF = "#if defined(VERSION_EU) || defined(VERSION_SH) || defined(VERSION_CN)\n    inst = get_instrument_inner(seqChannel->bankId, instId);";
+                        string replacementSeqGetInstEU = "#if defined(VERSION_EU) || defined(VERSION_SH) || defined(VERSION_CN)\n    if (gCtlEntries == NULL || gAlCtlHeader == NULL || seqChannel->bankId >= gAlCtlHeader->seqCount) {\n        *instOut = NULL;\n        return 0;\n    }\n    inst = get_instrument_inner(seqChannel->bankId, instId);";
+
+                        string targetSeqGetInstUS = "#else\r\n    UNUSED u32 pad;\r\n\r\n    if (instId >= gCtlEntries[seqChannel->bankId].numInstruments) {";
+                        string targetSeqGetInstUSLF = "#else\n    UNUSED u32 pad;\n\n    if (instId >= gCtlEntries[seqChannel->bankId].numInstruments) {";
+                        string replacementSeqGetInstUS = "#else\n    UNUSED u32 pad;\n    if (gCtlEntries == NULL || gAlCtlHeader == NULL || seqChannel->bankId >= gAlCtlHeader->seqCount) {\n        *instOut = NULL;\n        return 0;\n    }\n\n    if (instId >= gCtlEntries[seqChannel->bankId].numInstruments) {";
+
+                        if (content.Contains(targetSeqGetInstEU))
+                        {
+                            content = content.Replace(targetSeqGetInstEU, replacementSeqGetInstEU);
+                        }
+                        else if (content.Contains(targetSeqGetInstEULF))
+                        {
+                            content = content.Replace(targetSeqGetInstEULF, replacementSeqGetInstEU);
+                        }
+
+                        if (content.Contains(targetSeqGetInstUS))
+                        {
+                            content = content.Replace(targetSeqGetInstUS, replacementSeqGetInstUS);
+                        }
+                        else if (content.Contains(targetSeqGetInstUSLF))
+                        {
+                            content = content.Replace(targetSeqGetInstUSLF, replacementSeqGetInstUS);
+                        }
+
+                        // 4.5. Patch drum processing bounds check in seqplayer.c
+                        string targetDrumProcess = "#if defined(VERSION_EU)\r\n                drum = get_drum(seqChannel->bankId, cmd);\r\n#else\r\n                if (cmd >= gCtlEntries[seqChannel->bankId].numDrums) {";
+                        string targetDrumProcessLF = "#if defined(VERSION_EU)\n                drum = get_drum(seqChannel->bankId, cmd);\n#else\n                if (cmd >= gCtlEntries[seqChannel->bankId].numDrums) {";
+                        string replacementDrumProcess = "#if defined(VERSION_EU)\n                drum = get_drum(seqChannel->bankId, cmd);\n#else\n                if (gCtlEntries == NULL || gAlCtlHeader == NULL || seqChannel->bankId >= gAlCtlHeader->seqCount) {\n                    layer->stopSomething = TRUE;\n                    goto skip;\n                }\n                if (cmd >= gCtlEntries[seqChannel->bankId].numDrums) {";
+
+                        if (content.Contains(targetDrumProcess))
+                        {
+                            content = content.Replace(targetDrumProcess, replacementDrumProcess);
+                        }
+                        else if (content.Contains(targetDrumProcessLF))
+                        {
+                            content = content.Replace(targetDrumProcessLF, replacementDrumProcess);
+                        }
+
+                        File.WriteAllText(seqPlayerFile, content);
+                        LogOutputText.AppendText("- Applied out-of-bounds guards to src/audio/seqplayer.c.\n");
+                    }
+                    else
+                    {
+                        LogOutputText.AppendText("Warning: src/audio/seqplayer.c not found. Skipping seqplayer patch.\n");
                     }
                 }
 

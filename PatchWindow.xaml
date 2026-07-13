@@ -115,6 +115,7 @@
                             <CheckBox x:Name="SkipLakituCheck" Content="Skip Lakitu Intro" Foreground="#CCCCCC" Margin="0,0,0,10"/>
                             <CheckBox x:Name="Start99LivesCheck" Content="Start with 99 Lives" Foreground="#CCCCCC" Margin="0,0,0,10"/>
                             <CheckBox x:Name="StageSelectCheck" Content="Enable Stage Select" Foreground="#CCCCCC" Margin="0,0,0,10"/>
+                            <CheckBox x:Name="AudioProtectionCheck" Content="Audio Protection Guard" Foreground="#CCCCCC" Margin="0,0,0,10" ToolTip="Prevents audio driver crashes, freezes, and muting due to out-of-bounds instrument, bank, or drum parameters."/>
                         </StackPanel>
                     </ScrollViewer>
                     

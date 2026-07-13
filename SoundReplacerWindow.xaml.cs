@@ -401,6 +401,46 @@ namespace Sm64DecompLevelViewer
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
+            long totalEstimatedSize = 0;
+            int largeReplacementCount = 0;
+
+            var replacementUsage = ActiveRules.GroupBy(r => r.ReplacementPath)
+                                              .ToDictionary(g => g.Key, g => g.Count());
+
+            foreach (var kvp in replacementUsage)
+            {
+                string path = kvp.Key;
+                int count = kvp.Value;
+
+                if (File.Exists(path))
+                {
+                    long size = new FileInfo(path).Length;
+                    totalEstimatedSize += size * count;
+                    if (size > 15000 && count > 5) // > 15KB used on more than 5 targets
+                    {
+                        largeReplacementCount++;
+                    }
+                }
+            }
+
+            if (totalEstimatedSize > 1024 * 1024 || largeReplacementCount > 0) // > 1MB total or large duplicates
+            {
+                var response = MessageBox.Show(
+                    "WARNING: Replacing multiple sound effects with large sound files (like water/river SFX) will dramatically increase the compiled audio bank size (sound_data.tbl).\n\n" +
+                    "Since the N64 has a very limited audio heap, this will likely cause voice starvation, muting all sound effects in-game.\n\n" +
+                    "Tip: To avoid this, keep the replacement file size small (ideally under 5KB) or replace fewer targets.\n\n" +
+                    "Do you want to proceed anyway?",
+                    "Audio Heap Overflow Warning",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning
+                );
+
+                if (response == MessageBoxResult.No)
+                {
+                    return;
+                }
+            }
+
             DialogResult = true;
             Close();
         }

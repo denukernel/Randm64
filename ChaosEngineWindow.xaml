@@ -69,15 +69,8 @@
                         <!-- Sub-options for M64 Music Notes -->
                         <StackPanel x:Name="MusicNotesOptionsPanel" Margin="20,0,0,8" Visibility="Visible">
                             <DockPanel Margin="0,0,0,6">
-                                <TextBlock Text="Mode:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                <ComboBox x:Name="MusicNotesModeComboBox" SelectedIndex="0" Height="24" Width="200" HorizontalAlignment="Left">
-                                    <ComboBoxItem Content="Transpose (Pitch Shift)"/>
-                                    <ComboBoxItem Content="Tempo Shift (BPM Warp)"/>
-                                    <ComboBoxItem Content="Instrument Swap (Orchestration)"/>
-                                    <ComboBoxItem Content="Duration Glitcher"/>
-                                    <ComboBoxItem Content="Velocity Randomizer"/>
-                                    <ComboBoxItem Content="Melody Scrambler (Shuffle)"/>
-                                </ComboBox>
+                                <TextBlock Text="Modes:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <Button x:Name="ConfigureM64ModesButton" Content="Configure M64 Corruption Modes..." Click="ConfigureM64Modes_Click" Height="24" Width="200" HorizontalAlignment="Left" Background="#007ACC" Foreground="White" BorderThickness="0" FontWeight="SemiBold"/>
                             </DockPanel>
                             <StackPanel Margin="0,0,0,4">
                                 <RadioButton x:Name="M64AllRadio" Content="Corrupt All Sequences" Foreground="#CCCCCC" IsChecked="True" Checked="M64Radio_Checked" Unchecked="M64Radio_Checked"/>
