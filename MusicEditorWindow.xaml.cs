@@ -1526,7 +1526,7 @@ namespace Sm64DecompLevelViewer
         private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (_isUpdatingUi || _currentTrack == null) return;
-            byte vol = (byte)Math.Clamp(VolumeSlider.Value, 0.0, 255.0);
+            byte vol = (byte)Math.Clamp(VolumeSlider.Value, 0.0, 127.0);
             _currentTrack.Volume = vol;
             if (VolumeLabel != null)
             {

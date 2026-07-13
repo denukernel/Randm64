@@ -69,7 +69,7 @@
                     <ComboBox x:Name="InstrumentSelector" SelectionChanged="InstrumentSelector_SelectionChanged" Width="100" Background="#333337" Foreground="Black" BorderBrush="#3F3F46" Margin="0,0,15,0"/>
                     
                     <TextBlock Text="Vol:" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                    <Slider x:Name="VolumeSlider" Minimum="0" Maximum="255" Value="127" Width="80" VerticalAlignment="Center" ValueChanged="VolumeSlider_ValueChanged" ToolTip="Channel Volume (0-255)"/>
+                    <Slider x:Name="VolumeSlider" Minimum="0" Maximum="127" Value="127" Width="80" VerticalAlignment="Center" ValueChanged="VolumeSlider_ValueChanged" ToolTip="Channel Volume (0-127)"/>
                     <TextBlock x:Name="VolumeLabel" Text="127" Foreground="White" Width="25" TextAlignment="Right" VerticalAlignment="Center" Margin="5,0,0,0"/>
                 </StackPanel>
 

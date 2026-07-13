@@ -213,7 +213,7 @@ namespace Sm64DecompLevelViewer.Services
                             else if (cmd == 0xdf)
                             {
                                 _chanVolumeOffsets[ch] = pos;
-                                track.Volume = data[pos++];
+                                track.Volume = Math.Min((byte)127, data[pos++]);
                             }
                             else if (cmd == 0xc6)
                             {
