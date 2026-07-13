@@ -46,6 +46,9 @@ namespace Sm64DecompLevelViewer.Services
         private Dictionary<byte, int> _chanPointerLocations = new();
         private Dictionary<string, int> _layerPointerLocations = new();
         private Dictionary<byte, List<int>> _chanLayers = new();
+        private Dictionary<byte, int> _chanVolumeOffsets = new();
+        private Dictionary<byte, int> _chanInstrumentOffsets = new();
+        private Dictionary<byte, int> _chanBankOffsets = new();
 
         private int GetSeqCmdSize(byte cmd, byte[] data, ref int pos)
         {
@@ -94,6 +97,13 @@ namespace Sm64DecompLevelViewer.Services
             return 0;
         }
 
+        private class ChannelSegment
+        {
+            public byte ChannelIndex { get; set; }
+            public int Offset { get; set; }
+            public int StartTick { get; set; }
+        }
+
         public List<M64Track> LoadM64(string filePath)
         {
             var tracks = new List<M64Track>();
@@ -103,6 +113,9 @@ namespace Sm64DecompLevelViewer.Services
             _chanPointerLocations.Clear();
             _layerPointerLocations.Clear();
             _chanLayers.Clear();
+            _chanVolumeOffsets.Clear();
+            _chanInstrumentOffsets.Clear();
+            _chanBankOffsets.Clear();
 
             try
             {
@@ -123,20 +136,38 @@ namespace Sm64DecompLevelViewer.Services
                 if (seqStartOffset >= data.Length) return tracks;
 
                 int pos = seqStartOffset;
-                var channelOffsets = new Dictionary<byte, int>();
+                var channelSegments = new List<ChannelSegment>();
+                var visitedSeqOffsets = new HashSet<int>();
+                int seqTick = 0;
 
-                // Parse sequence commands to find channels
+                // Parse sequence commands to find all channel segments over the timeline
                 while (pos < data.Length)
                 {
+                    if (visitedSeqOffsets.Contains(pos)) break;
+                    visitedSeqOffsets.Add(pos);
+
                     byte cmd = data[pos++];
                     if (cmd == 0xff) break; // end of seq commands
 
                     if ((cmd & 0xF0) == 0x90) // seq_startchannel
                     {
                         byte ch = (byte)(cmd & 0x0F);
-                        _chanPointerLocations[ch] = pos; // points to the 16-bit offset!
+                        _chanPointerLocations[ch] = pos; // points to the 16-bit offset
                         int chOffset = (data[pos++] << 8) | data[pos++];
-                        channelOffsets[ch] = chOffset;
+                        channelSegments.Add(new ChannelSegment { ChannelIndex = ch, Offset = chOffset, StartTick = seqTick });
+                    }
+                    else if (cmd == 0xfd) // seq_delay
+                    {
+                        seqTick += ReadVarInt(data, ref pos);
+                    }
+                    else if (cmd == 0xfe) // seq_delay1
+                    {
+                        seqTick += 1;
+                    }
+                    else if (cmd == 0xfb) // seq_jump
+                    {
+                        int jumpOffset = (data[pos++] << 8) | data[pos++];
+                        pos = jumpOffset;
                     }
                     else
                     {
@@ -149,64 +180,72 @@ namespace Sm64DecompLevelViewer.Services
                     }
                 }
 
-                // Parse each channel
-                foreach (var kvp in channelOffsets)
+                // Parse segments grouped by channel index
+                for (byte ch = 0; ch < 16; ch++)
                 {
-                    byte channelIndex = kvp.Key;
-                    int chOffset = kvp.Value;
-                    if (chOffset >= data.Length) continue;
+                    var chSegments = channelSegments.Where(s => s.ChannelIndex == ch).ToList();
+                    if (chSegments.Count == 0) continue;
 
-                    var track = new M64Track { ChannelIndex = channelIndex };
+                    var track = new M64Track { ChannelIndex = ch };
                     tracks.Add(track);
 
-                    _chanLayers[channelIndex] = new List<int>();
+                    _chanLayers[ch] = new List<int>();
 
-                    pos = chOffset;
-                    var layerOffsets = new List<int>();
-                    int lIndex = 0;
-
-                    while (pos < data.Length)
+                    foreach (var segment in chSegments)
                     {
-                        byte cmd = data[pos++];
-                        if (cmd == 0xff) break; // end of channel
+                        pos = segment.Offset;
+                        if (pos >= data.Length) continue;
 
-                        if (cmd == 0xc1)
-                        {
-                            track.Instrument = data[pos++];
-                        }
-                        else if (cmd == 0xdf)
-                        {
-                            track.Volume = data[pos++];
-                        }
-                        else if (cmd == 0xc6)
-                        {
-                            track.Bank = data[pos++];
-                        }
-                        else if ((cmd & 0xF0) == 0x90) // chan_setlayer
-                        {
-                            _layerPointerLocations[channelIndex + "_" + lIndex] = pos; // points to the 16-bit offset!
-                            int lOffset = (data[pos++] << 8) | data[pos++];
-                            layerOffsets.Add(lOffset);
-                            _chanLayers[channelIndex].Add(lOffset);
-                            lIndex++;
-                        }
-                        else
-                        {
-                            int argSize = GetChanCmdSize(cmd, data, ref pos);
-                            pos += argSize;
-                        }
-                    }
+                        var layerOffsets = new List<int>();
+                        int lIndex = 0;
 
-                    // Parse each layer for this channel
-                    for (int l = 0; l < layerOffsets.Count; l++)
-                    {
-                        int layerOffset = layerOffsets[l];
-                        if (layerOffset < 0 || layerOffset >= data.Length) continue;
+                        while (pos < data.Length)
+                        {
+                            byte cmd = data[pos++];
+                            if (cmd == 0xff) break; // end of channel
 
-                        int currentTick = 0;
-                        int currentTranspose = 0;
-                        var visitedOffsets = new HashSet<int>();
-                        ParseLayerEvents(data, layerOffset, track, l, ref currentTick, visitedOffsets, ref currentTranspose);
+                            if (cmd == 0xc1)
+                            {
+                                _chanInstrumentOffsets[ch] = pos;
+                                track.Instrument = data[pos++];
+                            }
+                            else if (cmd == 0xdf)
+                            {
+                                _chanVolumeOffsets[ch] = pos;
+                                track.Volume = data[pos++];
+                            }
+                            else if (cmd == 0xc6)
+                            {
+                                _chanBankOffsets[ch] = pos;
+                                track.Bank = data[pos++];
+                            }
+                            else if ((cmd & 0xF0) == 0x90) // chan_setlayer
+                            {
+                                _layerPointerLocations[ch + "_" + lIndex] = pos; // points to the 16-bit offset
+                                int lOffset = (data[pos++] << 8) | data[pos++];
+                                layerOffsets.Add(lOffset);
+                                _chanLayers[ch].Add(lOffset);
+                                lIndex++;
+                            }
+                            else
+                            {
+                                int argSize = GetChanCmdSize(cmd, data, ref pos);
+                                pos += argSize;
+                            }
+                        }
+
+                        // Parse notes for each layer in this segment
+                        for (int l = 0; l < layerOffsets.Count; l++)
+                        {
+                            int layerOffset = layerOffsets[l];
+                            if (layerOffset < 0 || layerOffset >= data.Length) continue;
+
+                            int currentTick = segment.StartTick;
+                            int currentTranspose = 0;
+                            int lastPlayPercentage = 48; // Default initial play percentage
+                            var visitedOffsets = new HashSet<int>();
+                            ParseLayerEvents(data, layerOffset, track, l, ref currentTick, visitedOffsets, ref currentTranspose, ref lastPlayPercentage);
+                        }
                     }
                 }
 
@@ -271,6 +310,23 @@ namespace Sm64DecompLevelViewer.Services
 
                 if (_originalHeader != null)
                 {
+                    // Patch volume, instrument, and bank in _originalHeader
+                    foreach (var track in tracks)
+                    {
+                        if (_chanVolumeOffsets.TryGetValue(track.ChannelIndex, out int volOffset) && volOffset < _originalHeader.Length)
+                        {
+                            _originalHeader[volOffset] = track.Volume;
+                        }
+                        if (_chanInstrumentOffsets.TryGetValue(track.ChannelIndex, out int instOffset) && instOffset < _originalHeader.Length)
+                        {
+                            _originalHeader[instOffset] = track.Instrument;
+                        }
+                        if (_chanBankOffsets.TryGetValue(track.ChannelIndex, out int bankOffset) && bankOffset < _originalHeader.Length)
+                        {
+                            _originalHeader[bankOffset] = track.Bank;
+                        }
+                    }
+
                     using (var ms = new MemoryStream())
                     using (var bw = new BinaryWriter(ms))
                     {
@@ -621,7 +677,13 @@ namespace Sm64DecompLevelViewer.Services
             }
         }
 
-        private void ParseLayerEvents(byte[] data, int startOffset, M64Track track, int layerIndex, ref int currentTick, HashSet<int> visitedOffsets, ref int currentTranspose, int depth = 0)
+        private struct LoopState
+        {
+            public int StartPos;
+            public int RemIters;
+        }
+
+        private void ParseLayerEvents(byte[] data, int startOffset, M64Track track, int layerIndex, ref int currentTick, HashSet<int> visitedOffsets, ref int currentTranspose, ref int lastPlayPercentage, int depth = 0)
         {
             const int MIN_NOTE_PITCH = 0;
             const int MAX_NOTE_PITCH = 127;
@@ -629,101 +691,142 @@ namespace Sm64DecompLevelViewer.Services
             if (depth > 50 || visitedOffsets.Contains(startOffset)) return;
             visitedOffsets.Add(startOffset);
 
-            int pos = startOffset;
-            while (pos < data.Length)
+            try
             {
-                byte cmd = data[pos++];
-                if (cmd == 0xff) break; // end of layer or return from call
+                var loopStack = new Stack<LoopState>();
+                byte currentInstrument = track.Instrument;
+                int eventCount = 0;
 
-                if (cmd == 0xc0) // delay
+                int pos = startOffset;
+                while (pos < data.Length)
                 {
-                    currentTick += ReadVarInt(data, ref pos);
+                    if (eventCount++ > 50000) break; // Safety limit to prevent infinite loops
+
+                    byte cmd = data[pos++];
+                    if (cmd == 0xff) break; // end of layer or return from call
+
+                    if (cmd == 0xc0) // delay
+                    {
+                        currentTick += ReadVarInt(data, ref pos);
+                    }
+                    else if (cmd == 0xc2) // layer_transpose
+                    {
+                        currentTranspose = (sbyte)data[pos++];
+                    }
+                    else if (cmd == 0xc6) // layer_setinstr
+                    {
+                        currentInstrument = data[pos++];
+                    }
+                    else if (cmd == 0xc1 || cmd == 0xc9 || cmd == 0xca) // layer velocity, duration, pan
+                    {
+                        pos++;
+                    }
+                    else if (cmd == 0xf8) // layer_loop start
+                    {
+                        byte remIters = data[pos++];
+                        loopStack.Push(new LoopState { StartPos = pos, RemIters = remIters == 0 ? 256 : remIters });
+                    }
+                    else if (cmd == 0xf7) // layer_loopend
+                    {
+                        if (loopStack.Count > 0)
+                        {
+                            var loop = loopStack.Pop();
+                            loop.RemIters--;
+                            if (loop.RemIters > 0)
+                            {
+                                pos = loop.StartPos;
+                                loopStack.Push(loop);
+                            }
+                        }
+                    }
+                    else if (cmd == 0xc3)
+                    {
+                        ReadVarInt(data, ref pos);
+                    }
+                    else if (cmd == 0xfb) // layer_jump
+                    {
+                        int jumpOffset = (data[pos++] << 8) | data[pos++];
+                        ParseLayerEvents(data, jumpOffset, track, layerIndex, ref currentTick, visitedOffsets, ref currentTranspose, ref lastPlayPercentage, depth + 1);
+                        break;
+                    }
+                    else if (cmd == 0xfc) // layer_call
+                    {
+                        int callOffset = (data[pos++] << 8) | data[pos++];
+                        ParseLayerEvents(data, callOffset, track, layerIndex, ref currentTick, visitedOffsets, ref currentTranspose, ref lastPlayPercentage, depth + 1);
+                    }
+                    else if (cmd == 0xc7)
+                    {
+                        pos += 3;
+                    }
+                    else if (cmd >= 0x00 && cmd <= 0x3f) // note0 (large)
+                    {
+                        byte pitch = (byte)(cmd & 0x3f);
+                        int duration = ReadVarInt(data, ref pos);
+                        byte vel = data[pos++];
+                        byte gate = data[pos++];
+                        
+                        lastPlayPercentage = duration;
+                        
+                        byte finalPitch = (byte)Math.Clamp(pitch + currentTranspose, MIN_NOTE_PITCH, MAX_NOTE_PITCH);
+                        track.Notes.Add(new M64Note { 
+                            StartTick = currentTick, 
+                            DurationTicks = duration, 
+                            Pitch = finalPitch, 
+                            Velocity = vel, 
+                            Instrument = currentInstrument, 
+                            LayerIndex = (byte)layerIndex,
+                            Gate = gate,
+                            CommandType = 0
+                        });
+                        currentTick += duration;
+                    }
+                    else if (cmd >= 0x40 && cmd <= 0x7f) // note1 (medium)
+                    {
+                        byte pitch = (byte)(cmd & 0x3f);
+                        int duration = ReadVarInt(data, ref pos);
+                        byte vel = data[pos++];
+                        
+                        lastPlayPercentage = duration;
+                        
+                        byte finalPitch = (byte)Math.Clamp(pitch + currentTranspose, MIN_NOTE_PITCH, MAX_NOTE_PITCH);
+                        track.Notes.Add(new M64Note { 
+                            StartTick = currentTick, 
+                            DurationTicks = duration, 
+                            Pitch = finalPitch, 
+                            Velocity = vel, 
+                            Instrument = currentInstrument, 
+                            LayerIndex = (byte)layerIndex,
+                            Gate = 250,
+                            CommandType = 1
+                        });
+                        currentTick += duration;
+                    }
+                    else if (cmd >= 0x80 && cmd <= 0xbf) // note2 (small)
+                    {
+                        byte pitch = (byte)(cmd & 0x3f);
+                        byte vel = data[pos++];
+                        int duration = data[pos++]; // noteDuration (gate)
+                        
+                        int delay = lastPlayPercentage;
+                        
+                        byte finalPitch = (byte)Math.Clamp(pitch + currentTranspose, MIN_NOTE_PITCH, MAX_NOTE_PITCH);
+                        track.Notes.Add(new M64Note { 
+                            StartTick = currentTick, 
+                            DurationTicks = duration, 
+                            Pitch = finalPitch, 
+                            Velocity = vel, 
+                            Instrument = currentInstrument, 
+                            LayerIndex = (byte)layerIndex,
+                            Gate = 204,
+                            CommandType = 2
+                        });
+                        currentTick += delay;
+                    }
                 }
-                else if (cmd == 0xc1 || cmd == 0xc2 || cmd == 0xc6 || cmd == 0xc9 || cmd == 0xca)
-                {
-                    pos++;
-                }
-                else if (cmd == 0xf8) // transpose
-                {
-                    currentTranspose = (sbyte)data[pos++];
-                }
-                else if (cmd == 0xc3)
-                {
-                    ReadVarInt(data, ref pos);
-                }
-                else if (cmd == 0xfb) // layer_jump
-                {
-                    int jumpOffset = (data[pos++] << 8) | data[pos++];
-                    ParseLayerEvents(data, jumpOffset, track, layerIndex, ref currentTick, new HashSet<int>(visitedOffsets), ref currentTranspose, depth + 1);
-                    break;
-                }
-                else if (cmd == 0xfc) // layer_call
-                {
-                    int callOffset = (data[pos++] << 8) | data[pos++];
-                    ParseLayerEvents(data, callOffset, track, layerIndex, ref currentTick, new HashSet<int>(visitedOffsets), ref currentTranspose, depth + 1);
-                }
-                else if (cmd == 0xc7)
-                {
-                    pos += 3;
-                }
-                else if (cmd >= 0x00 && cmd <= 0x3f) // note0 (large)
-                {
-                    byte pitch = (byte)(cmd & 0x3f);
-                    int duration = ReadVarInt(data, ref pos);
-                    byte vel = data[pos++];
-                    byte gate = data[pos++];
-                    
-                    byte finalPitch = (byte)Math.Clamp(pitch + currentTranspose, MIN_NOTE_PITCH, MAX_NOTE_PITCH);
-                    track.Notes.Add(new M64Note { 
-                        StartTick = currentTick, 
-                        DurationTicks = duration, 
-                        Pitch = finalPitch, 
-                        Velocity = vel, 
-                        Instrument = track.Instrument, 
-                        LayerIndex = (byte)layerIndex,
-                        Gate = gate,
-                        CommandType = 0
-                    });
-                    currentTick += duration;
-                }
-                else if (cmd >= 0x40 && cmd <= 0x7f) // note1 (medium)
-                {
-                    byte pitch = (byte)(cmd & 0x3f);
-                    int duration = ReadVarInt(data, ref pos);
-                    byte vel = data[pos++];
-                    
-                    byte finalPitch = (byte)Math.Clamp(pitch + currentTranspose, MIN_NOTE_PITCH, MAX_NOTE_PITCH);
-                    track.Notes.Add(new M64Note { 
-                        StartTick = currentTick, 
-                        DurationTicks = duration, 
-                        Pitch = finalPitch, 
-                        Velocity = vel, 
-                        Instrument = track.Instrument, 
-                        LayerIndex = (byte)layerIndex,
-                        Gate = 250,
-                        CommandType = 1
-                    });
-                    currentTick += duration;
-                }
-                else if (cmd >= 0x80 && cmd <= 0xbf) // note2 (small)
-                {
-                    byte pitch = (byte)(cmd & 0x3f);
-                    byte vel = data[pos++];
-                    int duration = data[pos++];
-                    
-                    byte finalPitch = (byte)Math.Clamp(pitch + currentTranspose, MIN_NOTE_PITCH, MAX_NOTE_PITCH);
-                    track.Notes.Add(new M64Note { 
-                        StartTick = currentTick, 
-                        DurationTicks = duration, 
-                        Pitch = finalPitch, 
-                        Velocity = vel, 
-                        Instrument = track.Instrument, 
-                        LayerIndex = (byte)layerIndex,
-                        Gate = 204,
-                        CommandType = 2
-                    });
-                    currentTick += duration;
-                }
+            }
+            finally
+            {
+                visitedOffsets.Remove(startOffset);
             }
         }
 
@@ -735,6 +838,35 @@ namespace Sm64DecompLevelViewer.Services
 
     public static class AiffWavTranscoder
     {
+        public static byte[] SafeReadAllBytes(string filePath)
+        {
+            try
+            {
+                // Force cache invalidation on Windows for UNC paths (WSL mounts) by refreshing FileInfo
+                var fi = new FileInfo(filePath);
+                fi.Refresh();
+
+                using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    byte[] bytes = new byte[fs.Length];
+                    int bytesRead = 0;
+                    int numToRead = bytes.Length;
+                    while (numToRead > 0)
+                    {
+                        int n = fs.Read(bytes, bytesRead, numToRead);
+                        if (n == 0) break;
+                        bytesRead += n;
+                        numToRead -= n;
+                    }
+                    return bytes;
+                }
+            }
+            catch
+            {
+                return File.ReadAllBytes(filePath);
+            }
+        }
+
         public static byte[] ConvertAiffToWav(byte[] aiffData)
         {
             try

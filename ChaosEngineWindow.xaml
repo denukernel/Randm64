@@ -129,6 +129,7 @@
                                     <ComboBoxItem Content="Voxelizer Snap"/>
                                     <ComboBoxItem Content="UV Swap"/>
                                     <ComboBoxItem Content="Scale Distortion"/>
+                                    <ComboBoxItem Content="Faceless Mario V2 (Castle Glow &amp; Crystal Water)"/>
                                 </ComboBox>
                             </DockPanel>
                         </StackPanel>
@@ -326,6 +327,27 @@
                             </DockPanel>
                         </StackPanel>
 
+                        <CheckBox x:Name="LakituCameraChaosCheck" Content="In-Game Lakitu Camera Randomizer" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="LakituCameraChaosCheck_Toggle" Unchecked="LakituCameraChaosCheck_Toggle"/>
+                        <!-- Sub-options for Lakitu Camera Randomizer -->
+                        <StackPanel x:Name="LakituCameraChaosPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <DockPanel>
+                                <TextBlock Text="Camera Mode:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox x:Name="LakituCameraModeComboBox" SelectedIndex="0" Height="24" Width="220" HorizontalAlignment="Left">
+                                    <ComboBoxItem Content="Mode 0: Disabled"/>
+                                    <ComboBoxItem Content="Mode 1: Handheld Tremor"/>
+                                    <ComboBoxItem Content="Mode 2: Top-Down Birds-Eye View"/>
+                                    <ComboBoxItem Content="Mode 3: Front Face Cam"/>
+                                    <ComboBoxItem Content="Mode 4: Orbiting Vortex"/>
+                                    <ComboBoxItem Content="Mode 5: Drunken Sway"/>
+                                    <ComboBoxItem Content="Mode 6: Zoom Dilation (Breathing)"/>
+                                    <ComboBoxItem Content="Mode 7: 2D Side-Scroller View"/>
+                                    <ComboBoxItem Content="Mode 8: Fixed Security Cam"/>
+                                    <ComboBoxItem Content="Mode 9: Pitch Flip (Upside Down)"/>
+                                    <ComboBoxItem Content="Mode 10: Cycle Modes (Chaos Roulette)"/>
+                                </ComboBox>
+                            </DockPanel>
+                        </StackPanel>
+
                         <CheckBox x:Name="StartLevelChaosCheck" Content="Start Level Chaos (File Select Warp)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="StartLevelChaosCheck_Toggle" Unchecked="StartLevelChaosCheck_Toggle"/>
                         <!-- Sub-options for Start Level Chaos -->
                         <StackPanel x:Name="StartLevelChaosPanel" Margin="20,0,0,8" Visibility="Collapsed">
@@ -359,7 +381,22 @@
 
                         <CheckBox x:Name="ChaosLogicJumpWeird" Content="Weird Mario Jumping (Random Velocity)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False"/>
                         <CheckBox x:Name="ChaosLogicJumpDeath" Content="Deadly Jumping (Mario dies on jump)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False"/>
-                        <CheckBox x:Name="LimboMarioCheck" Content="Limbo Mario Animations (Spine deform)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False"/>
+                        <CheckBox x:Name="LimboMarioCheck" Content="Limbo Mario Animation Deformer" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="LimboMarioCheck_Toggle" Unchecked="LimboMarioCheck_Toggle"/>
+                        <!-- Sub-options for Limbo Mario Deformer -->
+                        <StackPanel x:Name="LimboMarioPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <DockPanel>
+                                <TextBlock Text="Deform Mode:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox x:Name="LimboMarioModeComboBox" SelectedIndex="0" Height="24" Width="220" HorizontalAlignment="Left">
+                                    <ComboBoxItem Content="Mode 0: Disabled"/>
+                                    <ComboBoxItem Content="Mode 1: Spine Deform (Backwards Bend)"/>
+                                    <ComboBoxItem Content="Mode 2: Helicopter Torso (Continuous Spin)"/>
+                                    <ComboBoxItem Content="Mode 3: Folded Sandwich (Forward Fold)"/>
+                                    <ComboBoxItem Content="Mode 4: Jittery Seizure Torso (Tremor)"/>
+                                    <ComboBoxItem Content="Mode 5: Legless Mario (Walking on stumps)"/>
+                                    <ComboBoxItem Content="Mode 6: Spaghetti Limbs (Joint Stretching)"/>
+                                </ComboBox>
+                            </DockPanel>
+                        </StackPanel>
                         <CheckBox x:Name="AlienSoundCheatCheck" Content="Alien Sound Glitch (Inject GameShark A031C1AF)" Foreground="#CCCCCC" IsChecked="False"/>
                     </StackPanel>
                 </Border>

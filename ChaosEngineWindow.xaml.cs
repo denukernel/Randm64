@@ -33,6 +33,12 @@ namespace Sm64DecompLevelViewer
 
             LoadProjectLevelsAndM64s();
             LoadPresetsList();
+
+            string defaultPath = Path.Combine(_presetsDir, "_default_settings.json");
+            if (File.Exists(defaultPath))
+            {
+                LoadPresetFromFile(defaultPath);
+            }
         }
 
         private async void ChaosButton_Click(object sender, RoutedEventArgs e)
@@ -72,12 +78,15 @@ namespace Sm64DecompLevelViewer
             bool jumpWeird = ChaosLogicJumpWeird.IsChecked == true;
             bool jumpDeath = ChaosLogicJumpDeath.IsChecked == true;
             bool limboMario = LimboMarioCheck.IsChecked == true;
+            int limboMarioMode = LimboMarioModeComboBox.SelectedIndex;
             bool alienSound = AlienSoundCheatCheck.IsChecked == true;
 
             bool scrambleTitleScreen = ScrambleTitleScreenCheck.IsChecked == true;
             int titleScramblerMode = TitleScreenScramblerModeComboBox.SelectedIndex;
             bool randomizeCutsceneCamera = RandomizeCutsceneCameraCheck.IsChecked == true;
             int cutsceneCameraMode = CutsceneCameraModeComboBox.SelectedIndex;
+            bool lakituCameraChaos = LakituCameraChaosCheck.IsChecked == true;
+            int lakituCameraMode = LakituCameraModeComboBox.SelectedIndex;
             bool startLevelChaos = StartLevelChaosCheck.IsChecked == true;
             string startLevelConstant = "LEVEL_CASTLE_GROUNDS";
             string[] startLevelConstants = {
@@ -101,7 +110,7 @@ namespace Sm64DecompLevelViewer
             if (!targetMusic && !targetSounds && !randomizeDl && !targetModels && !targetGoddard && !shuffleSounds &&
                 !randomizeSkybox && !randomizeText && !jumpWeird && !jumpDeath && !limboMario && !alienSound && !randomizeTextures &&
                 !glitchAnimations && !glitchHud && !replaceSfx && !replaceTexturesCustom && !randomizeMarioColors && DlExclusionCheck.IsChecked != true &&
-                !scrambleTitleScreen && !randomizeCutsceneCamera && !startLevelChaos)
+                !scrambleTitleScreen && !randomizeCutsceneCamera && !startLevelChaos && !lakituCameraChaos)
             {
                 MessageBox.Show("Please select at least one target asset type or cheat to inflict.", "No Targets Selected", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
@@ -342,6 +351,11 @@ namespace Sm64DecompLevelViewer
                             if (limboMario)
                             {
                                 configContent.AppendLine("#define CHAOS_LIMBO_MARIO");
+                                configContent.AppendLine($"#define CHAOS_LIMBO_MARIO_MODE {limboMarioMode}");
+                            }
+                            if (lakituCameraChaos)
+                            {
+                                configContent.AppendLine($"#define CHAOS_LAKITU_CAMERA_MODE {lakituCameraMode}");
                             }
                             if (alienSound)
                             {
@@ -358,6 +372,10 @@ namespace Sm64DecompLevelViewer
                             if (startLevelChaos)
                             {
                                 configContent.AppendLine($"#define CHAOS_START_LEVEL {startLevelConstant}");
+                            }
+                            if (randomizeDl && dlMode == 8)
+                            {
+                                configContent.AppendLine("#define CHAOS_FACELESS_V2");
                             }
                             
                             configContent.AppendLine();
@@ -488,9 +506,21 @@ namespace Sm64DecompLevelViewer
                     if (limboMario)
                     {
                         string oldLimbo = "        rotNode->rotation[0] = bodyState->torsoAngle[1];\n        rotNode->rotation[1] = bodyState->torsoAngle[2];\n        rotNode->rotation[2] = bodyState->torsoAngle[0];";
-                        string newLimbo = "        rotNode->rotation[0] = bodyState->torsoAngle[1];\n        rotNode->rotation[1] = bodyState->torsoAngle[2];\n        rotNode->rotation[2] = bodyState->torsoAngle[0];\n#ifdef CHAOS_LIMBO_MARIO\n        rotNode->rotation[0] += 0x3800;\n#endif";
+                        string newLimbo = "        rotNode->rotation[0] = bodyState->torsoAngle[1];\n        rotNode->rotation[1] = bodyState->torsoAngle[2];\n        rotNode->rotation[2] = bodyState->torsoAngle[0];\n#ifdef CHAOS_LIMBO_MARIO_MODE\n        {\n            extern u32 gGlobalTimer;\n            switch (CHAOS_LIMBO_MARIO_MODE) {\n                case 1:\n                    rotNode->rotation[0] += 0x3800;\n                    break;\n                case 2:\n                    rotNode->rotation[1] += gGlobalTimer * 0x800;\n                    break;\n                case 3:\n                    rotNode->rotation[0] -= 0x4000;\n                    break;\n                case 4:\n                    rotNode->rotation[0] += (gGlobalTimer % 2 == 0) ? 0x2400 : -0x2400;\n                    break;\n            }\n        }\n#endif";
                         PatchSourceFile("src/game/mario_misc.c", oldLimbo, newLimbo);
                         PatchSourceFile("src/game/mario_misc.c", "#include <PR/ultratypes.h>", "#include <PR/ultratypes.h>\n#include \"chaos_config.h\"");
+
+                        // Patch rendering_graph_node.c for spaghetti stretch
+                        string oldAnimPart = "    vec3s_copy(rotation, gVec3sZero);\n    vec3f_set(translation, node->translation[0], node->translation[1], node->translation[2]);";
+                        string newAnimPart = "    vec3s_copy(rotation, gVec3sZero);\n    vec3f_set(translation, node->translation[0], node->translation[1], node->translation[2]);\n#ifdef CHAOS_LIMBO_MARIO_MODE\n    if (CHAOS_LIMBO_MARIO_MODE == 6) {\n        translation[0] *= 2.5f;\n        translation[1] *= 2.5f;\n        translation[2] *= 2.5f;\n    }\n#endif";
+                        PatchSourceFile("src/game/rendering_graph_node.c", oldAnimPart, newAnimPart);
+                        PatchSourceFile("src/game/rendering_graph_node.c", "#include \"sm64.h\"", "#include \"sm64.h\"\n#include \"chaos_config.h\"");
+
+                        // Patch src/game/mario.c to sink Mario in quicksand/ground when Mode 5 is active
+                        string oldSink = "void sink_mario_in_quicksand(struct MarioState *m) {\n    struct Object *o = m->marioObj;\n\n    if (o->header.gfx.throwMatrix) {\n        (*o->header.gfx.throwMatrix)[3][1] -= m->quicksandDepth;\n    }\n\n    o->header.gfx.pos[1] -= m->quicksandDepth;\n}";
+                        string newSink = "void sink_mario_in_quicksand(struct MarioState *m) {\n    struct Object *o = m->marioObj;\n    f32 depth = m->quicksandDepth;\n#ifdef CHAOS_LIMBO_MARIO_MODE\n    if (CHAOS_LIMBO_MARIO_MODE == 5) {\n        depth += 40.0f;\n    }\n#endif\n\n    if (o->header.gfx.throwMatrix) {\n        (*o->header.gfx.throwMatrix)[3][1] -= depth;\n    }\n\n    o->header.gfx.pos[1] -= depth;\n}";
+                        PatchSourceFile("src/game/mario.c", oldSink, newSink);
+                        PatchSourceFile("src/game/mario.c", "#include \"sm64.h\"", "#include \"sm64.h\"\n#include \"chaos_config.h\"");
                     }
                     
                     if (alienSound)
@@ -664,6 +694,18 @@ void apply_chaos_intro_camera(struct Camera *c) {
                         PatchSourceFile("src/game/camera.c", "#include <ultra64.h>", "#include <ultra64.h>\n#include \"chaos_config.h\"");
                     }
 
+                    if (lakituCameraChaos)
+                    {
+                        string oldCameraHelper = "    clamp_pitch(gLakituState.pos, gLakituState.focus, 0x3E00, -0x3E00);\n    gLakituState.mode = c->mode;\n    gLakituState.defMode = c->defMode;\n}";
+                        string newCameraHelper = "    clamp_pitch(gLakituState.pos, gLakituState.focus, 0x3E00, -0x3E00);\n    gLakituState.mode = c->mode;\n    gLakituState.defMode = c->defMode;\n}\n\n#ifdef CHAOS_LAKITU_CAMERA_MODE\nvoid apply_chaos_lakitu_camera(struct Camera *c) {\n    extern struct MarioState gMarioStates[];\n    struct MarioState *m = &gMarioStates[0];\n    extern u32 gGlobalTimer;\n    u32 seed = gGlobalTimer * 1664525 + 1013904223;\n    f32 dist;\n    int activeMode = CHAOS_LAKITU_CAMERA_MODE;\n    if (activeMode == 10) {\n        activeMode = (gGlobalTimer / 90) % 9 + 1;\n    }\n\n    switch (activeMode) {\n        case 1:\n            gLakituState.pos[0] += (seed % 60 - 30) * 1.5f;\n            gLakituState.pos[1] += ((seed >> 4) % 60 - 30) * 1.5f;\n            gLakituState.pos[2] += ((seed >> 8) % 60 - 30) * 1.5f;\n            gLakituState.focus[0] += ((seed >> 12) % 40 - 20) * 1.0f;\n            gLakituState.focus[1] += ((seed >> 16) % 40 - 20) * 1.0f;\n            gLakituState.focus[2] += ((seed >> 20) % 40 - 20) * 1.0f;\n            break;\n        case 2:\n            gLakituState.pos[0] = m->pos[0];\n            gLakituState.pos[1] = m->pos[1] + 1800.f;\n            gLakituState.pos[2] = m->pos[2] + 1.f;\n            vec3f_copy(gLakituState.focus, m->pos);\n            break;\n        case 3:\n            gLakituState.pos[0] = m->pos[0] + 500.f * sins(m->faceAngle[1]);\n            gLakituState.pos[1] = m->pos[1] + 120.f;\n            gLakituState.pos[2] = m->pos[2] + 500.f * coss(m->faceAngle[1]);\n            vec3f_copy(gLakituState.focus, m->pos);\n            break;\n        case 4:\n            dist = 800.f;\n            gLakituState.pos[0] = m->pos[0] + dist * sins(gGlobalTimer * 200);\n            gLakituState.pos[1] = m->pos[1] + 250.f;\n            gLakituState.pos[2] = m->pos[2] + dist * coss(gGlobalTimer * 200);\n            vec3f_copy(gLakituState.focus, m->pos);\n            break;\n        case 5:\n            gLakituState.pos[0] += 300.f * sins(gGlobalTimer * 250);\n            gLakituState.pos[1] += 150.f * coss(gGlobalTimer * 180);\n            break;\n        case 6:\n            dist = 700.f + 500.f * sins(gGlobalTimer * 150);\n            gLakituState.pos[0] = m->pos[0] + dist * sins(c->yaw);\n            gLakituState.pos[2] = m->pos[2] + dist * coss(c->yaw);\n            break;\n        case 7:\n            gLakituState.pos[0] = m->pos[0];\n            gLakituState.pos[1] = m->pos[1] + 200.f;\n            gLakituState.pos[2] = m->pos[2] + 900.f;\n            vec3f_copy(gLakituState.focus, m->pos);\n            break;\n        case 8:\n            gLakituState.pos[0] = m->pos[0] - (m->pos[0] - gLakituState.pos[0]) * 0.999f;\n            gLakituState.pos[1] = m->pos[1] + 600.f;\n            gLakituState.pos[2] = m->pos[2] - (m->pos[2] - gLakituState.pos[2]) * 0.999f;\n            vec3f_copy(gLakituState.focus, m->pos);\n            break;\n        case 9:\n            gLakituState.pos[1] = m->pos[1] - (gLakituState.pos[1] - m->pos[1]);\n            break;\n    }\n    vec3f_copy(c->pos, gLakituState.pos);\n    vec3f_copy(c->focus, gLakituState.focus);\n}\n#endif";
+                        PatchSourceFile("src/game/camera.c", oldCameraHelper, newCameraHelper);
+
+                        string oldCameraLakitu = "    update_lakitu(c);\n\n    gLakituState.lastFrameAction = sMarioCamState->action;";
+                        string newCameraLakitu = "    update_lakitu(c);\n#ifdef CHAOS_LAKITU_CAMERA_MODE\n    {\n        void apply_chaos_lakitu_camera(struct Camera *c);\n        apply_chaos_lakitu_camera(c);\n    }\n#endif\n\n    gLakituState.lastFrameAction = sMarioCamState->action;";
+                        PatchSourceFile("src/game/camera.c", oldCameraLakitu, newCameraLakitu);
+                        PatchSourceFile("src/game/camera.c", "#include <ultra64.h>", "#include <ultra64.h>\n#include \"chaos_config.h\"");
+                    }
+
                     if (startLevelChaos)
                     {
                         string oldInitSaveFile = "    gNeverEnteredCastle = !save_file_exists(gCurrSaveFileNum - 1);\n\n    gCurrLevelNum = levelNum;";
@@ -675,6 +717,72 @@ void apply_chaos_intro_camera(struct Camera *c) {
                         PatchSourceFile("src/game/level_update.c", oldCutscene, newCutscene);
 
                         PatchSourceFile("src/game/level_update.c", "#include <ultra64.h>", "#include <ultra64.h>\n#include \"chaos_config.h\"");
+                    }
+
+                    if (randomizeDl && dlMode == 8)
+                    {
+                        // Patch src/game/rendering_graph_node.c to flash castle grounds colors and enable texture coordinate gen mapping
+                        string oldRenderList = "                gSPDisplayList(gDisplayListHead++, currList->displayList);";
+                        string newRenderList = "#ifdef CHAOS_FACELESS_V2\n" +
+                                               "                {\n" +
+                                               "                    s32 isCastleGrounds = (gCurrLevelNum == LEVEL_CASTLE_GROUNDS);\n" +
+                                               "                    if (isCastleGrounds) {\n" +
+                                               "                        extern struct GraphNodeCamera *gCurGraphNodeCamera;\n" +
+                                               "                        u8 r = 0x30, g = 0x30, b = 0x30;\n" +
+                                               "                        if (gCurGraphNodeCamera != NULL) {\n" +
+                                               "                            f32 sum = gCurGraphNodeCamera->pos[0] + gCurGraphNodeCamera->pos[1] + gCurGraphNodeCamera->pos[2];\n" +
+                                               "                            s32 hash = (s32)(sum / 80.0f);\n" +
+                                               "                            if (hash & 1) {\n" +
+                                               "                                r = 0xD0; g = 0x10; b = 0x10;\n" +
+                                               "                            }\n" +
+                                               "                        }\n" +
+                                               "                        gDPSetEnvColor(gDisplayListHead++, r, g, b, 0xFF);\n" +
+                                               "                        gSPSetGeometryMode(gDisplayListHead++, G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);\n" +
+                                               "                    }\n" +
+                                               "#endif\n" +
+                                               "                gSPDisplayList(gDisplayListHead++, currList->displayList);\n" +
+                                               "#ifdef CHAOS_FACELESS_V2\n" +
+                                               "                    if (isCastleGrounds) {\n" +
+                                               "                        gSPClearGeometryMode(gDisplayListHead++, G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);\n" +
+                                               "                        gDPSetEnvColor(gDisplayListHead++, 255, 255, 255, 255);\n" +
+                                               "                    }\n" +
+                                               "                }\n" +
+                                               "#endif";
+                        PatchSourceFile("src/game/rendering_graph_node.c", oldRenderList, newRenderList);
+                        PatchSourceFile("src/game/rendering_graph_node.c", "#include \"sm64.h\"", "#include \"sm64.h\"\n#include \"chaos_config.h\"");
+
+                        // Patch src/game/geo_misc.c to flash water colors blue like crystal and strip texture UV mapping
+                        string oldMakeVertex = "void make_vertex(Vtx *vtx, s32 n, s16 x, s16 y, s16 z, s16 tx, s16 ty, u8 r, u8 g, u8 b, u8 a)\n" +
+                                               "#else\n" +
+                                               "void make_vertex(Vtx *vtx, s32 n, f32 x, f32 y, f32 z, s16 tx, s16 ty, u8 r, u8 g, u8 b, u8 a)\n" +
+                                               "#endif\n" +
+                                               "{\n" +
+                                               "    vtx[n].v.ob[0] = x;";
+                        string newMakeVertex = "void make_vertex(Vtx *vtx, s32 n, s16 x, s16 y, s16 z, s16 tx, s16 ty, u8 r, u8 g, u8 b, u8 a)\n" +
+                                               "#else\n" +
+                                               "void make_vertex(Vtx *vtx, s32 n, f32 x, f32 y, f32 z, s16 tx, s16 ty, u8 r, u8 g, u8 b, u8 a)\n" +
+                                               "#endif\n" +
+                                               "{\n" +
+                                               "#ifdef CHAOS_FACELESS_V2\n" +
+                                               "    if (gCurrLevelNum == LEVEL_CASTLE_GROUNDS) {\n" +
+                                               "        if (a < 255 || (b > r && b > g)) {\n" +
+                                               "            extern struct GraphNodeCamera *gCurGraphNodeCamera;\n" +
+                                               "            r = 0x00; g = 0x90; b = 0xFF; a = 0xA0;\n" +
+                                               "            if (gCurGraphNodeCamera != NULL) {\n" +
+                                               "                f32 sum = gCurGraphNodeCamera->pos[0] + gCurGraphNodeCamera->pos[1] + gCurGraphNodeCamera->pos[2];\n" +
+                                               "                s32 hash = (s32)(sum / 50.0f);\n" +
+                                               "                if (hash & 1) {\n" +
+                                               "                    r = 0x7F; g = 0xD0; b = 0xFF; a = 0xE0;\n" +
+                                               "                }\n" +
+                                               "            }\n" +
+                                               "            tx = 0;\n" +
+                                               "            ty = 0;\n" +
+                                               "        }\n" +
+                                               "    }\n" +
+                                               "#endif\n" +
+                                               "    vtx[n].v.ob[0] = x;";
+                        PatchSourceFile("src/game/geo_misc.c", oldMakeVertex, newMakeVertex);
+                        PatchSourceFile("src/game/geo_misc.c", "#include \"sm64.h\"", "#include \"sm64.h\"\n#include \"chaos_config.h\"\n#ifdef CHAOS_FACELESS_V2\nextern u32 gGlobalTimer;\nextern struct GraphNodeCamera *gCurGraphNodeCamera;\n#endif");
                     }
 
                     // Apply game text randomization if requested
@@ -1163,6 +1271,22 @@ void apply_chaos_intro_camera(struct Camera *c) {
             if (CutsceneCameraPanel != null)
             {
                 CutsceneCameraPanel.Visibility = RandomizeCutsceneCameraCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private void LakituCameraChaosCheck_Toggle(object sender, RoutedEventArgs e)
+        {
+            if (LakituCameraChaosPanel != null)
+            {
+                LakituCameraChaosPanel.Visibility = LakituCameraChaosCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private void LimboMarioCheck_Toggle(object sender, RoutedEventArgs e)
+        {
+            if (LimboMarioPanel != null)
+            {
+                LimboMarioPanel.Visibility = LimboMarioCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
             }
         }
 
@@ -1655,104 +1779,355 @@ void apply_chaos_intro_camera(struct Camera *c) {
 
         private void CorruptM64SequenceFile(string filePath, double intensity, int m64Mode)
         {
-            var service = new Services.M64Service();
-            var tracks = service.LoadM64(filePath);
-            if (tracks == null || tracks.Count == 0)
+            byte[] data;
+            try
             {
-                // Fall back to raw binary corruption if structured midi parsing fails
-                CorruptBinaryFile(filePath, intensity, 0);
+                data = File.ReadAllBytes(filePath);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error reading M64: {ex.Message}");
                 return;
             }
 
-            switch (m64Mode)
+            var tempoOffsets = new List<int>();
+            var instrumentOffsets = new List<int>();
+            var volumeOffsets = new List<int>();
+            var pitchOffsets = new List<int>();
+            var velocityOffsets = new List<int>();
+
+            var visited = new HashSet<int>();
+            var channelOffsets = new HashSet<int>();
+            var layerOffsets = new HashSet<int>();
+
+            // Parse sequence headers starting at 0
+            ParseSeqCommandsForOffsets(data, 0, visited, channelOffsets, tempoOffsets);
+
+            // Parse channels found
+            visited.Clear();
+            foreach (int chanPos in channelOffsets)
             {
-                case 0: // 1. Transpose (Pitch Shift)
-                    int pitchOffset = _random.Next(-6, 7); // Transpose up/down up to 6 semitones
-                    foreach (var track in tracks)
-                    {
-                        foreach (var note in track.Notes)
-                        {
-                            if (_random.NextDouble() < (intensity / 100.0))
-                            {
-                                int newPitch = note.Pitch + pitchOffset;
-                                note.Pitch = (byte)Math.Clamp(newPitch, 0, 127);
-                            }
-                        }
-                    }
-                    break;
-
-                case 1: // 2. Tempo Shift (BPM Warp)
-                    int tempoOffset = _random.Next(-30, 31);
-                    int newTempo = service.Tempo + tempoOffset;
-                    service.Tempo = (byte)Math.Clamp(newTempo, 30, 240);
-                    break;
-
-                case 2: // 3. Instrument Swap (Orchestration)
-                    foreach (var track in tracks)
-                    {
-                        if (_random.NextDouble() < (intensity / 100.0))
-                        {
-                            byte newInst = (byte)_random.Next(0, 32);
-                            track.Instrument = newInst;
-                            foreach (var note in track.Notes)
-                            {
-                                note.Instrument = newInst;
-                            }
-                        }
-                    }
-                    break;
-
-                case 3: // 4. Duration Glitcher
-                    foreach (var track in tracks)
-                    {
-                        foreach (var note in track.Notes)
-                        {
-                            if (_random.NextDouble() < (intensity / 100.0))
-                            {
-                                note.DurationTicks = _random.NextDouble() < 0.5 ? _random.Next(10, 50) : _random.Next(500, 2000);
-                            }
-                        }
-                    }
-                    break;
-
-                case 4: // 5. Velocity / Volume Randomizer
-                    foreach (var track in tracks)
-                    {
-                        if (_random.NextDouble() < (intensity / 100.0))
-                        {
-                            track.Volume = (byte)_random.Next(10, 128);
-                        }
-                        foreach (var note in track.Notes)
-                        {
-                            if (_random.NextDouble() < (intensity / 100.0))
-                            {
-                                note.Velocity = (byte)_random.Next(10, 128);
-                            }
-                        }
-                    }
-                    break;
-
-                case 5: // 6. Melody Scrambler (Shuffle pitches)
-                    foreach (var track in tracks)
-                    {
-                        if (track.Notes.Count > 1)
-                        {
-                            int shuffleCount = (int)(track.Notes.Count * (intensity / 100.0) * 0.1);
-                            if (shuffleCount <= 0) shuffleCount = 1;
-                            for (int s = 0; s < shuffleCount; s++)
-                            {
-                                int idx1 = _random.Next(0, track.Notes.Count);
-                                int idx2 = _random.Next(0, track.Notes.Count);
-                                byte tempPitch = track.Notes[idx1].Pitch;
-                                track.Notes[idx1].Pitch = track.Notes[idx2].Pitch;
-                                track.Notes[idx2].Pitch = tempPitch;
-                            }
-                        }
-                    }
-                    break;
+                ParseChanCommandsForOffsets(data, chanPos, visited, layerOffsets, instrumentOffsets, volumeOffsets);
             }
 
-            service.SaveM64(filePath, tracks);
+            // Parse layers found
+            visited.Clear();
+            foreach (int layerPos in layerOffsets)
+            {
+                ParseLayerCommandsForOffsets(data, layerPos, visited, pitchOffsets, velocityOffsets, instrumentOffsets);
+            }
+
+            // Perform in-place corruption on collected offsets
+            if (m64Mode == 0 || m64Mode == 5)
+            {
+                if (pitchOffsets.Count > 0)
+                {
+                    if (m64Mode == 0)
+                    {
+                        // Transpose: shift all pitches by the same offset
+                        int pitchOffset = _random.Next(-6, 7);
+                        foreach (int offset in pitchOffsets)
+                        {
+                            if (_random.NextDouble() < (intensity / 100.0))
+                            {
+                                byte cmd = data[offset];
+                                int pitch = cmd & 0x3f;
+                                int newPitch = Math.Clamp(pitch + pitchOffset, 0, 127);
+                                data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Melody Scrambler (Shuffle pitches in-place)
+                        int shuffleCount = (int)(pitchOffsets.Count * (intensity / 100.0) * 0.1);
+                        if (shuffleCount <= 0) shuffleCount = 1;
+                        for (int s = 0; s < shuffleCount; s++)
+                        {
+                            int idx1 = pitchOffsets[_random.Next(0, pitchOffsets.Count)];
+                            int idx2 = pitchOffsets[_random.Next(0, pitchOffsets.Count)];
+                            byte cmd1 = data[idx1];
+                            byte cmd2 = data[idx2];
+                            byte newCmd1 = (byte)((cmd1 & 0xc0) | (cmd2 & 0x3f));
+                            byte newCmd2 = (byte)((cmd2 & 0xc0) | (cmd1 & 0x3f));
+                            data[idx1] = newCmd1;
+                            data[idx2] = newCmd2;
+                        }
+                    }
+                }
+            }
+            else if (m64Mode == 1)
+            {
+                // Tempo Shift (BPM Warp)
+                foreach (int offset in tempoOffsets)
+                {
+                    int tempoOffset = _random.Next(-30, 31);
+                    int newTempo = Math.Clamp(data[offset] + tempoOffset, 30, 240);
+                    data[offset] = (byte)newTempo;
+                }
+            }
+            else if (m64Mode == 2)
+            {
+                // Instrument Swap
+                foreach (int offset in instrumentOffsets)
+                {
+                    if (_random.NextDouble() < (intensity / 100.0))
+                    {
+                        data[offset] = (byte)_random.Next(0, 32);
+                    }
+                }
+            }
+            else if (m64Mode == 3)
+            {
+                // Duration Glitcher
+                foreach (int offset in pitchOffsets)
+                {
+                    byte cmd = data[offset];
+                    if ((cmd & 0xc0) == 0x80) // note2
+                    {
+                        if (_random.NextDouble() < (intensity / 100.0))
+                        {
+                            data[offset + 2] = (byte)_random.Next(10, 255);
+                        }
+                    }
+                }
+            }
+            else if (m64Mode == 4)
+            {
+                // Velocity / Volume Randomizer
+                foreach (int offset in volumeOffsets)
+                {
+                    if (_random.NextDouble() < (intensity / 100.0))
+                    {
+                        data[offset] = (byte)_random.Next(10, 128);
+                    }
+                }
+                foreach (int offset in velocityOffsets)
+                {
+                    if (_random.NextDouble() < (intensity / 100.0))
+                    {
+                        data[offset] = (byte)_random.Next(10, 128);
+                    }
+                }
+            }
+
+            try
+            {
+                File.WriteAllBytes(filePath, data);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error writing mutated M64: {ex.Message}");
+            }
+        }
+
+        private int ReadVarIntForOffsets(byte[] data, ref int pos)
+        {
+            int val = 0;
+            byte b;
+            do
+            {
+                b = data[pos++];
+                val = (val << 7) | (b & 0x7f);
+            } while ((b & 0x80) != 0);
+            return val;
+        }
+
+        private int GetSeqCmdSizeForOffsets(byte cmd, byte[] data, ref int pos)
+        {
+            if (cmd == 0xff || cmd == 0xfe || cmd == 0xf7 || cmd == 0xf1 || cmd == 0xd4) return 0;
+            if (cmd == 0xfd || cmd == 0xd2 || cmd == 0xd1)
+            {
+                ReadVarIntForOffsets(data, ref pos);
+                return 0;
+            }
+            if (cmd == 0xf8 || cmd == 0xdc || cmd == 0xda || cmd == 0xd5 || cmd == 0xdf || cmd == 0xde || cmd == 0xdd || cmd == 0xdb || cmd == 0xd3 || cmd == 0xd0 || cmd == 0xcc || cmd == 0xc9 || cmd == 0xc8) return 1;
+            if (cmd == 0xfc || cmd == 0xfb || cmd == 0xfa || cmd == 0xf9 || cmd == 0xf5 || cmd == 0xd7 || cmd == 0xd6) return 2;
+            if ((cmd & 0xF0) == 0x90) return 2;
+            if ((cmd & 0xF0) == 0x00) return 0;
+            if ((cmd & 0xF0) == 0x50) return 0;
+            if ((cmd & 0xF0) == 0x70) return 0;
+            if ((cmd & 0xF0) == 0x80) return 0;
+            return 0;
+        }
+
+        private int GetChanCmdSizeForOffsets(byte cmd, byte[] data, ref int pos)
+        {
+            if (cmd == 0xff || cmd == 0xfe || cmd == 0xf7 || cmd == 0xf6 || cmd == 0xf3 || cmd == 0xf1 || cmd == 0xe4 || cmd == 0xc5 || cmd == 0xc4 || cmd == 0xc3) return 0;
+            if (cmd == 0xfd)
+            {
+                ReadVarIntForOffsets(data, ref pos);
+                return 0;
+            }
+            if (cmd == 0xf8 || cmd == 0xf2 || cmd == 0xe3 || cmd == 0xe0 || cmd == 0xdf || cmd == 0xdd || cmd == 0xdc || cmd == 0xdb || cmd == 0xd9 || cmd == 0xd8 || cmd == 0xd7 || cmd == 0xd6 || cmd == 0xd4 || cmd == 0xd3 || cmd == 0xd2 || cmd == 0xd1 || cmd == 0xd0 || cmd == 0xcc || cmd == 0xca || cmd == 0xc9 || cmd == 0xc8 || cmd == 0xc6 || cmd == 0xc1) return 1;
+            if (cmd == 0xfc || cmd == 0xfb || cmd == 0xfa || cmd == 0xf9 || cmd == 0xf5 || cmd == 0xde || cmd == 0xda || cmd == 0xcb || cmd == 0xc2) return 2;
+            if (cmd == 0xe2 || cmd == 0xe1 || cmd == 0xc7) return 3;
+            if ((cmd & 0xF0) == 0x90) return 2;
+            if ((cmd & 0xF0) == 0x10) return 2;
+            if ((cmd & 0xF0) == 0x20) return 0;
+            if ((cmd & 0xF0) == 0x30) return 1;
+            if ((cmd & 0xF0) == 0x40) return 1;
+            if ((cmd & 0xF0) == 0x50) return 0;
+            if ((cmd & 0xF0) == 0x60) return 0;
+            if ((cmd & 0xF0) == 0x70) return 0;
+            if ((cmd & 0xF0) == 0x80) return 0;
+            return 0;
+        }
+
+        private int GetLayerCmdSizeForOffsets(byte cmd, byte[] data, ref int pos)
+        {
+            if (cmd == 0xff || cmd == 0xfe || cmd == 0xf7 || cmd == 0xc2 || cmd == 0xc5 || cmd == 0xc8 || cmd == 0xd0 || cmd == 0xd8 || cmd == 0xe0 || cmd == 0xe8 || cmd == 0xf0 || cmd == 0xf3) return 0;
+            if (cmd == 0xfd || cmd == 0xc1 || cmd == 0xc3 || cmd == 0xc9 || cmd == 0xca || cmd == 0xd4 || cmd == 0xdc || cmd == 0xe4 || cmd == 0xec || cmd == 0xf4)
+            {
+                ReadVarIntForOffsets(data, ref pos);
+                return 0;
+            }
+            if (cmd == 0xf8 || cmd == 0xf2 || cmd == 0xc6 || cmd == 0xce || cmd == 0xd1 || cmd == 0xd2 || cmd == 0xd6 || cmd == 0xda || cmd == 0xde || cmd == 0xe2 || cmd == 0xe6 || cmd == 0xea || cmd == 0xee || cmd == 0xf5 || cmd == 0xf6 || cmd == 0xf9) return 1;
+            if (cmd == 0xfc || cmd == 0xfb || cmd == 0xfa || cmd == 0xd3 || cmd == 0xd7 || cmd == 0xdb || cmd == 0xdf || cmd == 0xe3 || cmd == 0xe7 || cmd == 0xeb || cmd == 0xef) return 2;
+            if (cmd == 0xc7) return 3;
+            return 0;
+        }
+
+        private void ParseSeqCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, HashSet<int> channelOffsets, List<int> tempoOffsets)
+        {
+            if (pos < 0 || pos >= data.Length || visited.Contains(pos)) return;
+            visited.Add(pos);
+
+            while (pos < data.Length)
+            {
+                byte cmd = data[pos++];
+                if (cmd == 0xff) break;
+
+                if ((cmd & 0xf0) == 0x90)
+                {
+                    int chanPos = (data[pos++] << 8) | data[pos++];
+                    channelOffsets.Add(chanPos);
+                }
+                else if (cmd == 0xfb)
+                {
+                    int jumpOffset = (data[pos++] << 8) | data[pos++];
+                    ParseSeqCommandsForOffsets(data, jumpOffset, visited, channelOffsets, tempoOffsets);
+                    break;
+                }
+                else if (cmd == 0xfd)
+                {
+                    ReadVarIntForOffsets(data, ref pos);
+                }
+                else if (cmd == 0xfe)
+                {
+                }
+                else if (cmd == 0xdd)
+                {
+                    tempoOffsets.Add(pos);
+                    pos++;
+                }
+                else
+                {
+                    int argSize = GetSeqCmdSizeForOffsets(cmd, data, ref pos);
+                    pos += argSize;
+                }
+            }
+        }
+
+        private void ParseChanCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, HashSet<int> layerOffsets, List<int> instrumentOffsets, List<int> volumeOffsets)
+        {
+            if (pos < 0 || pos >= data.Length || visited.Contains(pos)) return;
+            visited.Add(pos);
+
+            while (pos < data.Length)
+            {
+                byte cmd = data[pos++];
+                if (cmd == 0xff) break;
+
+                if (cmd == 0xfb)
+                {
+                    int jumpOffset = (data[pos++] << 8) | data[pos++];
+                    ParseChanCommandsForOffsets(data, jumpOffset, visited, layerOffsets, instrumentOffsets, volumeOffsets);
+                    break;
+                }
+                else if (cmd == 0xfd)
+                {
+                    ReadVarIntForOffsets(data, ref pos);
+                }
+                else if (cmd == 0xc1)
+                {
+                    instrumentOffsets.Add(pos);
+                    pos++;
+                }
+                else if (cmd == 0xdf)
+                {
+                    volumeOffsets.Add(pos);
+                    pos++;
+                }
+                else if ((cmd & 0xf0) == 0x90)
+                {
+                    int layerPos = (data[pos++] << 8) | data[pos++];
+                    layerOffsets.Add(layerPos);
+                }
+                else
+                {
+                    int argSize = GetChanCmdSizeForOffsets(cmd, data, ref pos);
+                    pos += argSize;
+                }
+            }
+        }
+
+        private void ParseLayerCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, List<int> pitchOffsets, List<int> velocityOffsets, List<int> instrumentOffsets)
+        {
+            if (pos < 0 || pos >= data.Length || visited.Contains(pos)) return;
+            visited.Add(pos);
+
+            while (pos < data.Length)
+            {
+                byte cmd = data[pos++];
+                if (cmd == 0xff) break;
+
+                if (cmd == 0xfb)
+                {
+                    int jumpOffset = (data[pos++] << 8) | data[pos++];
+                    ParseLayerCommandsForOffsets(data, jumpOffset, visited, pitchOffsets, velocityOffsets, instrumentOffsets);
+                    break;
+                }
+                else if (cmd == 0xfc)
+                {
+                    int callOffset = (data[pos++] << 8) | data[pos++];
+                    ParseLayerCommandsForOffsets(data, callOffset, visited, pitchOffsets, velocityOffsets, instrumentOffsets);
+                }
+                else if (cmd == 0xfd)
+                {
+                    ReadVarIntForOffsets(data, ref pos);
+                }
+                else if (cmd == 0xc6)
+                {
+                    instrumentOffsets.Add(pos);
+                    pos++;
+                }
+                else if (cmd >= 0x00 && cmd <= 0x3f)
+                {
+                    pitchOffsets.Add(pos - 1);
+                    ReadVarIntForOffsets(data, ref pos);
+                    velocityOffsets.Add(pos);
+                    pos += 2;
+                }
+                else if (cmd >= 0x40 && cmd <= 0x7f)
+                {
+                    pitchOffsets.Add(pos - 1);
+                    ReadVarIntForOffsets(data, ref pos);
+                    velocityOffsets.Add(pos);
+                    pos++;
+                }
+                else if (cmd >= 0x80 && cmd <= 0xbf)
+                {
+                    pitchOffsets.Add(pos - 1);
+                    velocityOffsets.Add(pos);
+                    pos += 2;
+                }
+                else
+                {
+                    int argSize = GetLayerCmdSizeForOffsets(cmd, data, ref pos);
+                    pos += argSize;
+                }
+            }
         }
 
         private void CorruptBinaryFile(string filePath, double intensity, int mode)
@@ -2657,6 +3032,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                             break;
 
                         case 1: // Faceless Mario (No UVs)
+                        case 8: // Faceless Mario V2 (Castle Glow & Crystal Water)
                             u = 0;
                             v = 0;
                             break;
@@ -2721,6 +3097,13 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 {
                     // Enable Environment Mapping (Texture Coordinate Generation) to strip static UVs and force shifting textures/crystal reflections
                     newContent = Regex.Replace(newContent, @"(static const Gfx [a-zA-Z0-9_]+\[\]\s*=\s*\{)", "$1\n    gsSPSetGeometryMode(G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR),");
+                }
+                else if (dlMode == 8) // Faceless Mario V2 (Castle Glow & Crystal Water)
+                {
+                    // Enable Environment Mapping (Texture Coordinate Generation) to strip static UVs and force shifting textures/crystal reflections
+                    newContent = Regex.Replace(newContent, @"(static const Gfx [a-zA-Z0-9_]+\[\]\s*=\s*\{)", "$1\n    gsSPSetGeometryMode(G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR),");
+                    newContent = Regex.Replace(newContent, @"\bG_CC_MODULATERGB\b", "G_CC_FADEA");
+                    newContent = Regex.Replace(newContent, @"\bG_CC_MODULATERGBA\b", "G_CC_FADEA");
                 }
                 else if (dlMode == 2) // Normal Inversion
                 {
@@ -2868,7 +3251,11 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     var files = Directory.GetFiles(_presetsDir, "*.json");
                     foreach (var file in files)
                     {
-                        PresetComboBox.Items.Add(Path.GetFileNameWithoutExtension(file));
+                        string name = Path.GetFileNameWithoutExtension(file);
+                        if (!name.StartsWith("_"))
+                        {
+                            PresetComboBox.Items.Add(name);
+                        }
                     }
                 }
 
@@ -2945,6 +3332,11 @@ void apply_chaos_intro_camera(struct Camera *c) {
 
             string presetName = PresetComboBox.SelectedItem.ToString();
             string filePath = Path.Combine(_presetsDir, presetName + ".json");
+            LoadPresetFromFile(filePath);
+        }
+
+        private void LoadPresetFromFile(string filePath)
+        {
             if (!File.Exists(filePath)) return;
 
             try
@@ -3019,12 +3411,15 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 ChaosLogicJumpWeird.IsChecked = preset.ChaosLogicJumpWeird;
                 ChaosLogicJumpDeath.IsChecked = preset.ChaosLogicJumpDeath;
                 LimboMarioCheck.IsChecked = preset.LimboMario;
+                LimboMarioModeComboBox.SelectedIndex = preset.LimboMarioMode;
                 AlienSoundCheatCheck.IsChecked = preset.AlienSoundCheat;
 
                 ScrambleTitleScreenCheck.IsChecked = preset.ScrambleTitleScreen;
                 TitleScreenScramblerModeComboBox.SelectedIndex = preset.TitleScreenScramblerMode;
                 RandomizeCutsceneCameraCheck.IsChecked = preset.RandomizeCutsceneCamera;
                 CutsceneCameraModeComboBox.SelectedIndex = preset.CutsceneCameraMode;
+                LakituCameraChaosCheck.IsChecked = preset.LakituCameraChaos;
+                LakituCameraModeComboBox.SelectedIndex = preset.LakituCameraMode;
                 StartLevelChaosCheck.IsChecked = preset.StartLevelChaos;
                 StartLevelComboBox.SelectedIndex = preset.StartLevelIndex;
             }
@@ -3053,24 +3448,17 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 M64Radio_Checked(null, null);
                 ScrambleTitleScreenCheck_Toggle(null, null);
                 RandomizeCutsceneCameraCheck_Toggle(null, null);
+                LakituCameraChaosCheck_Toggle(null, null);
+                LimboMarioCheck_Toggle(null, null);
                 StartLevelChaosCheck_Toggle(null, null);
             }
         }
 
-        private void SavePreset_Click(object sender, RoutedEventArgs e)
+        private void SavePresetToFile(string filePath)
         {
-            string name = InputBox.Show("Enter a name for the chaos preset:", "Save Chaos Preset", "MyChaosPreset");
-            if (string.IsNullOrEmpty(name)) return;
-
-            // Remove invalid file characters
-            foreach (char c in Path.GetInvalidFileNameChars())
-            {
-                name = name.Replace(c, '_');
-            }
-
             var preset = new ChaosPreset
             {
-                PresetName = name,
+                PresetName = Path.GetFileNameWithoutExtension(filePath),
                 Intensity = IntensifySlider.Value,
                 TargetLevelIndex = LevelSelectionComboBox.SelectedIndex,
 
@@ -3122,12 +3510,15 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 ChaosLogicJumpWeird = ChaosLogicJumpWeird.IsChecked == true,
                 ChaosLogicJumpDeath = ChaosLogicJumpDeath.IsChecked == true,
                 LimboMario = LimboMarioCheck.IsChecked == true,
+                LimboMarioMode = LimboMarioModeComboBox.SelectedIndex,
                 AlienSoundCheat = AlienSoundCheatCheck.IsChecked == true,
 
                 ScrambleTitleScreen = ScrambleTitleScreenCheck.IsChecked == true,
                 TitleScreenScramblerMode = TitleScreenScramblerModeComboBox.SelectedIndex,
                 RandomizeCutsceneCamera = RandomizeCutsceneCameraCheck.IsChecked == true,
                 CutsceneCameraMode = CutsceneCameraModeComboBox.SelectedIndex,
+                LakituCameraChaos = LakituCameraChaosCheck.IsChecked == true,
+                LakituCameraMode = LakituCameraModeComboBox.SelectedIndex,
                 StartLevelChaos = StartLevelChaosCheck.IsChecked == true,
                 StartLevelIndex = StartLevelComboBox.SelectedIndex
             };
@@ -3135,16 +3526,32 @@ void apply_chaos_intro_camera(struct Camera *c) {
             try
             {
                 string json = System.Text.Json.JsonSerializer.Serialize(preset, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                string filePath = Path.Combine(_presetsDir, name + ".json");
                 File.WriteAllText(filePath, json);
+            }
+            catch { }
+        }
 
-                LoadPresetsList(name);
-                MessageBox.Show($"Preset '{name}' saved successfully!", "Preset Saved", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            base.OnClosing(e);
+            SavePresetToFile(Path.Combine(_presetsDir, "_default_settings.json"));
+        }
+
+        private void SavePreset_Click(object sender, RoutedEventArgs e)
+        {
+            string name = InputBox.Show("Enter a name for the chaos preset:", "Save Chaos Preset", "MyChaosPreset");
+            if (string.IsNullOrEmpty(name)) return;
+
+            // Remove invalid file characters
+            foreach (char c in Path.GetInvalidFileNameChars())
             {
-                MessageBox.Show($"Failed to save preset: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                name = name.Replace(c, '_');
             }
+
+            string filePath = Path.Combine(_presetsDir, name + ".json");
+            SavePresetToFile(filePath);
+            LoadPresetsList(name);
+            MessageBox.Show($"Preset '{name}' saved successfully!", "Preset Saved", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private void DeletePreset_Click(object sender, RoutedEventArgs e)
@@ -3443,12 +3850,15 @@ void apply_chaos_intro_camera(struct Camera *c) {
         public bool ChaosLogicJumpWeird { get; set; } = false;
         public bool ChaosLogicJumpDeath { get; set; } = false;
         public bool LimboMario { get; set; } = false;
+        public int LimboMarioMode { get; set; } = 0;
         public bool AlienSoundCheat { get; set; } = false;
 
         public bool ScrambleTitleScreen { get; set; } = false;
         public int TitleScreenScramblerMode { get; set; } = 0;
         public bool RandomizeCutsceneCamera { get; set; } = false;
         public int CutsceneCameraMode { get; set; } = 0;
+        public bool LakituCameraChaos { get; set; } = false;
+        public int LakituCameraMode { get; set; } = 0;
         public bool StartLevelChaos { get; set; } = false;
         public int StartLevelIndex { get; set; } = 0;
     }

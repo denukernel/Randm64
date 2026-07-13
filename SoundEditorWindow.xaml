@@ -70,6 +70,7 @@
                         <Button Click="PlayButton_Click" Content="▶ Play Sound" Margin="0,4" Background="#107C41" Foreground="White" FontWeight="Bold" BorderThickness="0" Padding="12,8" Cursor="Hand"/>
                         <Button Click="StopButton_Click" Content="■ Stop Playback" Margin="0,4" Background="#D13438" Foreground="White" BorderThickness="0" Padding="12,8" Cursor="Hand"/>
                         <Button Click="ReplaceButton_Click" Content="💾 Replace Sample..." Margin="0,4" Background="#007ACC" Foreground="White" FontWeight="Bold" BorderThickness="0" Padding="12,8" Cursor="Hand"/>
+                        <Button x:Name="RevertButton" Click="RevertButton_Click" Content="🔄 Revert to Original" Margin="0,4" Background="#8A4A00" Foreground="White" FontWeight="Bold" BorderThickness="0" Padding="12,8" Cursor="Hand" IsEnabled="False"/>
                     </StackPanel>
                 </Grid>
             </GroupBox>

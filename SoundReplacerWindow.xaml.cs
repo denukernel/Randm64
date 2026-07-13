@@ -14,6 +14,7 @@ namespace Sm64DecompLevelViewer
         private readonly string _projectRoot;
         private readonly List<SfxItemInfo> _allSounds = new();
         private System.Media.SoundPlayer? _activePlayer;
+        private MemoryStream? _activeStream;
         public List<SoundReplacementRule> ActiveRules { get; set; } = new();
 
         public class SoundReplacementRule
@@ -66,7 +67,8 @@ namespace Sm64DecompLevelViewer
                     string relativeDir = Path.GetDirectoryName(relativePath);
                     string category = string.IsNullOrEmpty(relativeDir) ? "samples" : relativeDir.Replace('\\', '/');
 
-                    string displayName = $"[{category}] {name}";
+                    string formattedName = Randm64.Services.SoundDetailsHelper.FormatDisplayName(category, name);
+                    string displayName = $"[{category}] {formattedName}";
 
                     _allSounds.Add(new SfxItemInfo
                     {
@@ -302,7 +304,7 @@ namespace Sm64DecompLevelViewer
 
                 StatusTextBlock.Text = $"Transcoding and playing {Path.GetFileName(filePath)}...";
 
-                byte[] aiffBytes = File.ReadAllBytes(filePath);
+                byte[] aiffBytes = AiffWavTranscoder.SafeReadAllBytes(filePath);
                 byte[] wavBytes = AiffWavTranscoder.ConvertAiffToWav(aiffBytes);
 
                 if (wavBytes.Length == 0)
@@ -311,8 +313,8 @@ namespace Sm64DecompLevelViewer
                     return;
                 }
 
-                var ms = new MemoryStream(wavBytes);
-                _activePlayer = new System.Media.SoundPlayer(ms);
+                _activeStream = new MemoryStream(wavBytes);
+                _activePlayer = new System.Media.SoundPlayer(_activeStream);
                 _activePlayer.Play();
                 StatusTextBlock.Text = $"Playing: {Path.GetFileName(filePath)}";
             }
@@ -329,6 +331,8 @@ namespace Sm64DecompLevelViewer
                 _activePlayer?.Stop();
                 _activePlayer?.Dispose();
                 _activePlayer = null;
+                _activeStream?.Dispose();
+                _activeStream = null;
                 StatusTextBlock.Text = "Playback stopped";
             }
             catch { }

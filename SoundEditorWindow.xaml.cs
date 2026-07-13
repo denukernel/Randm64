@@ -14,6 +14,7 @@ namespace Sm64DecompLevelViewer
         private readonly string _projectRoot;
         private string _samplesDir = string.Empty;
         private System.Media.SoundPlayer? _activePlayer;
+        private MemoryStream? _activeStream;
 
         public class AudioSampleItem
         {
@@ -93,14 +94,15 @@ namespace Sm64DecompLevelViewer
                 var files = Directory.GetFiles(categoryPath, "*.*", SearchOption.TopDirectoryOnly)
                                      .Where(f => f.EndsWith(".aiff", StringComparison.OrdinalIgnoreCase) || 
                                                  f.EndsWith(".aif", StringComparison.OrdinalIgnoreCase))
-                                     .OrderBy(f => f)
-                                     .ToList();
+                                     .OrderBy(f => f);
 
                 foreach (var file in files)
                 {
+                    string filename = Path.GetFileName(file);
+                    string displayName = Randm64.Services.SoundDetailsHelper.FormatDisplayName(category, filename);
                     SampleListBox.Items.Add(new AudioSampleItem
                     {
-                        Name = Path.GetFileName(file),
+                        Name = displayName,
                         FilePath = file
                     });
                 }
@@ -130,6 +132,18 @@ namespace Sm64DecompLevelViewer
                 SelectedSampleTextBlock.Text = item.Name;
                 FilePathTextBlock.Text = item.FilePath.Substring(_projectRoot.Length).TrimStart('\\', '/');
                 StatusTextBlock.Text = $"Selected {item.Name}";
+
+                string backupPath = item.FilePath + ".orig";
+                if (File.Exists(backupPath))
+                {
+                    RevertButton.IsEnabled = true;
+                    RevertButton.ToolTip = "Restore the original audio sample from the local backup.";
+                }
+                else
+                {
+                    RevertButton.IsEnabled = false;
+                    RevertButton.ToolTip = "No local backup found. Revert is only available for samples replaced using version 1.4+ of this tool.";
+                }
             }
         }
 
@@ -157,7 +171,7 @@ namespace Sm64DecompLevelViewer
 
                 StatusTextBlock.Text = $"Transcoding and playing {Path.GetFileName(filePath)}...";
 
-                byte[] aiffBytes = File.ReadAllBytes(filePath);
+                byte[] aiffBytes = AiffWavTranscoder.SafeReadAllBytes(filePath);
                 byte[] wavBytes = AiffWavTranscoder.ConvertAiffToWav(aiffBytes);
 
                 if (wavBytes.Length == 0)
@@ -166,8 +180,8 @@ namespace Sm64DecompLevelViewer
                     return;
                 }
 
-                var ms = new MemoryStream(wavBytes);
-                _activePlayer = new System.Media.SoundPlayer(ms);
+                _activeStream = new MemoryStream(wavBytes);
+                _activePlayer = new System.Media.SoundPlayer(_activeStream);
                 _activePlayer.Play();
                 StatusTextBlock.Text = $"Playing: {Path.GetFileName(filePath)}";
             }
@@ -189,6 +203,8 @@ namespace Sm64DecompLevelViewer
                 _activePlayer?.Stop();
                 _activePlayer?.Dispose();
                 _activePlayer = null;
+                _activeStream?.Dispose();
+                _activeStream = null;
                 StatusTextBlock.Text = "Playback stopped";
             }
             catch { }
@@ -222,9 +238,18 @@ namespace Sm64DecompLevelViewer
                             return;
                         }
 
+                        // Create backup before writing if not already backed up
+                        string backupPath = item.FilePath + ".orig";
+                        if (!File.Exists(backupPath))
+                        {
+                            File.Copy(item.FilePath, backupPath, true);
+                        }
+
                         // Overwrite original file
                         File.WriteAllBytes(item.FilePath, aiffBytes);
                         
+                        RevertButton.IsEnabled = true;
+                        RevertButton.ToolTip = "Restore the original audio sample from the local backup.";
                         MessageBox.Show($"Successfully replaced sample {item.Name} with custom audio!", "Replacement Successful", MessageBoxButton.OK, MessageBoxImage.Information);
                         StatusTextBlock.Text = $"Replaced: {item.Name}";
                     }
@@ -233,6 +258,45 @@ namespace Sm64DecompLevelViewer
                         MessageBox.Show($"Error replacing sample: {ex.Message}", "File Write Error", MessageBoxButton.OK, MessageBoxImage.Error);
                         StatusTextBlock.Text = $"Replacement error: {ex.Message}";
                     }
+                }
+            }
+        }
+
+        private void RevertButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (SampleListBox == null || SampleListBox.SelectedItem == null) return;
+
+            if (SampleListBox.SelectedItem is AudioSampleItem item)
+            {
+                string backupPath = item.FilePath + ".orig";
+                if (!File.Exists(backupPath))
+                {
+                    MessageBox.Show("No backup file found for this sample. It might already be original.", "Revert Unavailable", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                try
+                {
+                    StatusTextBlock.Text = "Restoring original sound sample...";
+                    
+                    // Overwrite customized file with backup
+                    File.Copy(backupPath, item.FilePath, true);
+                    
+                    // Delete backup
+                    File.Delete(backupPath);
+                    
+                    RevertButton.IsEnabled = false;
+                    RevertButton.ToolTip = "No local backup found. Revert is only available for samples replaced using version 1.4+ of this tool.";
+                    MessageBox.Show($"Successfully reverted {item.Name} to the original sound sample!", "Revert Successful", MessageBoxButton.OK, MessageBoxImage.Information);
+                    StatusTextBlock.Text = $"Reverted: {item.Name}";
+                    
+                    // Play restored sample
+                    PlaySample(item.FilePath);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error reverting sample: {ex.Message}", "File Write Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    StatusTextBlock.Text = $"Revert error: {ex.Message}";
                 }
             }
         }

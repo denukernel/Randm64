@@ -366,6 +366,13 @@ public partial class MainWindow : Window
         patchWindow.ShowDialog();
     }
 
+    private void RomAddressFinderMain_Click(object sender, RoutedEventArgs e)
+    {
+        var addressWindow = new RomAddressWindow(_projectRootPath);
+        addressWindow.Owner = this;
+        addressWindow.Show();
+    }
+
     private void OptionsButton_Click(object sender, RoutedEventArgs e)
     {
         var settingsWindow = new SettingsWindow();

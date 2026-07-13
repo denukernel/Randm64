@@ -238,6 +238,7 @@
                             <TextBlock Text="System &amp; Build Tools" FontSize="12" FontWeight="SemiBold" Foreground="#888888" Margin="0,0,0,6"/>
                             <Button Content="⚙️ Build SM64 ROM" Click="BuildRomMain_Click" Padding="6" Margin="0,0,0,6" Background="#007ACC" Foreground="White" BorderThickness="0" FontWeight="SemiBold" HorizontalAlignment="Stretch"/>
                             <Button Content="🩹 Git / WSL Patches" Click="PatchButtonMain_Click" Padding="6" Margin="0,0,0,6" Background="#2D2D30" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch"/>
+                            <Button Content="🔍 ROM Address Finder" Click="RomAddressFinderMain_Click" Padding="6" Margin="0,0,0,6" Background="#2D2D30" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch"/>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>

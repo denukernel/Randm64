@@ -1,0 +1,94 @@
+<Window x:Class="Sm64DecompLevelViewer.RomAddressWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SM64 ROM Memory Map / Address Finder" Height="680" Width="850"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource BackgroundBrush}" Foreground="{DynamicResource TextBrush}">
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <TextBlock Grid.Row="0" Text="Super Mario 64 ROM Memory Map" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource HeaderBrush}" Margin="0,0,0,5"/>
+        <TextBlock Grid.Row="0" Text="Double-click a row to copy its start address to the clipboard" FontSize="10" Foreground="#888888" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,0,5"/>
+
+        <!-- Active Map Info -->
+        <TextBlock Grid.Row="1" x:Name="ActiveMapLabel" Text="Map File: Default (original static ROM map)" FontSize="11" FontStyle="Italic" Foreground="{DynamicResource AccentBrush}" Margin="0,0,0,10"/>
+
+        <!-- Search Bar and Mode Toggles -->
+        <Border Grid.Row="2" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="10" Margin="0,0,0,15">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Search: " VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,0"/>
+                <TextBox Grid.Column="1" x:Name="SearchBox" Padding="5,3" Background="{DynamicResource BackgroundBrush}" Foreground="White" BorderBrush="{DynamicResource BorderBrush}" TextChanged="SearchBox_TextChanged" VerticalAlignment="Center"/>
+                <Button Grid.Column="2" Content="Clear" Click="ClearSearch_Click" Padding="15,3" Margin="10,0,0,0" Background="#3E3E42" Foreground="White" BorderThickness="0" Cursor="Hand" VerticalAlignment="Center"/>
+                
+                <CheckBox Grid.Column="3" x:Name="ShowAllSymbolsCheck" Content="Show All Symbols" Foreground="#CCCCCC" Margin="15,0,0,0" VerticalAlignment="Center" Checked="ShowAllSymbolsCheck_Changed" Unchecked="ShowAllSymbolsCheck_Changed"/>
+                <Button Grid.Column="4" Content="📁 Load compiled .map" Click="LoadMap_Click" Padding="10,4" Margin="15,0,0,0" Background="{DynamicResource AccentBrush}" Foreground="White" BorderThickness="0" FontWeight="Bold" Cursor="Hand" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
+        <!-- Data Grid -->
+        <DataGrid Grid.Row="3" x:Name="AddressGrid" AutoGenerateColumns="False" IsReadOnly="True" 
+                  Background="{DynamicResource PanelBrush}" Foreground="{DynamicResource TextBrush}" 
+                  BorderBrush="{DynamicResource BorderBrush}" RowBackground="{DynamicResource PanelBrush}"
+                  AlternatingRowBackground="#2B2B2C" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#3F3F46"
+                  HeadersVisibility="Column" SelectionMode="Single" MouseDoubleClick="AddressGrid_MouseDoubleClick">
+            <DataGrid.Resources>
+                <!-- Style for headers -->
+                <Style TargetType="DataGridColumnHeader">
+                    <Setter Property="Background" Value="#2D2D30"/>
+                    <Setter Property="Foreground" Value="White"/>
+                    <Setter Property="FontWeight" Value="Bold"/>
+                    <Setter Property="Padding" Value="8,5"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                </Style>
+                <!-- Style for cell selections -->
+                <Style TargetType="DataGridCell">
+                    <Setter Property="Padding" Value="8,4"/>
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="DataGridCell">
+                                <Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                                    <ContentPresenter VerticalAlignment="Center"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                    <Style.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                            <Setter Property="Foreground" Value="White"/>
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </DataGrid.Resources>
+            
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Start Address" Binding="{Binding Start}" Width="120"/>
+                <DataGridTextColumn Header="End Address" Binding="{Binding End}" Width="120"/>
+                <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="100"/>
+                <DataGridTextColumn Header="Description" Binding="{Binding Description}" Width="*"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- Footer / Actions -->
+        <DockPanel Grid.Row="4" Margin="0,15,0,0">
+            <Button Content="Copy Start" Click="CopyStart_Click" Padding="15,6" Background="#3E3E42" Foreground="White" BorderThickness="0" Margin="0,0,10,0" Cursor="Hand"/>
+            <Button Content="Copy End" Click="CopyEnd_Click" Padding="15,6" Background="#3E3E42" Foreground="White" BorderThickness="0" Margin="0,0,10,0" Cursor="Hand"/>
+            <Button Content="Copy Full Entry" Click="CopyFull_Click" Padding="15,6" Background="#3E3E42" Foreground="White" BorderThickness="0" Cursor="Hand"/>
+            <Button Content="Close" Click="Close_Click" Padding="25,6" Background="{DynamicResource AccentBrush}" Foreground="White" BorderThickness="0" DockPanel.Dock="Right" Cursor="Hand"/>
+        </DockPanel>
+    </Grid>
+</Window>
