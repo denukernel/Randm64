@@ -646,8 +646,10 @@ namespace Sm64DecompLevelViewer
                     }
                 }
             }
-            if (VolumeTextBox != null)
-                VolumeTextBox.Text = _currentTrack.Volume.ToString();
+            if (VolumeSlider != null)
+                VolumeSlider.Value = _currentTrack.Volume;
+            if (VolumeLabel != null)
+                VolumeLabel.Text = _currentTrack.Volume.ToString();
             _isUpdatingUi = false;
 
             _selectedNotes.Clear();
@@ -1512,12 +1514,14 @@ namespace Sm64DecompLevelViewer
 
 
 
-        private void VolumeTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (_isUpdatingUi || _currentTrack == null) return;
-            if (byte.TryParse(VolumeTextBox.Text, out byte vol))
+            byte vol = (byte)Math.Clamp(VolumeSlider.Value, 0.0, 255.0);
+            _currentTrack.Volume = vol;
+            if (VolumeLabel != null)
             {
-                _currentTrack.Volume = vol;
+                VolumeLabel.Text = vol.ToString();
             }
         }
 
