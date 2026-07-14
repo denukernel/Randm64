@@ -1836,23 +1836,46 @@ void apply_chaos_intro_camera(struct Camera *c) {
 
             var visited = new HashSet<int>();
             var channelOffsets = new HashSet<int>();
-            var layerOffsets = new HashSet<int>();
+            var layerLargeNotes = new Dictionary<int, bool>();
 
-            // Parse sequence headers starting at 0
-            ParseSeqCommandsForOffsets(data, 0, visited, channelOffsets, tempoOffsets);
-
-            // Parse channels found
-            visited.Clear();
-            foreach (int chanPos in channelOffsets)
+            try
             {
-                ParseChanCommandsForOffsets(data, chanPos, visited, layerOffsets, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets);
+                // Parse sequence headers starting at 0
+                ParseSeqCommandsForOffsets(data, 0, visited, channelOffsets, tempoOffsets);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error parsing seq headers of {filePath}: {ex.Message}");
             }
 
-            // Parse layers found
-            visited.Clear();
-            foreach (int layerPos in layerOffsets)
+            try
             {
-                ParseLayerCommandsForOffsets(data, layerPos, visited, pitchOffsets, velocityOffsets, instrumentOffsets);
+                // Parse channels found
+                visited.Clear();
+                foreach (int chanPos in channelOffsets)
+                {
+                    ParseChanCommandsForOffsets(data, chanPos, visited, layerLargeNotes, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets, false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error parsing channels of {filePath}: {ex.Message}");
+            }
+
+            try
+            {
+                // Parse layers found
+                visited.Clear();
+                foreach (var kvp in layerLargeNotes)
+                {
+                    int layerPos = kvp.Key;
+                    bool largeNotes = kvp.Value;
+                    ParseLayerCommandsForOffsets(data, layerPos, visited, pitchOffsets, velocityOffsets, instrumentOffsets, largeNotes);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error parsing layers of {filePath}: {ex.Message}");
             }
 
             // Perform in-place corruption on collected offsets
@@ -1863,7 +1886,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     int pitchOffset = _random.Next(-6, 7);
                     foreach (int offset in pitchOffsets)
                     {
-                        if (_random.NextDouble() < (intensity / 100.0))
+                        if (offset >= 0 && offset < data.Length && _random.NextDouble() < (intensity / 100.0))
                         {
                             byte cmd = data[offset];
                             int pitch = cmd & 0x3f;
@@ -1877,16 +1900,19 @@ void apply_chaos_intro_camera(struct Camera *c) {
             {
                 foreach (int offset in tempoOffsets)
                 {
-                    int tempoOffset = _random.Next(-30, 31);
-                    int newTempo = Math.Clamp(data[offset] + tempoOffset, 30, 240);
-                    data[offset] = (byte)newTempo;
+                    if (offset >= 0 && offset < data.Length && _random.NextDouble() < (intensity / 100.0))
+                    {
+                        int tempoOffset = _random.Next(-30, 31);
+                        int tempo = data[offset];
+                        data[offset] = (byte)Math.Clamp(tempo + tempoOffset, 48, 240);
+                    }
                 }
             }
             else if (m64Mode == 2) // Instrument Swap (Orchestration)
             {
                 foreach (int offset in instrumentOffsets)
                 {
-                    if (_random.NextDouble() < (intensity / 100.0))
+                    if (offset >= 0 && offset < data.Length && _random.NextDouble() < (intensity / 100.0))
                     {
                         data[offset] = (byte)_random.Next(0, 32);
                     }
@@ -1896,12 +1922,15 @@ void apply_chaos_intro_camera(struct Camera *c) {
             {
                 foreach (int offset in pitchOffsets)
                 {
-                    byte cmd = data[offset];
-                    if ((cmd & 0xc0) == 0x80) // note2
+                    if (offset >= 0 && offset + 2 < data.Length)
                     {
-                        if (_random.NextDouble() < (intensity / 100.0))
+                        byte cmd = data[offset];
+                        if ((cmd & 0xc0) == 0x80) // note2
                         {
-                            data[offset + 2] = (byte)_random.Next(10, 255);
+                            if (_random.NextDouble() < (intensity / 100.0))
+                            {
+                                data[offset + 2] = (byte)_random.Next(10, 255);
+                            }
                         }
                     }
                 }
@@ -1910,14 +1939,14 @@ void apply_chaos_intro_camera(struct Camera *c) {
             {
                 foreach (int offset in volumeOffsets)
                 {
-                    if (_random.NextDouble() < (intensity / 100.0))
+                    if (offset >= 0 && offset < data.Length && _random.NextDouble() < (intensity / 100.0))
                     {
                         data[offset] = (byte)_random.Next(10, 128);
                     }
                 }
                 foreach (int offset in velocityOffsets)
                 {
-                    if (_random.NextDouble() < (intensity / 100.0))
+                    if (offset >= 0 && offset < data.Length && _random.NextDouble() < (intensity / 100.0))
                     {
                         data[offset] = (byte)_random.Next(10, 128);
                     }
@@ -1933,12 +1962,15 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     {
                         int idx1 = pitchOffsets[_random.Next(0, pitchOffsets.Count)];
                         int idx2 = pitchOffsets[_random.Next(0, pitchOffsets.Count)];
-                        byte cmd1 = data[idx1];
-                        byte cmd2 = data[idx2];
-                        byte newCmd1 = (byte)((cmd1 & 0xc0) | (cmd2 & 0x3f));
-                        byte newCmd2 = (byte)((cmd2 & 0xc0) | (cmd1 & 0x3f));
-                        data[idx1] = newCmd1;
-                        data[idx2] = newCmd2;
+                        if (idx1 >= 0 && idx1 < data.Length && idx2 >= 0 && idx2 < data.Length)
+                        {
+                            byte cmd1 = data[idx1];
+                            byte cmd2 = data[idx2];
+                            byte newCmd1 = (byte)((cmd1 & 0xc0) | (cmd2 & 0x3f));
+                            byte newCmd2 = (byte)((cmd2 & 0xc0) | (cmd1 & 0x3f));
+                            data[idx1] = newCmd1;
+                            data[idx2] = newCmd2;
+                        }
                     }
                 }
             }
@@ -1946,7 +1978,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             {
                 foreach (int offset in pitchOffsets)
                 {
-                    if (_random.NextDouble() < (intensity / 100.0))
+                    if (offset >= 0 && offset < data.Length && _random.NextDouble() < (intensity / 100.0))
                     {
                         byte cmd = data[offset];
                         int pitch = cmd & 0x3f;
@@ -1960,7 +1992,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             {
                 foreach (int offset in volumeOffsets)
                 {
-                    if (_random.NextDouble() < (intensity / 100.0) * 0.4)
+                    if (offset >= 0 && offset < data.Length && _random.NextDouble() < (intensity / 100.0) * 0.4)
                     {
                         data[offset] = 0; // Mute channel
                     }
@@ -1970,7 +2002,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             {
                 foreach (int offset in panOffsets)
                 {
-                    if (_random.NextDouble() < (intensity / 100.0))
+                    if (offset >= 0 && offset < data.Length && _random.NextDouble() < (intensity / 100.0))
                     {
                         int r = _random.Next(0, 3);
                         data[offset] = (byte)(r == 0 ? 0 : (r == 1 ? 64 : 127));
@@ -1981,7 +2013,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             {
                 foreach (int offset in reverbOffsets)
                 {
-                    if (_random.NextDouble() < (intensity / 100.0))
+                    if (offset >= 0 && offset < data.Length && _random.NextDouble() < (intensity / 100.0))
                     {
                         data[offset] = 127; // Max reverb
                     }
@@ -1991,7 +2023,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             {
                 foreach (int offset in pitchBendOffsets)
                 {
-                    if (_random.NextDouble() < (intensity / 100.0))
+                    if (offset >= 0 && offset < data.Length && _random.NextDouble() < (intensity / 100.0))
                     {
                         data[offset] = (byte)_random.Next(0, 256); // Scramble pitch bend value
                     }
@@ -2001,13 +2033,16 @@ void apply_chaos_intro_camera(struct Camera *c) {
             {
                 foreach (int offset in pitchOffsets)
                 {
-                    byte cmd = data[offset];
-                    if ((cmd & 0xc0) == 0x80) // note2 has duration parameter at offset+2
+                    if (offset >= 0 && offset + 2 < data.Length)
                     {
-                        if (_random.NextDouble() < (intensity / 100.0))
+                        byte cmd = data[offset];
+                        if ((cmd & 0xc0) == 0x80) // note2 has duration parameter at offset+2
                         {
-                            int val = data[offset + 2];
-                            data[offset + 2] = (byte)Math.Clamp(val * 4, 10, 255);
+                            if (_random.NextDouble() < (intensity / 100.0))
+                            {
+                                int val = data[offset + 2];
+                                data[offset + 2] = (byte)Math.Clamp(val * 4, 10, 255);
+                            }
                         }
                     }
                 }
@@ -2016,12 +2051,15 @@ void apply_chaos_intro_camera(struct Camera *c) {
             {
                 foreach (int offset in pitchOffsets)
                 {
-                    byte cmd = data[offset];
-                    if ((cmd & 0xc0) == 0x80)
+                    if (offset >= 0 && offset + 2 < data.Length)
                     {
-                        if (_random.NextDouble() < (intensity / 100.0))
+                        byte cmd = data[offset];
+                        if ((cmd & 0xc0) == 0x80)
                         {
-                            data[offset + 2] = (byte)_random.Next(1, 8); // extremely short duration
+                            if (_random.NextDouble() < (intensity / 100.0))
+                            {
+                                data[offset + 2] = (byte)_random.Next(1, 8); // extremely short duration
+                            }
                         }
                     }
                 }
@@ -2031,7 +2069,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 int[] majorScale = { 0, 2, 4, 5, 7, 9, 11 };
                 foreach (int offset in pitchOffsets)
                 {
-                    if (_random.NextDouble() < (intensity / 100.0))
+                    if (offset >= 0 && offset < data.Length && _random.NextDouble() < (intensity / 100.0))
                     {
                         byte cmd = data[offset];
                         int pitch = cmd & 0x3f;
@@ -2048,7 +2086,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 int[] minorScale = { 0, 2, 3, 5, 7, 8, 10 };
                 foreach (int offset in pitchOffsets)
                 {
-                    if (_random.NextDouble() < (intensity / 100.0))
+                    if (offset >= 0 && offset < data.Length && _random.NextDouble() < (intensity / 100.0))
                     {
                         byte cmd = data[offset];
                         int pitch = cmd & 0x3f;
@@ -2064,7 +2102,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             {
                 foreach (int offset in pitchOffsets)
                 {
-                    if (_random.NextDouble() < (intensity / 100.0))
+                    if (offset >= 0 && offset < data.Length && _random.NextDouble() < (intensity / 100.0))
                     {
                         byte cmd = data[offset];
                         int newPitch = _random.Next(0, 128);
@@ -2076,7 +2114,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             {
                 foreach (int offset in velocityOffsets)
                 {
-                    if (_random.NextDouble() < (intensity / 100.0))
+                    if (offset >= 0 && offset < data.Length && _random.NextDouble() < (intensity / 100.0))
                     {
                         int val = data[offset];
                         data[offset] = (byte)Math.Clamp(127 - val, 10, 127);
@@ -2087,7 +2125,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             {
                 foreach (int offset in volumeOffsets)
                 {
-                    if (_random.NextDouble() < (intensity / 100.0))
+                    if (offset >= 0 && offset < data.Length && _random.NextDouble() < (intensity / 100.0))
                     {
                         int val = data[offset];
                         int mod = _random.Next(0, 2) == 0 ? 30 : -30;
@@ -2108,11 +2146,14 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     if (_random.NextDouble() < (intensity / 100.0))
                     {
                         int offset = pitchOffsets[i];
-                        byte cmd = data[offset];
-                        int pitch = cmd & 0x3f;
-                        int ch = i % 16;
-                        int newPitch = Math.Clamp(pitch + channelTransposes[ch], 0, 127);
-                        data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
+                        if (offset >= 0 && offset < data.Length)
+                        {
+                            byte cmd = data[offset];
+                            int pitch = cmd & 0x3f;
+                            int ch = i % 16;
+                            int newPitch = Math.Clamp(pitch + channelTransposes[ch], 0, 127);
+                            data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
+                        }
                     }
                 }
             }
@@ -2124,10 +2165,13 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     {
                         int offset1 = pitchOffsets[i];
                         int offset2 = pitchOffsets[i + 1];
-                        byte cmd1 = data[offset1];
-                        int pitch1 = cmd1 & 0x3f;
-                        int newPitch = Math.Clamp(pitch1 + 12, 0, 127);
-                        data[offset2] = (byte)((data[offset2] & 0xc0) | (newPitch & 0x3f));
+                        if (offset1 >= 0 && offset1 < data.Length && offset2 >= 0 && offset2 < data.Length)
+                        {
+                            byte cmd1 = data[offset1];
+                            int pitch1 = cmd1 & 0x3f;
+                            int newPitch = Math.Clamp(pitch1 + 12, 0, 127);
+                            data[offset2] = (byte)((data[offset2] & 0xc0) | (newPitch & 0x3f));
+                        }
                     }
                 }
             }
@@ -2135,7 +2179,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             {
                 foreach (int offset in velocityOffsets)
                 {
-                    if (_random.NextDouble() < (intensity / 100.0) * 0.2)
+                    if (offset >= 0 && offset < data.Length && _random.NextDouble() < (intensity / 100.0) * 0.2)
                     {
                         data[offset] = 127;
                     }
@@ -2146,9 +2190,12 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 int currentTempo = 120;
                 foreach (int offset in tempoOffsets)
                 {
-                    currentTempo = data[offset];
-                    int mod = _random.Next(-15, 16);
-                    data[offset] = (byte)Math.Clamp(currentTempo + mod, 40, 220);
+                    if (offset >= 0 && offset < data.Length)
+                    {
+                        currentTempo = data[offset];
+                        int mod = _random.Next(-15, 16);
+                        data[offset] = (byte)Math.Clamp(currentTempo + mod, 40, 220);
+                    }
                 }
             }
 
@@ -2168,6 +2215,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             byte b;
             do
             {
+                if (pos < 0 || pos >= data.Length) break;
                 b = data[pos++];
                 val = (val << 7) | (b & 0x7f);
             } while ((b & 0x80) != 0);
@@ -2270,7 +2318,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             }
         }
 
-        private void ParseChanCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, HashSet<int> layerOffsets, List<int> instrumentOffsets, List<int> volumeOffsets, List<int> panOffsets, List<int> reverbOffsets, List<int> pitchBendOffsets)
+        private void ParseChanCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, Dictionary<int, bool> layerLargeNotes, List<int> instrumentOffsets, List<int> volumeOffsets, List<int> panOffsets, List<int> reverbOffsets, List<int> pitchBendOffsets, bool largeNotesState = false)
         {
             if (pos < 0 || pos >= data.Length || visited.Contains(pos)) return;
             visited.Add(pos);
@@ -2283,7 +2331,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 if (cmd == 0xfb)
                 {
                     int jumpOffset = (data[pos++] << 8) | data[pos++];
-                    ParseChanCommandsForOffsets(data, jumpOffset, visited, layerOffsets, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets);
+                    ParseChanCommandsForOffsets(data, jumpOffset, visited, layerLargeNotes, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets, largeNotesState);
                     break;
                 }
                 else if (cmd == 0xfd)
@@ -2294,6 +2342,14 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 {
                     instrumentOffsets.Add(pos);
                     pos++;
+                }
+                else if (cmd == 0xc3) // chan_largenotesoff
+                {
+                    largeNotesState = false;
+                }
+                else if (cmd == 0xc4) // chan_largenoteson
+                {
+                    largeNotesState = true;
                 }
                 else if (cmd == 0xdf)
                 {
@@ -2318,7 +2374,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 else if ((cmd & 0xf0) == 0x90)
                 {
                     int layerPos = (data[pos++] << 8) | data[pos++];
-                    layerOffsets.Add(layerPos);
+                    layerLargeNotes[layerPos] = largeNotesState;
                 }
                 else
                 {
@@ -2328,7 +2384,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             }
         }
 
-        private void ParseLayerCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, List<int> pitchOffsets, List<int> velocityOffsets, List<int> instrumentOffsets)
+        private void ParseLayerCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, List<int> pitchOffsets, List<int> velocityOffsets, List<int> instrumentOffsets, bool largeNotes)
         {
             if (pos < 0 || pos >= data.Length || visited.Contains(pos)) return;
             visited.Add(pos);
@@ -2341,13 +2397,13 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 if (cmd == 0xfb)
                 {
                     int jumpOffset = (data[pos++] << 8) | data[pos++];
-                    ParseLayerCommandsForOffsets(data, jumpOffset, visited, pitchOffsets, velocityOffsets, instrumentOffsets);
+                    ParseLayerCommandsForOffsets(data, jumpOffset, visited, pitchOffsets, velocityOffsets, instrumentOffsets, largeNotes);
                     break;
                 }
                 else if (cmd == 0xfc)
                 {
                     int callOffset = (data[pos++] << 8) | data[pos++];
-                    ParseLayerCommandsForOffsets(data, callOffset, visited, pitchOffsets, velocityOffsets, instrumentOffsets);
+                    ParseLayerCommandsForOffsets(data, callOffset, visited, pitchOffsets, velocityOffsets, instrumentOffsets, largeNotes);
                 }
                 else if (cmd == 0xfd)
                 {
@@ -2362,22 +2418,30 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 {
                     pitchOffsets.Add(pos - 1);
                     ReadVarIntForOffsets(data, ref pos);
-                    velocityOffsets.Add(pos);
-                    pos += 2; // Skip velocity (1 byte) and gate time (1 byte)
+                    if (largeNotes)
+                    {
+                        velocityOffsets.Add(pos);
+                        pos += 2; // Skip velocity (1 byte) and duration (1 byte)
+                    }
                 }
                 else if (cmd >= 0x40 && cmd <= 0x7f) // Type 1 note
                 {
                     pitchOffsets.Add(pos - 1);
-                    // No VarInt delay! Byte 1: Gate time, Byte 2: Velocity
-                    velocityOffsets.Add(pos + 1);
-                    pos += 2; // Skip gate time and velocity
+                    if (largeNotes)
+                    {
+                        ReadVarIntForOffsets(data, ref pos); // Large notes Type 1 have delay (VarInt)
+                        velocityOffsets.Add(pos);
+                        pos++; // Skip velocity (1 byte)
+                    }
                 }
                 else if (cmd >= 0x80 && cmd <= 0xbf) // Type 2 note
                 {
                     pitchOffsets.Add(pos - 1);
-                    ReadVarIntForOffsets(data, ref pos); // Type 2 notes DO have a VarInt delay
-                    // No velocity parameter (uses previous note's velocity)
-                    pos++; // Skip gate time (1 byte)
+                    if (largeNotes)
+                    {
+                        velocityOffsets.Add(pos);
+                        pos += 2; // Skip velocity (1 byte) and duration (1 byte)
+                    }
                 }
                 else
                 {
@@ -3525,79 +3589,84 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 // Matches 3D vertex coordinate arrays: { x, y, z }
                 var regex = new Regex(@"\{\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\s*\}");
 
+                int vtxCounter = 0;
                 string newContent = regex.Replace(content, m =>
                 {
+                    vtxCounter++;
                     if (_random.NextDouble() >= rate) return m.Value;
 
-                    int x = int.Parse(m.Groups[1].Value);
-                    int y = int.Parse(m.Groups[2].Value);
-                    int z = int.Parse(m.Groups[3].Value);
+                     int x = int.Parse(m.Groups[1].Value);
+                     int y = int.Parse(m.Groups[2].Value);
+                     int z = int.Parse(m.Groups[3].Value);
 
-                    switch (goddardMode)
-                    {
-                        case 0: // 1. Face Jitter (Vibration)
-                            x += _random.Next(-40, 41);
-                            y += _random.Next(-40, 41);
-                            z += _random.Next(-40, 41);
-                            break;
+                     switch (goddardMode)
+                     {
+                         case 0: // 1. Face Jitter (Vibration)
+                             x += _random.Next(-40, 41);
+                             y += _random.Next(-40, 41);
+                             z += _random.Next(-40, 41);
+                             break;
 
-                        case 1: // 2. Face Stretch (Meltdown)
-                            y = (int)(y * (1.5 + _random.NextDouble() * 3.0));
-                            break;
+                         case 1: // 2. Face Stretch (Meltdown)
+                             y = (int)(y * (1.5 + _random.NextDouble() * 3.0));
+                             break;
 
-                        case 2: // 3. Face Squash
-                            z = (int)(z * 0.1);
-                            break;
+                         case 2: // 3. Face Squash
+                             // Add a unique offset to prevent Z-plane coordinate collapse
+                             z = (int)(z * 0.1) + (vtxCounter % 7 - 3);
+                             break;
 
-                        case 3: // 4. Vertex Exploder
-                            x += _random.Next(-400, 401);
-                            y += _random.Next(-400, 401);
-                            z += _random.Next(-400, 401);
-                            break;
+                         case 3: // 4. Vertex Exploder
+                             x += _random.Next(-400, 401);
+                             y += _random.Next(-400, 401);
+                             z += _random.Next(-400, 401);
+                             break;
 
-                        case 4: // 5. Mirror Face (Invert X)
-                            x = -x;
-                            break;
+                         case 4: // 5. Mirror Face (Invert X)
+                             x = -x;
+                             break;
 
-                        case 5: // 6. Low Poly Voxelizer
-                            x = (x / 60) * 60;
-                            y = (y / 60) * 60;
-                            z = (z / 60) * 60;
-                            break;
+                         case 5: // 6. Low Poly Voxelizer
+                             // Add 3D grid sub-voxel offsets so nearby vertices never share coordinates
+                             x = (x / 60) * 60 + (vtxCounter % 7 - 3);
+                             y = (y / 60) * 60 + ((vtxCounter / 7) % 7 - 3);
+                             z = (z / 60) * 60 + ((vtxCounter / 49) % 7 - 3);
+                             break;
 
-                        case 6: // 7. Static Noise
-                            x = _random.Next(-1000, 1001);
-                            y = _random.Next(-1000, 1001);
-                            z = _random.Next(-1000, 1001);
-                            break;
+                         case 6: // 7. Static Noise
+                             x = _random.Next(-1000, 1001);
+                             y = _random.Next(-1000, 1001);
+                             z = _random.Next(-1000, 1001);
+                             break;
 
-                        case 7: // 8. Facial Tremor
-                            if (Math.Abs(z) > 500)
-                            {
-                                z += _random.Next(-300, 301);
-                            }
-                            break;
+                         case 7: // 8. Facial Tremor
+                             if (Math.Abs(z) > 500)
+                             {
+                                 z += _random.Next(-300, 301);
+                             }
+                             break;
 
-                        case 8: // 9. Mouth/Eye Warp
-                            if (Math.Abs(x) > 150)
-                            {
-                                x = (int)(x * 2.2);
-                            }
-                            if (Math.Abs(y) > 150)
-                            {
-                                y = (int)(y * 2.2);
-                            }
-                            break;
+                         case 8: // 9. Mouth/Eye Warp
+                             if (Math.Abs(x) > 150)
+                             {
+                                 x = (int)(x * 2.2);
+                             }
+                             if (Math.Abs(y) > 150)
+                             {
+                                 y = (int)(y * 2.2);
+                             }
+                             break;
 
-                        case 9: // 10. Melt Face (Zero Coords)
-                            x = 0;
-                            y = 0;
-                            z = 0;
-                            break;
-                    }
+                         case 9: // 10. Melt Face (Zero Coords)
+                             // Distribute vertices within a tiny grid near zero so they don't overlap
+                             x = (vtxCounter % 11 - 5) * 2;
+                             y = ((vtxCounter / 11) % 11 - 5) * 2;
+                             z = ((vtxCounter / 121) % 11 - 5) * 2;
+                             break;
+                     }
 
-                    return $"{{ {x}, {y}, {z} }}";
-                });
+                     return $"{{ {x}, {y}, {z} }}";
+                 });
 
                 File.WriteAllText(filePath, newContent);
             }
