@@ -97,6 +97,8 @@
                                     <ComboBoxItem Content="Chaotic Pitch (Random)"/>
                                     <ComboBoxItem Content="Reverse Playback (Backwards)"/>
                                     <ComboBoxItem Content="Glitched Truncation (Shortened)"/>
+                                    <ComboBoxItem Content="Amplify Volume (Make Louder)"/>
+                                    <ComboBoxItem Content="Mute (Silence)"/>
                                 </ComboBox>
                             </DockPanel>
                         </StackPanel>

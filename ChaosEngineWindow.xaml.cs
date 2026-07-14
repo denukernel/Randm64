@@ -1798,6 +1798,66 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     }
                 }
 
+                if ((mode == 6 || mode == 7) && ssndPos != -1 && ssndSize > 8)
+                {
+                    int dataOffset = ssndPos + 16;
+                    int dataSize = ssndSize - 8;
+                    if (dataOffset + dataSize <= data.Length)
+                    {
+                        if (mode == 6) // Amplify Volume (Make Louder)
+                        {
+                            if (sampleSize == 16)
+                            {
+                                int sampleCount = dataSize / 2;
+                                for (int i = 0; i < sampleCount; i++)
+                                {
+                                    int idx = dataOffset + i * 2;
+                                    if (idx + 1 < data.Length)
+                                    {
+                                        int sample = (data[idx] << 8) | data[idx + 1];
+                                        if (sample >= 0x8000) sample -= 0x10000; // Sign-extend to 32-bit signed int
+                                        
+                                        int amplified = (int)(sample * 2.0); // Boost by 2.0x
+                                        int clamped = Math.Clamp(amplified, -32768, 32767);
+                                        
+                                        ushort unsigned = (ushort)(clamped < 0 ? clamped + 0x10000 : clamped);
+                                        data[idx] = (byte)(unsigned >> 8);
+                                        data[idx + 1] = (byte)(unsigned & 0xFF);
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                for (int i = 0; i < dataSize; i++)
+                                {
+                                    int idx = dataOffset + i;
+                                    if (idx < data.Length)
+                                    {
+                                        int sample = data[idx];
+                                        if (sample >= 0x80) sample -= 256; // Sign-extend 8-bit to 32-bit signed int
+                                        
+                                        int amplified = (int)(sample * 2.0); // Boost by 2.0x
+                                        int clamped = Math.Clamp(amplified, -128, 127);
+                                        
+                                        data[idx] = (byte)(clamped < 0 ? clamped + 256 : clamped);
+                                    }
+                                }
+                            }
+                        }
+                        else if (mode == 7) // Mute (Silence)
+                        {
+                            for (int i = 0; i < dataSize; i++)
+                            {
+                                int idx = dataOffset + i;
+                                if (idx < data.Length)
+                                {
+                                    data[idx] = 0;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 File.WriteAllBytes(filePath, data);
             }
             catch (Exception ex)
@@ -1835,7 +1895,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             try
             {
                 // Parse sequence headers starting at 0
-                ParseSeqCommandsForOffsets(data, 0, visited, channelOffsets, tempoOffsets);
+                ParseSeqCommandsForOffsets(data, 0, visited, channelOffsets, tempoOffsets, volumeOffsets);
             }
             catch (Exception ex)
             {
@@ -2194,6 +2254,16 @@ void apply_chaos_intro_camera(struct Camera *c) {
                         }
                     }
                 }
+                else if (m64Mode == 22) // Max all sequence volumes
+                {
+                    foreach (int offset in volumeOffsets)
+                    {
+                        if (offset >= 0 && offset < data.Length && _random.NextDouble() < (intensity / 100.0))
+                        {
+                            data[offset] = 127;
+                        }
+                    }
+                }
             }
 
             try
@@ -2227,7 +2297,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 ReadVarIntForOffsets(data, ref pos);
                 return 0;
             }
-            if (cmd == 0xf8 || cmd == 0xdc || cmd == 0xda || cmd == 0xd5 || cmd == 0xdf || cmd == 0xde || cmd == 0xdd || cmd == 0xdb || cmd == 0xd3 || cmd == 0xd0 || cmd == 0xcc || cmd == 0xc9 || cmd == 0xc8) return 1;
+            if (cmd == 0xf8 || cmd == 0xf2 || cmd == 0xdc || cmd == 0xda || cmd == 0xd5 || cmd == 0xdf || cmd == 0xde || cmd == 0xdd || cmd == 0xdb || cmd == 0xd3 || cmd == 0xd0 || cmd == 0xcc || cmd == 0xc9 || cmd == 0xc8) return 1;
             if (cmd == 0xfc || cmd == 0xfb || cmd == 0xfa || cmd == 0xf9 || cmd == 0xf5 || cmd == 0xd7 || cmd == 0xd6) return 2;
             if ((cmd & 0xF0) == 0x90) return 2;
             if ((cmd & 0xF0) == 0x00) return 0;
@@ -2274,7 +2344,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             return 0;
         }
 
-        private void ParseSeqCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, HashSet<int> channelOffsets, List<int> tempoOffsets)
+        private void ParseSeqCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, HashSet<int> channelOffsets, List<int> tempoOffsets, List<int> volumeOffsets)
         {
             if (pos < 0 || pos >= data.Length || visited.Contains(pos)) return;
             visited.Add(pos);
@@ -2292,7 +2362,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 else if (cmd == 0xfb)
                 {
                     int jumpOffset = (data[pos++] << 8) | data[pos++];
-                    ParseSeqCommandsForOffsets(data, jumpOffset, visited, channelOffsets, tempoOffsets);
+                    ParseSeqCommandsForOffsets(data, jumpOffset, visited, channelOffsets, tempoOffsets, volumeOffsets);
                     break;
                 }
                 else if (cmd == 0xfd)
@@ -2301,6 +2371,11 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 }
                 else if (cmd == 0xfe)
                 {
+                }
+                else if (cmd == 0xf2)
+                {
+                    volumeOffsets.Add(pos);
+                    pos++;
                 }
                 else if (cmd == 0xdd)
                 {
