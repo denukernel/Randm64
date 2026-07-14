@@ -2358,25 +2358,26 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     instrumentOffsets.Add(pos);
                     pos++;
                 }
-                else if (cmd >= 0x00 && cmd <= 0x3f)
+                else if (cmd >= 0x00 && cmd <= 0x3f) // Type 0 note
                 {
                     pitchOffsets.Add(pos - 1);
                     ReadVarIntForOffsets(data, ref pos);
                     velocityOffsets.Add(pos);
-                    pos += 2;
+                    pos += 2; // Skip velocity (1 byte) and gate time (1 byte)
                 }
-                else if (cmd >= 0x40 && cmd <= 0x7f)
+                else if (cmd >= 0x40 && cmd <= 0x7f) // Type 1 note
                 {
                     pitchOffsets.Add(pos - 1);
-                    ReadVarIntForOffsets(data, ref pos);
-                    velocityOffsets.Add(pos);
-                    pos++;
+                    // No VarInt delay! Byte 1: Gate time, Byte 2: Velocity
+                    velocityOffsets.Add(pos + 1);
+                    pos += 2; // Skip gate time and velocity
                 }
-                else if (cmd >= 0x80 && cmd <= 0xbf)
+                else if (cmd >= 0x80 && cmd <= 0xbf) // Type 2 note
                 {
                     pitchOffsets.Add(pos - 1);
-                    velocityOffsets.Add(pos);
-                    pos += 2;
+                    ReadVarIntForOffsets(data, ref pos); // Type 2 notes DO have a VarInt delay
+                    // No velocity parameter (uses previous note's velocity)
+                    pos++; // Skip gate time (1 byte)
                 }
                 else
                 {

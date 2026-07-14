@@ -59,6 +59,18 @@ namespace Sm64DecompLevelViewer
 
             try
             {
+                // Restore from backup first if they exist to prevent duplicate/stacked patching
+                string[] filesToRestore = { "src/game/rendering_graph_node.c", "include/PR/gbi.h" };
+                foreach (var relPath in filesToRestore)
+                {
+                    string fullPath = Path.Combine(_projectRoot, relPath.Replace('/', Path.DirectorySeparatorChar));
+                    string backupPath = fullPath + ".bak";
+                    if (File.Exists(backupPath))
+                    {
+                        File.Copy(backupPath, fullPath, true);
+                    }
+                }
+
                 // 1. Back up and patch include/PR/gbi.h
                 PatchSourceFile("include/PR/gbi.h", "#define\tgSPDisplayList(pkt,dl)\tgDma1p(pkt,G_DL,dl,0,G_DL_PUSH)",
                     @"#if defined(_LANGUAGE_C) || defined(_LANGUAGE_C_DIRECT)
@@ -71,14 +83,6 @@ extern int should_exclude_display_list(const void *dl);
 #endif
 #else
 #define	gSPDisplayList(pkt,dl)	gDma1p(pkt,G_DL,dl,0,G_DL_PUSH)
-#endif");
-
-                PatchSourceFile("include/PR/gbi.h", "#define\tgDPSetTextureImage(pkt, f, s, w, i)\tgSetImage(pkt, G_SETTIMG, f, s, w, i)",
-                    @"#ifdef CHAOS_DL_EXCLUSION_LEVEL
-extern void chaos_set_texture_image(Gfx *pkt, u32 fmt, u32 siz, u32 width, const void *image);
-#define	gDPSetTextureImage(pkt, f, s, w, i)	chaos_set_texture_image((Gfx *)(pkt), f, s, w, i)
-#else
-#define	gDPSetTextureImage(pkt, f, s, w, i)	gSetImage(pkt, G_SETTIMG, f, s, w, i)
 #endif");
 
                 // 2. Back up and patch rendering_graph_node.c
@@ -96,6 +100,7 @@ extern struct Controller gControllers[];
 
 static int sMarioDlCount = 0;
 static int sActorDlCount = 0;
+static int sLevelDlCount = 0;
 
 static int sExcludedDlIndex = 0;
 static int sExcludedRange = 1;
@@ -138,6 +143,7 @@ int should_exclude_display_list(const void *dl) {
         sFrameDlCount = 0;
         sMarioDlCount = 0;
         sActorDlCount = 0;
+        sLevelDlCount = 0;
         update_exclusion_inputs();
     }
     sFrameDlCount++;
@@ -229,105 +235,25 @@ int should_exclude_display_list(const void *dl) {
         }
     }
 
-    return 0;
-}
-
-int should_exclude_texture(const void *image) {
-    u32 segment = (uintptr_t)image >> 24;
-    int level = CHAOS_DL_EXCLUSION_LEVEL;
-
-    if (!check_exclusion_trigger()) return 0;
-
-    // Exclude level specific textures (0x09), level textures (0x08), and level geometry textures (0x07) at Level 6+
-    if (level >= 6) {
-        if (segment == 0x09 || segment == 0x08 || segment == 0x07) {
+    if (segment == 0x07 || segment == 0x08 || segment == 0x09) {
+        sLevelDlCount++;
+        if (level >= 8) {
             return 1;
         }
+        if (level >= 6) {
+            if (sLevelDlCount % 3 == 0) {
+                return 1;
+            }
+        }
     }
 
     return 0;
-}
-
-void chaos_set_texture_image(Gfx *pkt, u32 fmt, u32 siz, u32 width, const void *image) {
-    if (should_exclude_texture(image)) {
-        pkt->words.w0 = 0;
-        pkt->words.w1 = 0;
-    } else {
-        pkt->words.w0 = ((u32)G_SETTIMG << 24) | ((fmt & 7) << 21) | ((siz & 3) << 19) | (((width) - 1) & 0xfff);
-        pkt->words.w1 = (uintptr_t)image;
-    }
-}
-
-void patch_display_list(Gfx *dl, int depth) {
-    Gfx *virtual_dl;
-    u32 segment;
-    if (dl == NULL || depth > 16) return;
-
-    segment = (uintptr_t)dl >> 24;
-    if (segment != 0x07 && segment != 0x09 && segment != 0x02 && segment != 0x03 && segment != 0x04 && segment != 0x05 && segment != 0x06) {
-        return;
-    }
-
-    virtual_dl = segmented_to_virtual(dl);
-    if (virtual_dl == NULL) return;
-
-    while (1) {
-        u8 opcode = virtual_dl->words.w0 >> 24;
-
-        if (opcode == 0xfd) { // G_SETTIMG
-            const void *image = (const void *)virtual_dl->words.w1;
-            if (should_exclude_texture(image)) {
-                virtual_dl->words.w0 = 0;
-                virtual_dl->words.w1 = 0;
-            }
-        }
-        else if (opcode == 0xde) { // G_DL
-            Gfx *child_dl = (Gfx *)virtual_dl->words.w1;
-            patch_display_list(child_dl, depth + 1);
-        }
-
-        if (opcode == 0xdf) { // G_ENDDL
-            break;
-        }
-
-        virtual_dl++;
-    }
 }
 #endif
 
 static void geo_append_display_list(void *displayList, s16 layer) {";
 
                 PatchSourceFile("src/game/rendering_graph_node.c", oldGfx, newGfx);
-
-                string oldLoop = @"            while (currList != NULL) {
-                gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(currList->transform),
-                          G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
-                gSPDisplayList(gDisplayListHead++, currList->displayList);
-                currList = currList->next;
-            }";
-
-                string newLoop = @"            while (currList != NULL) {
-                gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(currList->transform),
-                          G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
-#ifdef CHAOS_DL_EXCLUSION_LEVEL
-                patch_display_list(currList->displayList, 0);
-#endif
-                gSPDisplayList(gDisplayListHead++, currList->displayList);
-                currList = currList->next;
-            }";
-
-                PatchSourceFile("src/game/rendering_graph_node.c", oldLoop, newLoop);
-
-                string oldFuncHead = @"static void geo_process_master_list_sub(struct GraphNodeMasterList *node) {
-    struct DisplayListNode *currList;";
-
-                string newFuncHead = @"static void geo_process_master_list_sub(struct GraphNodeMasterList *node) {
-#ifdef CHAOS_DL_EXCLUSION_LEVEL
-    extern void patch_display_list(Gfx *dl, int depth);
-#endif
-    struct DisplayListNode *currList;";
-
-                PatchSourceFile("src/game/rendering_graph_node.c", oldFuncHead, newFuncHead);
 
                 // 3. Update chaos_config.h
                 UpdateChaosConfig(level, trigger, ExcludeSkyboxCheck.IsChecked == true);
