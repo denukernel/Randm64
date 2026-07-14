@@ -146,9 +146,9 @@ int should_exclude_display_list(const void *dl) {
 
     if (!check_exclusion_trigger()) return 0;
 
-    // HUD, menus, text, and dynamically generated shadows (segment 0x00)
+    // HUD, menus, text, and dynamically generated shadows (segments 0x00, 0x02, and 0x80)
     if (level >= 1) {
-        if (segment == 0x80 || segment == 0x00) {
+        if (segment == 0x80 || segment == 0x00 || segment == 0x02) {
             return 1;
         }
     }
