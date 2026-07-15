@@ -8,6 +8,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         
         <TextBlock x:Name="HeaderTitleText" Text="BUILDING PROJECT (WSL)..." Foreground="#569CD6" FontWeight="Bold" Margin="10"/>
@@ -22,8 +23,13 @@
                      TextWrapping="Wrap" 
                      AcceptsReturn="True"/>
         </ScrollViewer>
+
+        <!-- Close Button Container -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="10,0,10,10">
+            <Button x:Name="CloseButton" Content="Close" Width="100" Padding="5" IsEnabled="False" Click="CloseButton_Click" Background="#2D2D30" Foreground="White" BorderBrush="#3F3F46"/>
+        </StackPanel>
         
-        <StatusBar Grid.Row="2" x:Name="MainStatusBar" Background="#007ACC" Foreground="White">
+        <StatusBar Grid.Row="3" x:Name="MainStatusBar" Background="#007ACC" Foreground="White">
             <StatusBarItem>
                 <TextBlock x:Name="StatusText" Text="Ready"/>
             </StatusBarItem>

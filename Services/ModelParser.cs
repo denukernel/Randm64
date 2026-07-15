@@ -311,9 +311,20 @@ public class ModelParser
 
     private string? ResolveTexturePath(string relativePath, string levelPath, string projectRoot)
     {
-        // 1. Check build/us/textures (as requested)
-        string buildPath = Path.Combine(projectRoot, "build", "us", "textures", relativePath);
-        if (File.Exists(buildPath)) return buildPath;
+        // 1. Check build/*/textures (all built target versions and platforms)
+        string buildDir = Path.Combine(projectRoot, "build");
+        if (Directory.Exists(buildDir))
+        {
+            try
+            {
+                foreach (string subDir in Directory.GetDirectories(buildDir))
+                {
+                    string buildPath = Path.Combine(subDir, "textures", relativePath);
+                    if (File.Exists(buildPath)) return buildPath;
+                }
+            }
+            catch { }
+        }
 
         // 2. Check leveleditor/textures (seen in project structure)
         // Need to extract the filename part e.g. "levels/castle_inside/12.rgba16.png" -> "inside/inside_castle_textures.08000.rgba16.png"

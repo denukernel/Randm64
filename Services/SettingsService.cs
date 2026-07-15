@@ -16,6 +16,11 @@ namespace Sm64DecompLevelViewer.Services
         public bool EnableFlatShading { get; set; } = false;
         
         // Build options settings
+        public string BuildTargetPlatform { get; set; } = "N64";
+        public string BuildEnvironment { get; set; } = "WSL";
+        public string LastBuildEnvironment { get; set; } = string.Empty;
+        public string LastBuildPlatform { get; set; } = string.Empty;
+        public string MsysPath { get; set; } = @"C:\msys64";
         public string BuildVersion { get; set; } = "us";
         public string BuildCompiler { get; set; } = "ido";
         public string BuildGrucode { get; set; } = "f3d_old";
