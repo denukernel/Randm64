@@ -182,8 +182,10 @@ namespace Sm64DecompLevelViewer
                 }
 
                 // Check if build platform or environment changed from the last build. If so, clean build subdirectory
-                if (_settings.BuildEnvironment != _settings.LastBuildEnvironment || 
-                    _settings.BuildTargetPlatform != _settings.LastBuildPlatform)
+                bool envOrPlatformChanged = _settings.BuildEnvironment != _settings.LastBuildEnvironment || 
+                                            _settings.BuildTargetPlatform != _settings.LastBuildPlatform;
+
+                if (envOrPlatformChanged)
                 {
                     string buildSubdir = isPcPort ? $"{version}_pc" : version;
                     string buildSubdirPath = Path.Combine(_projectRoot, "build", buildSubdir);
@@ -207,10 +209,11 @@ namespace Sm64DecompLevelViewer
                 var settingsService = new Sm64DecompLevelViewer.Services.SettingsService();
                 settingsService.SaveSettings(_settings);
 
-                // Clean tools first (as recommended when switching environments or platforms)
+                // Clean tools first only if build environment/platform changed (avoids rebuilding large tools like armips on every compile)
+                string cleanToolsPrefix = envOrPlatformChanged ? "make -C tools clean && " : "";
                 string makeArgs = isPcPort
-                    ? $"make -C tools clean && {uncompressedEnv}make -j{jobs} VERSION={version} TARGET_N64=0"
-                    : $"make -C tools clean && {uncompressedEnv}make -j{jobs} VERSION={version} TARGET_N64=1 COMPILER={compiler} GRUCODE={grucode} COMPARE={compareVal} NON_MATCHING={nonMatchingVal}";
+                    ? $"{cleanToolsPrefix}{uncompressedEnv}make -j{jobs} VERSION={version} TARGET_N64=0"
+                    : $"{cleanToolsPrefix}{uncompressedEnv}make -j{jobs} VERSION={version} TARGET_N64=1 COMPILER={compiler} GRUCODE={grucode} COMPARE={compareVal} NON_MATCHING={nonMatchingVal}";
 
                 ProcessStartInfo startInfo;
 
