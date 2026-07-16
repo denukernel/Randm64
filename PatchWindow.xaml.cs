@@ -221,8 +221,9 @@ namespace Sm64DecompLevelViewer
                 bool start99Lives = Start99LivesCheck.IsChecked == true;
                 bool stageSelect = StageSelectCheck.IsChecked == true;
                 bool audioProtection = AudioProtectionCheck.IsChecked == true;
+                bool supportNewChannels = SupportNewChannelsCheck.IsChecked == true;
 
-                if (!skipGoddard && !skipTitle && !skipLakitu && !start99Lives && !stageSelect && !audioProtection)
+                if (!skipGoddard && !skipTitle && !skipLakitu && !start99Lives && !stageSelect && !audioProtection && !supportNewChannels)
                 {
                     MessageBox.Show("Please check at least one patch to apply.", "No Patches Selected", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
@@ -584,6 +585,51 @@ namespace Sm64DecompLevelViewer
                     else
                     {
                         LogOutputText.AppendText("Warning: src/audio/seqplayer.c not found. Skipping seqplayer patch.\n");
+                    }
+                }
+
+                // 5. Support New Channels (modify src/audio/external.c)
+                if (supportNewChannels)
+                {
+                    string externalFile = Path.Combine(_projectRoot, "src", "audio", "external.c");
+                    if (File.Exists(externalFile))
+                    {
+                        string backupPath = externalFile + ".bak";
+                        if (File.Exists(backupPath))
+                        {
+                            File.Copy(backupPath, externalFile, true);
+                        }
+                        else
+                        {
+                            File.Copy(externalFile, backupPath);
+                        }
+                        string content = File.ReadAllText(externalFile);
+
+                        // Find the start of process_level_music_dynamics and patch it
+                        string targetDynamic = "void process_level_music_dynamics(void) {\r\n    u32 conditionBits;";
+                        string targetDynamicLF = "void process_level_music_dynamics(void) {\n    u32 conditionBits;";
+                        string replacementDynamic = "void process_level_music_dynamics(void) {\n    u32 conditionBits;\n    return; // Support New Channels Patch";
+
+                        if (content.Contains(targetDynamic))
+                        {
+                            content = content.Replace(targetDynamic, replacementDynamic);
+                            File.WriteAllText(externalFile, content);
+                            LogOutputText.AppendText("- Applied Support New Channels patch to src/audio/external.c.\n");
+                        }
+                        else if (content.Contains(targetDynamicLF))
+                        {
+                            content = content.Replace(targetDynamicLF, replacementDynamic);
+                            File.WriteAllText(externalFile, content);
+                            LogOutputText.AppendText("- Applied Support New Channels patch to src/audio/external.c.\n");
+                        }
+                        else
+                        {
+                            LogOutputText.AppendText("Warning: process_level_music_dynamics signature not found in src/audio/external.c. Skipping channels patch.\n");
+                        }
+                    }
+                    else
+                    {
+                        LogOutputText.AppendText("Warning: src/audio/external.c not found. Skipping Support New Channels patch.\n");
                     }
                 }
 
