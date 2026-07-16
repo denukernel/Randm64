@@ -37,6 +37,7 @@ namespace Sm64DecompLevelViewer
         private bool _isPlaying = false;
         private bool _isUpdatingUi = false;
         private bool _isNotesModified = false;
+        private bool _isNoteEditingDisabled = false;
 
         // UI Grid Settings
         private const double KEY_HEIGHT = 22;
@@ -237,6 +238,53 @@ namespace Sm64DecompLevelViewer
             return new LinearGradientBrush(startColor, endColor, new Point(0, 0), new Point(0, 1));
         }
 
+        private void OnSequenceLoaded()
+        {
+            _isNoteEditingDisabled = false;
+            if (WarningBanner != null) WarningBanner.Visibility = Visibility.Collapsed;
+
+            bool hasCrashWarnings = false;
+            var crashReasons = new List<string>();
+
+            if (_m64Service.LoadWarnings.Any(w => w.Contains("infinite") || w.Contains("loop")))
+            {
+                hasCrashWarnings = true;
+                crashReasons.Add("infinite loop/recursion in sequence scripts");
+            }
+
+            if (hasCrashWarnings)
+            {
+                _isNoteEditingDisabled = true;
+                if (WarningBanner != null)
+                {
+                    WarningBannerText.Text = $"This M64 sequence contains structural anomalies ({string.Join(", ", crashReasons)}) that WILL FREEZE/CRASH the SM64 audio driver. Note editing has been disabled.";
+                    WarningBanner.Visibility = Visibility.Visible;
+                }
+            }
+            else
+            {
+                // Minor non-blocking channel warnings in the status bar
+                if (_sequenceTracks.Count > 12)
+                {
+                    StatusBarText.Text = $"Warning: Sequence has {_sequenceTracks.Count} active channels. Playback may clip/starve notes.";
+                }
+                else
+                {
+                    StatusBarText.Text = "Ready";
+                }
+            }
+
+            // Enable or disable edit buttons based on read-only state
+            if (ImportMidiButton != null) ImportMidiButton.IsEnabled = !_isNoteEditingDisabled;
+            if (ReverseButton != null) ReverseButton.IsEnabled = !_isNoteEditingDisabled;
+            if (TransposeUpButton != null) TransposeUpButton.IsEnabled = !_isNoteEditingDisabled;
+            if (TransposeDownButton != null) TransposeDownButton.IsEnabled = !_isNoteEditingDisabled;
+            if (OctaveUpButton != null) OctaveUpButton.IsEnabled = !_isNoteEditingDisabled;
+            if (OctaveDownButton != null) OctaveDownButton.IsEnabled = !_isNoteEditingDisabled;
+            if (DoubleSpeedButton != null) DoubleSpeedButton.IsEnabled = !_isNoteEditingDisabled;
+            if (HalfSpeedButton != null) HalfSpeedButton.IsEnabled = !_isNoteEditingDisabled;
+        }
+
         private readonly List<SequenceSelectItem> _scannedSequences = new();
 
         private void ScanSoundSequences()
@@ -267,7 +315,19 @@ namespace Sm64DecompLevelViewer
 
                 if (_scannedSequences.Count > 0)
                 {
-                    var defaultSeq = _scannedSequences.FirstOrDefault(s => s.DisplayName.Contains("22_cutscene_lakitu")) ?? _scannedSequences[0];
+                    var settingsService = new Sm64DecompLevelViewer.Services.SettingsService();
+                    var settings = settingsService.LoadSettings();
+                    
+                    SequenceSelectItem defaultSeq = null;
+                    if (!string.IsNullOrEmpty(settings.LastSelectedM64Path))
+                    {
+                        defaultSeq = _scannedSequences.FirstOrDefault(s => s.FilePath == settings.LastSelectedM64Path);
+                    }
+                    
+                    if (defaultSeq == null)
+                    {
+                        defaultSeq = _scannedSequences.FirstOrDefault(s => s.DisplayName.Contains("22_cutscene_lakitu")) ?? _scannedSequences[0];
+                    }
                     
                     _activeM64Path = defaultSeq.FilePath;
                     if (SequenceSelectButton != null)
@@ -277,25 +337,10 @@ namespace Sm64DecompLevelViewer
                     
                     _sequenceTracks = _m64Service.LoadM64(_activeM64Path);
                     _isNotesModified = false;
+                    OnSequenceLoaded();
                     SetupInstrumentSelector();
 
-                    if (ChannelSelector != null)
-                    {
-                        _isUpdatingUi = true;
-                        ChannelSelector.Items.Clear();
-
-                        var sortedChannels = _sequenceTracks.Select(t => t.ChannelIndex).Distinct().OrderBy(c => c).ToList();
-                        foreach (byte ch in sortedChannels)
-                        {
-                            ChannelSelector.Items.Add(new ComboBoxItem { Content = ch.ToString() });
-                        }
-
-                        if (ChannelSelector.Items.Count > 0)
-                        {
-                            ChannelSelector.SelectedIndex = 0;
-                        }
-                        _isUpdatingUi = false;
-                    }
+                    PopulateChannelSelector();
 
                     LoadSelectedChannel();
                 }
@@ -577,27 +622,25 @@ namespace Sm64DecompLevelViewer
                     SequenceSelectButton.Content = selected.DisplayName;
                 }
 
+                // Save selected sequence path to settings
+                try
+                {
+                    var settingsService = new Sm64DecompLevelViewer.Services.SettingsService();
+                    var settings = settingsService.LoadSettings();
+                    settings.LastSelectedM64Path = _activeM64Path;
+                    settingsService.SaveSettings(settings);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error saving last selected M64 path: {ex.Message}");
+                }
+
                 _sequenceTracks = _m64Service.LoadM64(_activeM64Path);
                 _isNotesModified = false;
+                OnSequenceLoaded();
                 SetupInstrumentSelector();
 
-                if (ChannelSelector != null)
-                {
-                    _isUpdatingUi = true;
-                    ChannelSelector.Items.Clear();
-
-                    var sortedChannels = _sequenceTracks.Select(t => t.ChannelIndex).Distinct().OrderBy(c => c).ToList();
-                    foreach (byte ch in sortedChannels)
-                    {
-                        ChannelSelector.Items.Add(new ComboBoxItem { Content = ch.ToString() });
-                    }
-
-                    if (ChannelSelector.Items.Count > 0)
-                    {
-                        ChannelSelector.SelectedIndex = 0;
-                    }
-                    _isUpdatingUi = false;
-                }
+                PopulateChannelSelector();
 
                 LoadSelectedChannel();
             }
@@ -622,11 +665,118 @@ namespace Sm64DecompLevelViewer
             }
         }
 
+        private void PopulateChannelSelector(byte? selectChannel = null)
+        {
+            if (ChannelSelector == null) return;
+
+            _isUpdatingUi = true;
+            ChannelSelector.Items.Clear();
+
+            var activeChannels = _sequenceTracks.Select(t => t.ChannelIndex).Distinct().ToHashSet();
+            for (byte ch = 0; ch < 16; ch++)
+            {
+                string label = activeChannels.Contains(ch) ? $"{ch} (Active)" : $"{ch}";
+                ChannelSelector.Items.Add(new ComboBoxItem { Content = label });
+            }
+
+            if (selectChannel.HasValue)
+            {
+                for (int i = 0; i < ChannelSelector.Items.Count; i++)
+                {
+                    var item = (ComboBoxItem)ChannelSelector.Items[i];
+                    string itemText = item.Content.ToString()!;
+                    if (itemText == selectChannel.Value.ToString() || itemText.StartsWith(selectChannel.Value.ToString() + " "))
+                    {
+                        ChannelSelector.SelectedIndex = i;
+                        break;
+                    }
+                }
+            }
+            else if (ChannelSelector.Items.Count > 0)
+            {
+                ChannelSelector.SelectedIndex = 0;
+            }
+
+            _isUpdatingUi = false;
+        }
+
+        private void DuplicateChannelButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentTrack == null || _currentTrack.Notes.Count == 0)
+            {
+                MessageBox.Show("The active channel has no notes to duplicate.", "Duplicate Channel", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var activeChannels = _sequenceTracks.Select(t => t.ChannelIndex).Distinct().ToList();
+            var dialog = new DuplicateChannelDialog(activeChannels) { Owner = this };
+            if (dialog.ShowDialog() == true)
+            {
+                byte targetChannel = dialog.SelectedChannel;
+                if (targetChannel == _currentTrack.ChannelIndex)
+                {
+                    MessageBox.Show("Cannot duplicate a channel to itself.", "Duplicate Channel", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                var targetTrack = _sequenceTracks.FirstOrDefault(t => t.ChannelIndex == targetChannel);
+                bool overwrite = false;
+                if (targetTrack != null && targetTrack.Notes.Count > 0)
+                {
+                    var mboxResult = MessageBox.Show(
+                        $"Channel {targetChannel} already contains {targetTrack.Notes.Count} notes.\n\n" +
+                        "Do you want to OVERWRITE the existing notes (Yes), or MERGE the notes together (No)?",
+                        "Duplicate Channel",
+                        MessageBoxButton.YesNoCancel,
+                        MessageBoxImage.Question);
+
+                    if (mboxResult == MessageBoxResult.Cancel) return;
+                    if (mboxResult == MessageBoxResult.Yes) overwrite = true;
+                }
+
+                PushUndoState();
+
+                if (targetTrack == null)
+                {
+                    targetTrack = new M64Track { ChannelIndex = targetChannel, Instrument = _currentTrack.Instrument, Volume = _currentTrack.Volume, Bank = _currentTrack.Bank };
+                    _sequenceTracks.Add(targetTrack);
+                }
+                else if (overwrite)
+                {
+                    targetTrack.Notes.Clear();
+                }
+
+                // Copy all notes
+                foreach (var note in _currentTrack.Notes)
+                {
+                    targetTrack.Notes.Add(new M64Note
+                    {
+                        StartTick = note.StartTick,
+                        DurationTicks = note.DurationTicks,
+                        Pitch = note.Pitch,
+                        Velocity = note.Velocity,
+                        Instrument = _currentTrack.Instrument,
+                        LayerIndex = note.LayerIndex,
+                        Gate = note.Gate,
+                        CommandType = note.CommandType
+                    });
+                }
+
+                // Update UI selector to highlight the target channel
+                PopulateChannelSelector(targetChannel);
+                MessageBox.Show($"Successfully duplicated channel {_currentTrack.ChannelIndex} to channel {targetChannel}!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+
         private void LoadSelectedChannel()
         {
             if (ChannelSelector == null || ChannelSelector.SelectedItem == null) return;
 
             string chStr = ((ComboBoxItem)ChannelSelector.SelectedItem).Content.ToString()!;
+            if (chStr.Contains(" "))
+            {
+                chStr = chStr.Split(' ')[0];
+            }
             byte channelIndex = byte.Parse(chStr);
 
             _currentTrack = _sequenceTracks.FirstOrDefault(t => t.ChannelIndex == channelIndex);
@@ -634,6 +784,9 @@ namespace Sm64DecompLevelViewer
             {
                 _currentTrack = new M64Track { ChannelIndex = channelIndex };
                 _sequenceTracks.Add(_currentTrack);
+
+                PopulateChannelSelector(channelIndex);
+                return;
             }
 
             _isUpdatingUi = true;
@@ -663,19 +816,12 @@ namespace Sm64DecompLevelViewer
         {
             if (PianoRollCanvas == null) return;
 
-            // Clear previous notes and grid lines
-            var toRemove = PianoRollCanvas.Children.OfType<Rectangle>().ToList();
-            foreach (var rect in toRemove)
+            // Clear previous notes and grid lines instantly to avoid WPF layout/rendering loops
+            PianoRollCanvas.Children.Clear();
+            if (SelectionBox != null)
             {
-                if (rect != SelectionBox)
-                {
-                    PianoRollCanvas.Children.Remove(rect);
-                }
-            }
-            var linesToRemove = PianoRollCanvas.Children.OfType<Line>().ToList();
-            foreach (var line in linesToRemove)
-            {
-                PianoRollCanvas.Children.Remove(line);
+                PianoRollCanvas.Children.Add(SelectionBox);
+                SelectionBox.Visibility = Visibility.Collapsed;
             }
 
             if (_currentTrack == null) return;
@@ -687,7 +833,9 @@ namespace Sm64DecompLevelViewer
                 var allNotes = _sequenceTracks.SelectMany(t => t.Notes).ToList();
                 if (allNotes.Count > 0)
                 {
-                    maxTick = allNotes.Max(n => n.StartTick + n.DurationTicks);
+                    // Clamp maxTick to 60000 ticks to avoid rendering OOM/hang on corrupted files
+                    double realMax = allNotes.Max(n => n.StartTick + n.DurationTicks);
+                    maxTick = Math.Min(60000, realMax);
                 }
             }
 
@@ -707,6 +855,7 @@ namespace Sm64DecompLevelViewer
         private void DrawNoteRect(M64Note note)
         {
             if (note.Pitch > MAX_NOTE_PITCH || note.Pitch < MIN_NOTE_PITCH) return;
+            if (note.StartTick > 60000) return; // Ignore corrupted note rendering beyond limit
 
             double left = note.StartTick * (BEAT_WIDTH / _ticksPerBeat);
             double top = (MAX_NOTE_PITCH - note.Pitch) * KEY_HEIGHT;
@@ -762,6 +911,35 @@ namespace Sm64DecompLevelViewer
         private void PianoRollCanvas_MouseDown(object sender, MouseButtonEventArgs e)
         {
             Point mousePos = e.GetPosition(PianoRollCanvas);
+
+            if (_isNoteEditingDisabled)
+            {
+                // Only allow playhead dragging, discard all edits
+                if (e.ChangedButton == MouseButton.Left && mousePos.Y < 24)
+                {
+                    _isDraggingPlayhead = true;
+                    _playheadTick = mousePos.X / (BEAT_WIDTH / _ticksPerBeat);
+                    Canvas.SetLeft(TimelineCursor, mousePos.X);
+                    TimelineCursor.Visibility = Visibility.Visible;
+                    RefreshPlaybackIndices();
+                    PianoRollCanvas.CaptureMouse();
+                    e.Handled = true;
+                    return;
+                }
+                else if (e.ChangedButton == MouseButton.Right && !(e.OriginalSource is Rectangle))
+                {
+                    _isDraggingPlayhead = true;
+                    _playheadTick = mousePos.X / (BEAT_WIDTH / _ticksPerBeat);
+                    Canvas.SetLeft(TimelineCursor, mousePos.X);
+                    TimelineCursor.Visibility = Visibility.Visible;
+                    RefreshPlaybackIndices();
+                    PianoRollCanvas.CaptureMouse();
+                    e.Handled = true;
+                    return;
+                }
+                e.Handled = true;
+                return;
+            }
 
             if (e.ChangedButton == MouseButton.Right)
             {
@@ -1069,6 +1247,15 @@ namespace Sm64DecompLevelViewer
 
         private void Window_KeyDown(object sender, KeyEventArgs e)
         {
+            if (_isNoteEditingDisabled)
+            {
+                if (e.Key == Key.Delete || (Keyboard.Modifiers == ModifierKeys.Control && (e.Key == Key.V || e.Key == Key.Z)))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
+
             if (e.Key == Key.Delete)
             {
                 if (_selectedNotes.Count > 0)
@@ -1137,6 +1324,38 @@ namespace Sm64DecompLevelViewer
                         };
                         _currentTrack.Notes.Add(newNote);
                         _selectedNotes.Add(newNote);
+                    }
+                    RenderNotes();
+                    e.Handled = true;
+                }
+            }
+            else if (e.Key == Key.D)
+            {
+                // Duplicate selection in-place (either D or Ctrl+D)
+                if (_selectedNotes.Count > 0 && _currentTrack != null)
+                {
+                    PushUndoState();
+                    var duplicatedList = new List<M64Note>();
+                    foreach (var note in _selectedNotes)
+                    {
+                        var newNote = new M64Note
+                        {
+                            StartTick = note.StartTick,
+                            DurationTicks = note.DurationTicks,
+                            Pitch = note.Pitch,
+                            Velocity = note.Velocity,
+                            Instrument = note.Instrument,
+                            LayerIndex = note.LayerIndex,
+                            Gate = note.Gate,
+                            CommandType = note.CommandType
+                        };
+                        _currentTrack.Notes.Add(newNote);
+                        duplicatedList.Add(newNote);
+                    }
+                    _selectedNotes.Clear();
+                    foreach (var note in duplicatedList)
+                    {
+                        _selectedNotes.Add(note);
                     }
                     RenderNotes();
                     e.Handled = true;
@@ -1378,6 +1597,10 @@ namespace Sm64DecompLevelViewer
                     if (ChannelSelector != null && ChannelSelector.SelectedItem != null)
                     {
                         string chStr = ((ComboBoxItem)ChannelSelector.SelectedItem).Content.ToString()!;
+                        if (chStr.Contains(" "))
+                        {
+                            chStr = chStr.Split(' ')[0];
+                        }
                         if (byte.TryParse(chStr, out byte activeChannel))
                         {
                             if (targetChannel != activeChannel) shouldPlay = false;
@@ -1583,21 +1806,7 @@ namespace Sm64DecompLevelViewer
                     _sequenceTracks = importedTracks;
 
                     // Update UI selectors
-                    if (ChannelSelector != null)
-                    {
-                        _isUpdatingUi = true;
-                        ChannelSelector.Items.Clear();
-                        var sortedChannels = _sequenceTracks.Select(t => t.ChannelIndex).Distinct().OrderBy(c => c).ToList();
-                        foreach (byte ch in sortedChannels)
-                        {
-                            ChannelSelector.Items.Add(new ComboBoxItem { Content = ch.ToString() });
-                        }
-                        if (ChannelSelector.Items.Count > 0)
-                        {
-                            ChannelSelector.SelectedIndex = 0;
-                        }
-                        _isUpdatingUi = false;
-                    }
+                    PopulateChannelSelector();
 
                     LoadSelectedChannel();
                     MessageBox.Show($"Successfully imported {importedTracks.Count} MIDI tracks/channels into the sequencer!", "MIDI Import Successful", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -2059,6 +2268,87 @@ namespace Sm64DecompLevelViewer
             buttons.Children.Add(cancelBtn);
 
             Content = grid;
+        }
+    }
+
+    public class DuplicateChannelDialog : Window
+    {
+        public byte SelectedChannel { get; private set; }
+        private ComboBox _comboBox;
+        
+        public DuplicateChannelDialog(List<byte> activeChannels)
+        {
+            Title = "Duplicate Channel";
+            Width = 300;
+            Height = 150;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            Background = new SolidColorBrush(Color.FromRgb(45, 45, 48));
+            Foreground = Brushes.White;
+            ResizeMode = ResizeMode.NoResize;
+            
+            var stackPanel = new StackPanel { Margin = new Thickness(15) };
+            
+            var label = new TextBlock 
+            { 
+                Text = "Select target channel to copy notes to:", 
+                Margin = new Thickness(0, 0, 0, 10),
+                Foreground = Brushes.LightGray
+            };
+            stackPanel.Children.Add(label);
+            
+            _comboBox = new ComboBox 
+            { 
+                Height = 25, 
+                Margin = new Thickness(0, 0, 0, 15),
+                Background = new SolidColorBrush(Color.FromRgb(51, 51, 55)),
+                Foreground = Brushes.Black
+            };
+            
+            for (byte ch = 0; ch < 16; ch++)
+            {
+                string suffix = activeChannels.Contains(ch) ? " (Active)" : "";
+                _comboBox.Items.Add(new ComboBoxItem { Content = $"{ch}{suffix}", Tag = ch });
+            }
+            _comboBox.SelectedIndex = 0;
+            stackPanel.Children.Add(_comboBox);
+            
+            var buttonPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            
+            var okButton = new Button 
+            { 
+                Content = "Duplicate", 
+                Width = 80, 
+                Height = 25, 
+                IsDefault = true,
+                Background = new SolidColorBrush(Color.FromRgb(0, 122, 204)),
+                Foreground = Brushes.White,
+                BorderThickness = new Thickness(0),
+                Margin = new Thickness(0, 0, 10, 0)
+            };
+            okButton.Click += (s, e) => 
+            {
+                if (_comboBox.SelectedItem is ComboBoxItem item && item.Tag is byte ch)
+                {
+                    SelectedChannel = ch;
+                    DialogResult = true;
+                }
+            };
+            buttonPanel.Children.Add(okButton);
+            
+            var cancelButton = new Button 
+            { 
+                Content = "Cancel", 
+                Width = 80, 
+                Height = 25, 
+                IsCancel = true,
+                Background = new SolidColorBrush(Color.FromRgb(107, 107, 107)),
+                Foreground = Brushes.White,
+                BorderThickness = new Thickness(0)
+            };
+            buttonPanel.Children.Add(cancelButton);
+            stackPanel.Children.Add(buttonPanel);
+            
+            Content = stackPanel;
         }
     }
 }

@@ -73,7 +73,10 @@ namespace Sm64DecompLevelViewer
                 new M64CorruptionModeItem { Id = 19, Name = "Harmonizer (Octave Duplicator)", Description = "Harmonizes notes by copying and layering duplicates at octave intervals, giving tracks a rich, layered, multi-voice chorus sound.", IsNew = true },
                 new M64CorruptionModeItem { Id = 20, Name = "Drum Roll Glitcher", Description = "Identifies percussion/drum layers and rapidly replicates note commands in quick succession to generate automated drum rolls.", IsNew = true },
                 new M64CorruptionModeItem { Id = 21, Name = "Tempo Drifter", Description = "Modulates tempo commands to slowly drift up and down over time, simulating an unstable tape player with mechanical drag.", IsNew = true },
-                new M64CorruptionModeItem { Id = 22, Name = "Max all sequence volumes", Description = "Forces all volume control parameters to maximum limits (127), making the tracks significantly louder.", IsNew = true }
+                new M64CorruptionModeItem { Id = 22, Name = "Max all sequence volumes", Description = "Forces all volume control parameters to maximum limits (127), making the tracks significantly louder.", IsNew = true },
+                new M64CorruptionModeItem { Id = 23, Name = "Note Eraser and Lengthener", Description = "Mutes 50% of note velocities entirely and multiplies the duration of some remaining notes, creating fragmented, sustaining sounds.", IsNew = true },
+                new M64CorruptionModeItem { Id = 24, Name = "Melody Reverser", Description = "Reverses the order of pitches in the sequence, playing melodies backward while preserving timing.", IsNew = true },
+                new M64CorruptionModeItem { Id = 25, Name = "Double Note (+3 Pitch)", Description = "Turns notes into double notes with a +3 pitch offset (minor third interval) mimicking chord voicings like G major 7.", IsNew = true }
             };
 
             foreach (var item in allModes)

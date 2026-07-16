@@ -46,15 +46,28 @@ namespace Sm64DecompLevelViewer
                     using (var process = Process.Start(startInfo))
                     {
                         if (process == null) return "Failed to start WSL process.";
-                        string output = process.StandardOutput.ReadToEnd();
-                        string error = process.StandardError.ReadToEnd();
-                        process.WaitForExit();
+
+                        var outputBuilder = new StringBuilder();
+                        var errorBuilder = new StringBuilder();
+
+                        process.OutputDataReceived += (sender, args) => { if (args.Data != null) outputBuilder.AppendLine(args.Data); };
+                        process.ErrorDataReceived += (sender, args) => { if (args.Data != null) errorBuilder.AppendLine(args.Data); };
+
+                        process.BeginOutputReadLine();
+                        process.BeginErrorReadLine();
+
+                        // 5-second timeout protection to avoid hanging on corrupted files with infinite script loops
+                        if (!process.WaitForExit(5000))
+                        {
+                            try { process.Kill(); } catch { }
+                            return "Error running seq_decoder.py: Disassembly timed out (likely due to an infinite jump/call loop in the corrupted sequence script).";
+                        }
 
                         if (process.ExitCode != 0)
                         {
-                            return $"Error running seq_decoder.py (Exit Code {process.ExitCode}):\n\n{error}";
+                            return $"Error running seq_decoder.py (Exit Code {process.ExitCode}):\n\n{errorBuilder.ToString()}";
                         }
-                        return output;
+                        return outputBuilder.ToString();
                     }
                 });
 

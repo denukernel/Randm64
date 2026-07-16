@@ -15,6 +15,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/> <!-- Toolbar -->
+            <RowDefinition Height="Auto"/> <!-- Warning Banner -->
             <RowDefinition Height="*"/>    <!-- Piano + Grid ScrollViewers -->
             <RowDefinition Height="Auto"/> <!-- Status / Saved Details Bar -->
         </Grid.RowDefinitions>
@@ -34,8 +35,9 @@
                 <!-- Row 0, Col 0: File & App Controls -->
                 <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button Click="SaveButton_Click" ToolTip="Save to camera.c &amp; M64" Margin="2" Background="#007ACC" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">💾 Save M64</Button>
-                    <Button Click="ImportMidiButton_Click" ToolTip="Import MIDI file to sequencer" Margin="2" Background="#6B6B6B" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">🎵 Import MIDI</Button>
+                    <Button x:Name="ImportMidiButton" Click="ImportMidiButton_Click" ToolTip="Import MIDI file to sequencer" Margin="2" Background="#6B6B6B" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">🎵 Import MIDI</Button>
                     <Button Click="SoundEditorButton_Click" ToolTip="Open SM64 Sound &amp; SFX Editor" Margin="2" Background="#D45B0A" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">🔊 SFX Editor</Button>
+                    <Button Click="DuplicateChannelButton_Click" ToolTip="Duplicate notes from active channel to another channel" Margin="2" Background="#6B6B6B" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">👥 Duplicate Channel</Button>
                     <Button Click="DisassembleButton_Click" ToolTip="View M64 Disassembly (WSL)" Margin="2" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">🔍 View Disassembly</Button>
                     <Button Click="HelpButton_Click" ToolTip="Music Editor Keyboard &amp; Mouse Controls" Margin="2" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">❓ Help</Button>
                 </StackPanel>
@@ -90,19 +92,27 @@
                 <!-- Row 1, Col 1: Editing / Effects Controls -->
                 <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,6,0,0">
                     <TextBlock Text="Effects:" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                    <Button Click="ReverseButton_Click" ToolTip="Reverse Selected Notes" Margin="1" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="6,4" FontSize="11">⇅ Reverse</Button>
-                    <Button Click="TransposeUpButton_Click" ToolTip="Transpose +1 Semitone" Margin="1" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="6,4" FontSize="11">▲ +1</Button>
-                    <Button Click="TransposeDownButton_Click" ToolTip="Transpose -1 Semitone" Margin="1" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="6,4" FontSize="11">▼ -1</Button>
-                    <Button Click="OctaveUpButton_Click" ToolTip="Octave Up (+12)" Margin="1" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="6,4" FontSize="11">▲▲ +12</Button>
-                    <Button Click="OctaveDownButton_Click" ToolTip="Octave Down (-12)" Margin="1" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="6,4" FontSize="11">▼▼ -12</Button>
-                    <Button Click="DoubleSpeedButton_Click" ToolTip="Double Speed" Margin="1" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="6,4" FontSize="11">⏩ 2x</Button>
-                    <Button Click="HalfSpeedButton_Click" ToolTip="Half Speed" Margin="1" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="6,4" FontSize="11">⏪ 0.5x</Button>
+                    <Button x:Name="ReverseButton" Click="ReverseButton_Click" ToolTip="Reverse Selected Notes" Margin="1" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="6,4" FontSize="11">⇅ Reverse</Button>
+                    <Button x:Name="TransposeUpButton" Click="TransposeUpButton_Click" ToolTip="Transpose +1 Semitone" Margin="1" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="6,4" FontSize="11">▲ +1</Button>
+                    <Button x:Name="TransposeDownButton" Click="TransposeDownButton_Click" ToolTip="Transpose -1 Semitone" Margin="1" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="6,4" FontSize="11">▼ -1</Button>
+                    <Button x:Name="OctaveUpButton" Click="OctaveUpButton_Click" ToolTip="Octave Up (+12)" Margin="1" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="6,4" FontSize="11">▲▲ +12</Button>
+                    <Button x:Name="OctaveDownButton" Click="OctaveDownButton_Click" ToolTip="Octave Down (-12)" Margin="1" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="6,4" FontSize="11">▼▼ -12</Button>
+                    <Button x:Name="DoubleSpeedButton" Click="DoubleSpeedButton_Click" ToolTip="Double Speed" Margin="1" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="6,4" FontSize="11">⏩ 2x</Button>
+                    <Button x:Name="HalfSpeedButton" Click="HalfSpeedButton_Click" ToolTip="Half Speed" Margin="1" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="6,4" FontSize="11">⏪ 0.5x</Button>
                 </StackPanel>
             </Grid>
         </Border>
 
+        <!-- WARNING BANNER -->
+        <Border x:Name="WarningBanner" Grid.Row="1" Background="#5C0000" BorderBrush="#E81123" BorderThickness="0,0,0,1" Padding="12,8" Visibility="Collapsed">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="⚠ CRITICAL WARNING:" FontWeight="Bold" Foreground="#FF3B30" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <TextBlock x:Name="WarningBannerText" Text="This M64 sequence contains structural anomalies that WILL CRASH the SM64 audio driver. Note editing has been disabled." Foreground="White" TextWrapping="Wrap" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
         <!-- MAIN PIANO ROLL WORKSPACE -->
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="80"/>  <!-- Piano Keyboard -->
                 <ColumnDefinition Width="*"/>   <!-- Scrolling Note Canvas -->
@@ -135,7 +145,7 @@
         </Grid>
 
         <!-- STATUS BAR -->
-        <Border Grid.Row="2" Background="#2D2D30" BorderBrush="#3F3F46" BorderThickness="0,1,0,0" Padding="8,4">
+        <Border Grid.Row="3" Background="#2D2D30" BorderBrush="#3F3F46" BorderThickness="0,1,0,0" Padding="8,4">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>

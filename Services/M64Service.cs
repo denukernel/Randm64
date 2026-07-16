@@ -50,49 +50,123 @@ namespace Sm64DecompLevelViewer.Services
         private Dictionary<byte, int> _chanInstrumentOffsets = new();
         private Dictionary<byte, int> _chanBankOffsets = new();
 
+        public List<string> LoadWarnings { get; } = new();
+
+        public int GetChannelLayerCount(byte ch)
+        {
+            if (_chanLayers.TryGetValue(ch, out var layers))
+            {
+                return layers.Count;
+            }
+            return 0;
+        }
+
         private int GetSeqCmdSize(byte cmd, byte[] data, ref int pos)
         {
-            if (cmd == 0xff || cmd == 0xfe || cmd == 0xf7 || cmd == 0xf1 || cmd == 0xd4) return 0;
-            if (cmd == 0xfd || cmd == 0xd2 || cmd == 0xd1)
+            // 0 parameter bytes
+            if (cmd == 0xff || cmd == 0xfe || cmd == 0xf7 || cmd == 0xf1 || 
+                cmd == 0xd4 || cmd == 0xc6)
+            {
+                return 0;
+            }
+
+            // Variable length integer (m64_read_compressed_u16)
+            if (cmd == 0xfd)
             {
                 ReadVarInt(data, ref pos);
                 return 0;
             }
-            if (cmd == 0xf8 || cmd == 0xdc || cmd == 0xda || cmd == 0xd5 || cmd == 0xdf || cmd == 0xde || cmd == 0xdd || cmd == 0xdb || cmd == 0xd3 || cmd == 0xd0 || cmd == 0xcc || cmd == 0xc9 || cmd == 0xc8) return 1;
-            if (cmd == 0xfc || cmd == 0xfb || cmd == 0xfa || cmd == 0xf9 || cmd == 0xf5 || cmd == 0xd7 || cmd == 0xd6) return 2;
-            
-            if ((cmd & 0xF0) == 0x90) return 2; // seq_startchannel
-            if ((cmd & 0xF0) == 0x00) return 0; // testchdisabled
-            if ((cmd & 0xF0) == 0x50) return 0; // subvariation
-            if ((cmd & 0xF0) == 0x70) return 0; // setvariation
-            if ((cmd & 0xF0) == 0x80) return 0; // getvariation
+
+            // 1 parameter byte
+            if (cmd == 0xf8 || cmd == 0xf2 || cmd == 0xdc || cmd == 0xda || 
+                cmd == 0xd5 || cmd == 0xdf || cmd == 0xde || cmd == 0xdd || 
+                cmd == 0xdb || cmd == 0xd3 || cmd == 0xd0 || cmd == 0xcc || 
+                cmd == 0xc9 || cmd == 0xc8 || cmd == 0xd9)
+            {
+                return 1;
+            }
+
+            // 2 parameter bytes
+            if (cmd == 0xfc || cmd == 0xfb || cmd == 0xfa || cmd == 0xf9 || 
+                cmd == 0xf5 || cmd == 0xd7 || cmd == 0xd6 || cmd == 0xd2 || 
+                cmd == 0xd1)
+            {
+                return 2;
+            }
+
+            // 3 parameter bytes
+            if (cmd == 0xc7)
+            {
+                return 3;
+            }
+
+            // Default for sub-commands or channel starts
+            if ((cmd & 0xF0) == 0x90) return 2;
+            if ((cmd & 0xF0) == 0x00) return 0;
+            if ((cmd & 0xF0) == 0x50) return 0;
+            if ((cmd & 0xF0) == 0x70) return 0;
+            if ((cmd & 0xF0) == 0x80) return 0;
 
             return 0;
         }
 
         private int GetChanCmdSize(byte cmd, byte[] data, ref int pos)
         {
-            if (cmd == 0xff || cmd == 0xfe || cmd == 0xf7 || cmd == 0xf6 || cmd == 0xf3 || cmd == 0xf1 || cmd == 0xe4 || cmd == 0xc5 || cmd == 0xc4 || cmd == 0xc3) return 0;
+            // 0 parameter bytes
+            if (cmd == 0xff || cmd == 0xfe || cmd == 0xf7 || cmd == 0xf6 || 
+                cmd == 0xf1 || cmd == 0xc5 || cmd == 0xc3 || cmd == 0xc4 || 
+                cmd == 0xe4 || cmd == 0xea || cmd == 0xec)
+            {
+                return 0;
+            }
+
+            // Variable length integer (m64_read_compressed_u16)
             if (cmd == 0xfd)
             {
                 ReadVarInt(data, ref pos);
                 return 0;
             }
-            if (cmd == 0xf8 || cmd == 0xf2 || cmd == 0xe3 || cmd == 0xe0 || cmd == 0xdf || cmd == 0xdd || cmd == 0xdc || cmd == 0xdb || cmd == 0xd9 || cmd == 0xd8 || cmd == 0xd7 || cmd == 0xd6 || cmd == 0xd4 || cmd == 0xd3 || cmd == 0xd2 || cmd == 0xd1 || cmd == 0xd0 || cmd == 0xcc || cmd == 0xca || cmd == 0xc9 || cmd == 0xc8 || cmd == 0xc6 || cmd == 0xc1) return 1;
-            if (cmd == 0xfc || cmd == 0xfb || cmd == 0xfa || cmd == 0xf9 || cmd == 0xf5 || cmd == 0xde || cmd == 0xda || cmd == 0xcb || cmd == 0xc2) return 2;
-            if (cmd == 0xe2 || cmd == 0xe1 || cmd == 0xc7) return 3;
 
-            if ((cmd & 0xF0) == 0x90) return 2; // setlayer
-            if ((cmd & 0xF0) == 0x10) return 2; // startchannel
-            if ((cmd & 0xF0) == 0x20) return 0; // disablechannel
-            if ((cmd & 0xF0) == 0x30) return 1; // iowriteval2
-            if ((cmd & 0xF0) == 0x40) return 1; // ioreadval2
-            if ((cmd & 0xF0) == 0x50) return 0; // ioreadvalsub
-            if ((cmd & 0xF0) == 0x60) return 0; // setnotepriority
-            if ((cmd & 0xF0) == 0x70) return 0; // iowriteval
-            if ((cmd & 0xF0) == 0x80) return 0; // ioreadval
-            if ((cmd & 0xF0) == 0xa0) return 0; // freelayer
-            if ((cmd & 0xF0) == 0xb0) return 0; // dynsetlayer
+            // 1 parameter byte
+            if (cmd == 0xf8 || cmd == 0xf4 || cmd == 0xf3 || cmd == 0xf2 || 
+                cmd == 0xc6 || cmd == 0xc1 || cmd == 0xdf || cmd == 0xe0 || 
+                cmd == 0xdd || cmd == 0xdc || cmd == 0xdb || cmd == 0xd9 || 
+                cmd == 0xd8 || cmd == 0xd7 || cmd == 0xd6 || cmd == 0xd4 || 
+                cmd == 0xd3 || cmd == 0xd2 || cmd == 0xd1 || cmd == 0xe3 || 
+                cmd == 0xe5 || cmd == 0xe6 || cmd == 0xeb)
+            {
+                return 1;
+            }
+
+            // 2 parameter bytes
+            if (cmd == 0xfc || cmd == 0xfb || cmd == 0xfa || cmd == 0xf9 || 
+                cmd == 0xf5 || cmd == 0xc2 || cmd == 0xda || cmd == 0xe7)
+            {
+                return 2;
+            }
+
+            // 3 parameter bytes
+            if (cmd == 0xe2 || cmd == 0xe1 || cmd == 0xc7)
+            {
+                return 3;
+            }
+
+            // 8 parameter bytes
+            if (cmd == 0xe8)
+            {
+                return 8;
+            }
+
+            // Default for any sub-commands or note events that fall into channel parsing
+            if ((cmd & 0xF0) == 0x90) return 2;
+            if ((cmd & 0xF0) == 0x10) return 2;
+            if ((cmd & 0xF0) == 0x20) return 0;
+            if ((cmd & 0xF0) == 0x30) return 1;
+            if ((cmd & 0xF0) == 0x40) return 1;
+            if ((cmd & 0xF0) == 0x50) return 0;
+            if ((cmd & 0xF0) == 0x60) return 0;
+            if ((cmd & 0xF0) == 0x70) return 0;
+            if ((cmd & 0xF0) == 0x80) return 0;
 
             return 0;
         }
@@ -109,6 +183,7 @@ namespace Sm64DecompLevelViewer.Services
             var tracks = new List<M64Track>();
             Tempo = 120;
 
+            LoadWarnings.Clear();
             _originalHeader = null;
             _chanPointerLocations.Clear();
             _layerPointerLocations.Clear();
@@ -348,6 +423,21 @@ namespace Sm64DecompLevelViewer.Services
                     warnings.Add("* Empty Sequence: The sequence contains no note events. It will play silently in-game.");
                 }
 
+                bool hasNewChannels = false;
+                foreach (var track in tracks)
+                {
+                    if (track.Notes.Count > 0 && !_chanPointerLocations.ContainsKey(track.ChannelIndex))
+                    {
+                        hasNewChannels = true;
+                        break;
+                    }
+                }
+
+                if (hasNewChannels)
+                {
+                    _originalHeader = null;
+                }
+
                 if (_originalHeader != null)
                 {
                     // Patch volume, instrument, and bank in _originalHeader
@@ -375,12 +465,57 @@ namespace Sm64DecompLevelViewer.Services
 
                         var layerStartOffsets = new Dictionary<string, int>();
 
-                        // Group notes by LayerIndex for each track
+                        // Group track notes into layers dynamically to avoid overlaps, using the available layers of each channel
                         var trackLayers = new Dictionary<byte, Dictionary<byte, List<M64Note>>>();
                         foreach (var track in tracks)
                         {
-                            var layers = track.Notes.GroupBy(n => n.LayerIndex)
-                                                    .ToDictionary(g => g.Key, g => g.OrderBy(n => n.StartTick).ToList());
+                            int numLayers = _chanLayers.ContainsKey(track.ChannelIndex) ? _chanLayers[track.ChannelIndex].Count : 0;
+                            var layers = new Dictionary<byte, List<M64Note>>();
+                            for (byte l = 0; l < numLayers; l++)
+                            {
+                                layers[l] = new List<M64Note>();
+                            }
+
+                            if (numLayers > 0)
+                            {
+                                var sortedNotes = track.Notes.OrderBy(n => n.StartTick).ToList();
+                                var lastPlayPercentages = new Dictionary<byte, int>();
+                                for (byte l = 0; l < numLayers; l++)
+                                {
+                                    lastPlayPercentages[l] = 0;
+                                }
+
+                                foreach (var note in sortedNotes)
+                                {
+                                    bool assigned = false;
+                                    for (byte l = 0; l < numLayers; l++)
+                                    {
+                                        int lastNoteEnd = 0;
+                                        if (layers[l].Count > 0)
+                                        {
+                                            var lastNote = layers[l][layers[l].Count - 1];
+                                            int lastStepSize = lastNote.CommandType == 2 ? lastPlayPercentages[l] : lastNote.DurationTicks;
+                                            lastNoteEnd = lastNote.StartTick + lastStepSize;
+                                        }
+                                        if (note.StartTick >= lastNoteEnd)
+                                        {
+                                            layers[l].Add(note);
+                                            if (note.CommandType != 2)
+                                            {
+                                                lastPlayPercentages[l] = note.DurationTicks;
+                                            }
+                                            assigned = true;
+                                            break;
+                                        }
+                                    }
+                                    if (!assigned)
+                                    {
+                                        // Skip note to prevent timing accumulation and sequence corruption.
+                                        // Since M64 layers are strictly monophonic, overlapping notes must play on different layers.
+                                        // We skip them if the channel has no more free/available layers.
+                                    }
+                                }
+                            }
                             trackLayers[track.ChannelIndex] = layers;
                         }
 
@@ -405,12 +540,6 @@ namespace Sm64DecompLevelViewer.Services
                                 for (int idx = 0; idx < notes.Count; idx++)
                                 {
                                     var note = notes[idx];
-                                    if (note.StartTick < lastNoteEnd)
-                                    {
-                                        layerOverlapWarning = true;
-                                    }
-                                    lastNoteEnd = note.StartTick + note.DurationTicks;
-
                                     int stepSize = note.DurationTicks;
                                     if (note.CommandType == 2)
                                     {
@@ -420,6 +549,12 @@ namespace Sm64DecompLevelViewer.Services
                                     {
                                         lastPlayPercentage = note.DurationTicks;
                                     }
+
+                                    if (note.StartTick < lastNoteEnd)
+                                    {
+                                        layerOverlapWarning = true;
+                                    }
+                                    lastNoteEnd = note.StartTick + stepSize;
 
                                     int delay = note.StartTick - lastTick;
                                     if (delay > 0)
@@ -533,7 +668,27 @@ namespace Sm64DecompLevelViewer.Services
                     // Set master volume and end sequence commands
                     bw.Write((byte)0xdb); // seq_setvol
                     bw.Write((byte)127);
-                    bw.Write((byte)0xff); // end sequence
+
+                    // Write seq_delay of maxSongTick to keep the sequence alive
+                    int maxSongTick = 0;
+                    foreach (var track in tracks)
+                    {
+                        if (track.Notes.Count > 0)
+                        {
+                            int trackEnd = track.Notes.Max(n => n.StartTick + n.DurationTicks);
+                            if (trackEnd > maxSongTick) maxSongTick = trackEnd;
+                        }
+                    }
+                    if (maxSongTick == 0) maxSongTick = 480;
+
+                    bw.Write((byte)0xfd); // seq_delay
+                    WriteVarInt(bw, maxSongTick);
+
+                    bw.Write((byte)0xd6); // seq_disablechannels
+                    bw.Write((byte)((channelMask >> 8) & 0xff));
+                    bw.Write((byte)(channelMask & 0xff));
+
+                    bw.Write((byte)0xff); // seq_end
 
                     // Write channel headers and layer blocks
                     var chanOffsets = new Dictionary<byte, int>();
@@ -547,6 +702,7 @@ namespace Sm64DecompLevelViewer.Services
                         // Group track notes into layers dynamically to avoid overlaps
                         var layers = new List<List<M64Note>>();
                         var sortedNotes = track.Notes.OrderBy(n => n.StartTick).ToList();
+                        var lastPlayPercentages = new List<int>();
                         bool polyphonyWarning = false;
                         
                         foreach (var note in sortedNotes)
@@ -558,11 +714,16 @@ namespace Sm64DecompLevelViewer.Services
                                 if (layers[i].Count > 0)
                                 {
                                     var lastNote = layers[i][layers[i].Count - 1];
-                                    lastNoteEnd = lastNote.StartTick + lastNote.DurationTicks;
+                                    int lastStepSize = lastNote.CommandType == 2 ? lastPlayPercentages[i] : lastNote.DurationTicks;
+                                    lastNoteEnd = lastNote.StartTick + lastStepSize;
                                 }
                                 if (note.StartTick >= lastNoteEnd)
                                 {
                                     layers[i].Add(note);
+                                    if (note.CommandType != 2)
+                                    {
+                                        lastPlayPercentages[i] = note.DurationTicks;
+                                    }
                                     assigned = true;
                                     break;
                                 }
@@ -572,11 +733,13 @@ namespace Sm64DecompLevelViewer.Services
                                 if (layers.Count < 4)
                                 {
                                     layers.Add(new List<M64Note> { note });
+                                    lastPlayPercentages.Add(note.CommandType != 2 ? note.DurationTicks : 0);
+                                    assigned = true;
                                 }
                                 else
                                 {
-                                    layers[0].Add(note);
                                     polyphonyWarning = true;
+                                    // Skip to avoid timing corruption
                                 }
                             }
                         }
@@ -588,7 +751,7 @@ namespace Sm64DecompLevelViewer.Services
 
                         if (polyphonyWarning)
                         {
-                            warnings.Add($"* Polyphony limit exceeded on Channel {track.ChannelIndex}. A single M64 channel can play at most 4 notes simultaneously. Extra notes will overlap on Layer 0 and play out-of-order.");
+                            warnings.Add($"* Polyphony limit exceeded on Channel {track.ChannelIndex}. A single M64 channel can play at most 4 notes simultaneously. Extra notes were skipped to prevent timing corruption.");
                         }
 
                         // Write channel header commands
@@ -752,7 +915,15 @@ namespace Sm64DecompLevelViewer.Services
             const int MIN_NOTE_PITCH = 0;
             const int MAX_NOTE_PITCH = 127;
 
-            if (depth > 50 || visitedOffsets.Contains(startOffset)) return;
+            if (depth > 50)
+            {
+                if (!LoadWarnings.Contains("Sequence script contains infinite jump/call loops. This will freeze the SM64 audio driver thread."))
+                {
+                    LoadWarnings.Add("Sequence script contains infinite jump/call loops. This will freeze the SM64 audio driver thread.");
+                }
+                return;
+            }
+            if (visitedOffsets.Contains(startOffset)) return;
             visitedOffsets.Add(startOffset);
 
             try
@@ -765,6 +936,14 @@ namespace Sm64DecompLevelViewer.Services
                 while (pos < data.Length)
                 {
                     if (eventCount++ > 50000) break; // Safety limit to prevent infinite loops
+                    if (currentTick > 60000)
+                    {
+                        if (!LoadWarnings.Contains("Sequence duration limit exceeded (60,000 ticks). Notes beyond this limit were ignored."))
+                        {
+                            LoadWarnings.Add("Sequence duration limit exceeded (60,000 ticks). Notes beyond this limit were ignored.");
+                        }
+                        break;
+                    }
 
                     byte cmd = data[pos++];
                     if (cmd == 0xff) break; // end of layer or return from call
@@ -782,6 +961,14 @@ namespace Sm64DecompLevelViewer.Services
                         currentInstrument = data[pos++];
                     }
                     else if (cmd == 0xc1 || cmd == 0xc9 || cmd == 0xca) // layer velocity, duration, pan
+                    {
+                        pos++;
+                    }
+                    else if (cmd == 0xcb) // layer envelope / ADSR (takes 3 bytes)
+                    {
+                        pos += 3;
+                    }
+                    else if (cmd == 0xf4) // relative jump (takes 1 byte)
                     {
                         pos++;
                     }
@@ -818,9 +1005,21 @@ namespace Sm64DecompLevelViewer.Services
                         int callOffset = (data[pos++] << 8) | data[pos++];
                         ParseLayerEvents(data, callOffset, track, layerIndex, ref currentTick, visitedOffsets, ref currentTranspose, ref lastPlayPercentage, depth + 1);
                     }
-                    else if (cmd == 0xc7)
+                    else if (cmd == 0xc7) // portamento (dynamic size)
                     {
-                        pos += 3;
+                        if (pos < data.Length)
+                        {
+                            byte mode = data[pos++];
+                            pos++; // Skip target note
+                            if ((mode & 0x80) != 0)
+                            {
+                                pos++;
+                            }
+                            else
+                            {
+                                ReadVarInt(data, ref pos);
+                            }
+                        }
                     }
                     else if (cmd >= 0x00 && cmd <= 0x3f) // note0 (large)
                     {
@@ -890,7 +1089,7 @@ namespace Sm64DecompLevelViewer.Services
             }
             finally
             {
-                visitedOffsets.Remove(startOffset);
+                // Persistent visited set to avoid exponential path traversal on corrupted sequences
             }
         }
 

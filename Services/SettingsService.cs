@@ -29,6 +29,7 @@ namespace Sm64DecompLevelViewer.Services
         public int BuildJobs { get; set; } = 8;
         public string GitRepositoryUrl { get; set; } = "https://github.com/n64decomp/sm64.git";
         public bool AutoRunEmulator { get; set; } = true;
+        public string LastSelectedM64Path { get; set; } = string.Empty;
     }
 
     public class SettingsService
