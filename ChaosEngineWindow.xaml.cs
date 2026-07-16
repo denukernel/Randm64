@@ -3429,8 +3429,17 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     for (int i = 0; i < safeIndices.Count; i++)
                     {
                         int idx = safeIndices[i];
-                        chars[idx] = uppercase ? char.ToUpper(chars[idx]) : char.ToLower(chars[idx]);
-                        uppercase = !uppercase;
+                        char orig = chars[idx];
+                        // Keep full-width letters uppercase to avoid compilation errors due to unmapped lowercase full-width letters in SM64 charmap
+                        if (orig >= 0xFF21 && orig <= 0xFF3A)
+                        {
+                            chars[idx] = orig;
+                        }
+                        else
+                        {
+                            chars[idx] = uppercase ? char.ToUpper(orig) : char.ToLower(orig);
+                            uppercase = !uppercase;
+                        }
                     }
                     break;
             }
