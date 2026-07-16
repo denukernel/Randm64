@@ -1978,17 +1978,6 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 Console.WriteLine($"Error parsing layers of {filePath}: {ex.Message}");
             }
 
-            // Perform in-place corruption on collected offsets for all active modes
-            // To prevent conflicts/overwriting, we track modified offsets by category.
-            var modifiedPitches = new HashSet<int>();
-            var modifiedVelocities = new HashSet<int>();
-            var modifiedDurations = new HashSet<int>();
-            var modifiedTempos = new HashSet<int>();
-            var modifiedInstruments = new HashSet<int>();
-            var modifiedPans = new HashSet<int>();
-            var modifiedReverbs = new HashSet<int>();
-            var modifiedPitchBends = new HashSet<int>();
-
             // Shuffle the active modes list so that no single mode always runs first and hogs all the offsets
             var shuffledModes = new List<int>(_activeM64Modes);
             int n = shuffledModes.Count;
@@ -2003,6 +1992,15 @@ void apply_chaos_intro_camera(struct Camera *c) {
 
             foreach (int m64Mode in shuffledModes)
             {
+                // Reset category tracking for each mode so that checked corruption modes combine and stack instead of blocking each other
+                var modifiedPitches = new HashSet<int>();
+                var modifiedVelocities = new HashSet<int>();
+                var modifiedDurations = new HashSet<int>();
+                var modifiedTempos = new HashSet<int>();
+                var modifiedInstruments = new HashSet<int>();
+                var modifiedPans = new HashSet<int>();
+                var modifiedReverbs = new HashSet<int>();
+                var modifiedPitchBends = new HashSet<int>();
                 if (m64Mode == 0) // Transpose (Pitch Shift)
                 {
                     if (pitchOffsets.Count > 0)
@@ -2448,6 +2446,51 @@ void apply_chaos_intro_camera(struct Camera *c) {
                                 int newPitch = Math.Clamp(pitch1 + 3, 0, 127);
                                 data[offset2] = (byte)((data[offset2] & 0xc0) | (newPitch & 0x3f));
                                 modifiedPitches.Add(offset2);
+                            }
+                        }
+                    }
+                }
+                else if (m64Mode == 26) // Pitch Flatten (Monotone)
+                {
+                    // For each channel, find its pitch offsets and flatten them to a single random pitch
+                    foreach (int chanPos in channelOffsets)
+                    {
+                        var chanVisited = new HashSet<int>();
+                        var chanLayerLargeNotes = new Dictionary<int, bool>();
+                        var chanInstrumentOffsets = new List<int>();
+                        var chanVolumeOffsets = new List<int>();
+                        var chanPanOffsets = new List<int>();
+                        var chanReverbOffsets = new List<int>();
+                        var chanPitchBendOffsets = new List<int>();
+
+                        ParseChanCommandsForOffsets(data, chanPos, chanVisited, chanLayerLargeNotes, chanInstrumentOffsets, chanVolumeOffsets, chanPanOffsets, chanReverbOffsets, chanPitchBendOffsets, false);
+
+                        var chanPitchOffsets = new List<int>();
+                        var chanVelocityOffsets = new List<int>();
+                        var chanVisitedLayers = new HashSet<int>();
+                        foreach (var kvp in chanLayerLargeNotes)
+                        {
+                            ParseLayerCommandsForOffsets(data, kvp.Key, chanVisitedLayers, chanPitchOffsets, chanVelocityOffsets, chanInstrumentOffsets, kvp.Value);
+                        }
+
+                        if (chanPitchOffsets.Count > 0)
+                        {
+                            // Choose a single target pitch for this entire channel (C2 to C5 / MIDI 36 to 72, or based on the first note pitch)
+                            int targetPitch = _random.Next(36, 73);
+                            int firstOffset = chanPitchOffsets[0];
+                            if (firstOffset >= 0 && firstOffset < data.Length)
+                            {
+                                targetPitch = data[firstOffset] & 0x3f;
+                            }
+
+                            foreach (int offset in chanPitchOffsets)
+                            {
+                                if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
+                                {
+                                    byte cmd = data[offset];
+                                    data[offset] = (byte)((cmd & 0xc0) | (targetPitch & 0x3f));
+                                    modifiedPitches.Add(offset);
+                                }
                             }
                         }
                     }

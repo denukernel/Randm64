@@ -924,7 +924,11 @@ namespace Sm64DecompLevelViewer.Services
                 return;
             }
             if (visitedOffsets.Contains(startOffset)) return;
-            visitedOffsets.Add(startOffset);
+
+            // Track visited offsets along the current execution path to detect infinite loops/recursions
+            // while allowing subroutines (layer_calls) to be traversed multiple times sequentially.
+            var pathVisited = new HashSet<int>(visitedOffsets);
+            pathVisited.Add(startOffset);
 
             try
             {
@@ -997,13 +1001,13 @@ namespace Sm64DecompLevelViewer.Services
                     else if (cmd == 0xfb) // layer_jump
                     {
                         int jumpOffset = (data[pos++] << 8) | data[pos++];
-                        ParseLayerEvents(data, jumpOffset, track, layerIndex, ref currentTick, visitedOffsets, ref currentTranspose, ref lastPlayPercentage, depth + 1);
+                        ParseLayerEvents(data, jumpOffset, track, layerIndex, ref currentTick, pathVisited, ref currentTranspose, ref lastPlayPercentage, depth + 1);
                         break;
                     }
                     else if (cmd == 0xfc) // layer_call
                     {
                         int callOffset = (data[pos++] << 8) | data[pos++];
-                        ParseLayerEvents(data, callOffset, track, layerIndex, ref currentTick, visitedOffsets, ref currentTranspose, ref lastPlayPercentage, depth + 1);
+                        ParseLayerEvents(data, callOffset, track, layerIndex, ref currentTick, pathVisited, ref currentTranspose, ref lastPlayPercentage, depth + 1);
                     }
                     else if (cmd == 0xc7) // portamento (dynamic size)
                     {

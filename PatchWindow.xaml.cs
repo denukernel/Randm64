@@ -608,7 +608,7 @@ namespace Sm64DecompLevelViewer
                         // Find the start of process_level_music_dynamics and patch it
                         string targetDynamic = "void process_level_music_dynamics(void) {\r\n    u32 conditionBits;";
                         string targetDynamicLF = "void process_level_music_dynamics(void) {\n    u32 conditionBits;";
-                        string replacementDynamic = "void process_level_music_dynamics(void) {\n    u32 conditionBits;\n    return; // Support New Channels Patch";
+                        string replacementDynamic = "void process_level_music_dynamics(void) {\n    return;\n}\nvoid process_level_music_dynamics_unused(void) {\n    u32 conditionBits;";
 
                         if (content.Contains(targetDynamic))
                         {
