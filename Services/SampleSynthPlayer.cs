@@ -76,6 +76,7 @@ namespace Sm64DecompLevelViewer.Services
             public float[] Samples;
             public int SampleRate;
             public int Channels;
+            public bool IsLooped;
         }
 
         private class AudioBuffer
@@ -103,6 +104,11 @@ namespace Sm64DecompLevelViewer.Services
         private readonly AutoResetEvent _bufferEvent = new(false);
         private Thread? _mixerThread;
         private volatile bool _running;
+        public bool EnableReleaseFade { get; set; } = true;
+        
+        private float[] _reverbBufferL = new float[2646];
+        private float[] _reverbBufferR = new float[2646];
+        private int _reverbWritePos = 0;
 
         public SampleSynthPlayer(string conversationId)
         {
@@ -286,8 +292,16 @@ namespace Sm64DecompLevelViewer.Services
 
                         if (voice.IsStopping)
                         {
-                            voice.FadeVolume -= 1.0f / 220f;
-                            if (voice.FadeVolume <= 0f)
+                            if (EnableReleaseFade)
+                            {
+                                voice.FadeVolume -= 1.0f / 6615f;
+                                if (voice.FadeVolume <= 0f)
+                                {
+                                    voice.FadeVolume = 0f;
+                                    voice.IsFinished = true;
+                                }
+                            }
+                            else
                             {
                                 voice.FadeVolume = 0f;
                                 voice.IsFinished = true;
@@ -306,8 +320,16 @@ namespace Sm64DecompLevelViewer.Services
 
                         if (voice.IsStopping)
                         {
-                            voice.FadeVolume -= 1.0f / 220f;
-                            if (voice.FadeVolume <= 0f)
+                            if (EnableReleaseFade)
+                            {
+                                voice.FadeVolume -= 1.0f / 6615f;
+                                if (voice.FadeVolume <= 0f)
+                                {
+                                    voice.FadeVolume = 0f;
+                                    voice.IsFinished = true;
+                                }
+                            }
+                            else
                             {
                                 voice.FadeVolume = 0f;
                                 voice.IsFinished = true;
@@ -322,6 +344,22 @@ namespace Sm64DecompLevelViewer.Services
 
                     voice.Position += voice.PitchRatio;
                 }
+
+                // Apply simple, beautiful stereo hall reverb
+                float delaySampleL = _reverbBufferL[_reverbWritePos];
+                float delaySampleR = _reverbBufferR[_reverbWritePos];
+
+                float wetL = mixedL + delaySampleL * 0.45f;
+                float wetR = mixedR + delaySampleR * 0.45f;
+
+                _reverbBufferL[_reverbWritePos] = wetL;
+                _reverbBufferR[_reverbWritePos] = wetR;
+
+                _reverbWritePos = (_reverbWritePos + 1) % 2646;
+
+                // Combine dry and wet signals
+                mixedL = mixedL * 0.70f + delaySampleL * 0.30f;
+                mixedR = mixedR * 0.70f + delaySampleR * 0.30f;
 
                 if (mixedL > 1.0f) mixedL = 1.0f;
                 else if (mixedL < -1.0f) mixedL = -1.0f;
@@ -348,25 +386,20 @@ namespace Sm64DecompLevelViewer.Services
                     var sample = GetOrLoadSample(samplePath);
                     if (sample == null || sample.Samples == null || sample.Samples.Length == 0) return;
 
+                    bool shouldLoop = sample.IsLooped;
                     string sampleName = Path.GetFileName(samplePath).ToLower();
-                    bool isDrum = channel == 9 ||
-                                  sampleName.Contains("drum") || 
-                                  sampleName.Contains("snare") || 
-                                  sampleName.Contains("kick") || 
-                                  sampleName.Contains("percuss") || 
-                                  sampleName.Contains("cymbal") || 
-                                  sampleName.Contains("hihat") || 
-                                  sampleName.Contains("shaker") || 
-                                  sampleName.Contains("clap") || 
-                                  sampleName.Contains("tom") || 
-                                  sampleName.Contains("ride") || 
-                                  sampleName.Contains("crash") || 
-                                  sampleName.Contains("hit") || 
-                                  sampleName.Contains("cowbell") || 
-                                  sampleName.Contains("tambourine");
-
-                    bool shouldLoop = !isDrum;
-                    double vol = (velocity / 127.0) * (channelVolume / 127.0);
+                    if (sampleName.Contains("piano") ||
+                        sampleName.Contains("harpsichord") ||
+                        sampleName.Contains("music_box") ||
+                        sampleName.Contains("banjo") ||
+                        sampleName.Contains("guitar") ||
+                        sampleName.Contains("timpani") ||
+                        sampleName.Contains("orchestra_hit") ||
+                        sampleName.Contains("pizzicato"))
+                    {
+                        shouldLoop = false;
+                    }
+                    double vol = (velocity / 127.0) * (channelVolume / 127.0) * 0.30;
 
                     double leftPan = 1.0;
                     double rightPan = 1.0;
@@ -462,6 +495,7 @@ namespace Sm64DecompLevelViewer.Services
                 var sample = ParseWavBytes(wavBytes);
                 if (sample != null)
                 {
+                    sample.IsLooped = CheckAiffLooped(aiffBytes);
                     lock (_sampleCache)
                     {
                         _sampleCache[samplePath] = sample;
@@ -474,6 +508,36 @@ namespace Sm64DecompLevelViewer.Services
                 Console.WriteLine($"Error loading sample {samplePath}: {ex.Message}");
                 return null;
             }
+        }
+
+        private static bool CheckAiffLooped(byte[] aiffData)
+        {
+            try
+            {
+                if (aiffData.Length < 12) return false;
+                int pos = 12;
+                while (pos + 8 <= aiffData.Length)
+                {
+                    string chunkName = System.Text.Encoding.ASCII.GetString(aiffData, pos, 4);
+                    pos += 4;
+                    int chunkSize = (aiffData[pos] << 24) | (aiffData[pos + 1] << 16) | (aiffData[pos + 2] << 8) | aiffData[pos + 3];
+                    pos += 4;
+
+                    if (chunkName == "INST")
+                    {
+                        if (chunkSize >= 14 && pos + 14 <= aiffData.Length)
+                        {
+                            int playMode = (aiffData[pos + 8] << 8) | aiffData[pos + 9];
+                            return (playMode == 1 || playMode == 2);
+                        }
+                    }
+                    pos += (chunkSize + 1) & ~1;
+                }
+            }
+            catch
+            {
+            }
+            return false;
         }
 
         private static byte[] SafeReadAllBytes(string filePath)

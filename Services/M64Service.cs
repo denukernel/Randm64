@@ -16,6 +16,7 @@ namespace Sm64DecompLevelViewer.Services
         public byte CommandType { get; set; } = 0;
         public byte ChannelVolume { get; set; } = 127;
         public byte ChannelPan { get; set; } = 64;
+        public byte Reverb { get; set; } = 0;
 
         public override string ToString()
         {
@@ -28,6 +29,7 @@ namespace Sm64DecompLevelViewer.Services
         public int Tick { get; set; }
         public byte Volume { get; set; } = 127;
         public byte Pan { get; set; } = 64;
+        public byte Reverb { get; set; } = 0;
     }
 
     public class M64Track
@@ -294,8 +296,9 @@ namespace Sm64DecompLevelViewer.Services
                         int currentChTick = segment.StartTick;
                         byte currentVol = track.Volume;
                         byte currentPan = 64;
+                        byte currentReverb = 0;
 
-                        channelEvents.Add(new ChannelStateEvent { Tick = currentChTick, Volume = currentVol, Pan = currentPan });
+                        channelEvents.Add(new ChannelStateEvent { Tick = currentChTick, Volume = currentVol, Pan = currentPan, Reverb = currentReverb });
 
                         int tracePos = pos;
                         while (tracePos < data.Length)
@@ -311,12 +314,17 @@ namespace Sm64DecompLevelViewer.Services
                             else if (cmd == 0xdf) // volume
                             {
                                 currentVol = Math.Min((byte)127, data[tracePos++]);
-                                channelEvents.Add(new ChannelStateEvent { Tick = currentChTick, Volume = currentVol, Pan = currentPan });
+                                channelEvents.Add(new ChannelStateEvent { Tick = currentChTick, Volume = currentVol, Pan = currentPan, Reverb = currentReverb });
                             }
                             else if (cmd == 0xda) // pan
                             {
                                 currentPan = data[tracePos++];
-                                channelEvents.Add(new ChannelStateEvent { Tick = currentChTick, Volume = currentVol, Pan = currentPan });
+                                channelEvents.Add(new ChannelStateEvent { Tick = currentChTick, Volume = currentVol, Pan = currentPan, Reverb = currentReverb });
+                            }
+                            else if (cmd == 0xd4) // reverb
+                            {
+                                currentReverb = data[tracePos++];
+                                channelEvents.Add(new ChannelStateEvent { Tick = currentChTick, Volume = currentVol, Pan = currentPan, Reverb = currentReverb });
                             }
                             else if (cmd == 0xc0) // delay
                             {
@@ -624,11 +632,11 @@ namespace Sm64DecompLevelViewer.Services
                                     }
 
                                     int t_type = note.CommandType;
-                                    if (t_type == 2 && note.DurationTicks <= 255)
+                                    if (t_type == 2)
                                     {
                                         bw.Write((byte)(0x80 | (note.Pitch & 0x3f)));
                                         bw.Write(note.Velocity);
-                                        bw.Write((byte)note.DurationTicks);
+                                        bw.Write((byte)note.Gate);
                                     }
                                     else if (t_type == 1)
                                     {
@@ -869,11 +877,11 @@ namespace Sm64DecompLevelViewer.Services
                                 }
 
                                 int t_type = note.CommandType;
-                                if (t_type == 2 && note.DurationTicks <= 255)
+                                if (t_type == 2)
                                 {
                                     bw.Write((byte)(0x80 | (note.Pitch & 0x3f)));
                                     bw.Write(note.Velocity);
-                                    bw.Write((byte)note.DurationTicks);
+                                    bw.Write((byte)note.Gate);
                                 }
                                 else if (t_type == 1)
                                 {
@@ -1097,12 +1105,14 @@ namespace Sm64DecompLevelViewer.Services
                         byte finalPitch = (byte)Math.Clamp(pitch + currentTranspose, MIN_NOTE_PITCH, MAX_NOTE_PITCH);
                         byte noteVol = 127;
                         byte notePan = 64;
+                        byte noteReverb = 0;
                         int localTick = currentTick;
                         if (channelEvents != null && channelEvents.Count > 0)
                         {
                             var ev = channelEvents.FindLast(e => e.Tick <= localTick) ?? channelEvents[0];
                             noteVol = ev.Volume;
                             notePan = ev.Pan;
+                            noteReverb = ev.Reverb;
                         }
 
                         track.Notes.Add(new M64Note { 
@@ -1115,7 +1125,8 @@ namespace Sm64DecompLevelViewer.Services
                             Gate = gate,
                             CommandType = 0,
                             ChannelVolume = noteVol,
-                            ChannelPan = notePan
+                            ChannelPan = notePan,
+                            Reverb = noteReverb
                         });
                         currentTick += duration;
                     }
@@ -1130,12 +1141,14 @@ namespace Sm64DecompLevelViewer.Services
                         byte finalPitch = (byte)Math.Clamp(pitch + currentTranspose, MIN_NOTE_PITCH, MAX_NOTE_PITCH);
                         byte noteVol = 127;
                         byte notePan = 64;
+                        byte noteReverb = 0;
                         int localTick = currentTick;
                         if (channelEvents != null && channelEvents.Count > 0)
                         {
                             var ev = channelEvents.FindLast(e => e.Tick <= localTick) ?? channelEvents[0];
                             noteVol = ev.Volume;
                             notePan = ev.Pan;
+                            noteReverb = ev.Reverb;
                         }
 
                         track.Notes.Add(new M64Note { 
@@ -1148,7 +1161,8 @@ namespace Sm64DecompLevelViewer.Services
                             Gate = 250,
                             CommandType = 1,
                             ChannelVolume = noteVol,
-                            ChannelPan = notePan
+                            ChannelPan = notePan,
+                            Reverb = noteReverb
                         });
                         currentTick += duration;
                     }
@@ -1163,25 +1177,28 @@ namespace Sm64DecompLevelViewer.Services
                         byte finalPitch = (byte)Math.Clamp(pitch + currentTranspose, MIN_NOTE_PITCH, MAX_NOTE_PITCH);
                         byte noteVol = 127;
                         byte notePan = 64;
+                        byte noteReverb = 0;
                         int localTick = currentTick;
                         if (channelEvents != null && channelEvents.Count > 0)
                         {
                             var ev = channelEvents.FindLast(e => e.Tick <= localTick) ?? channelEvents[0];
                             noteVol = ev.Volume;
                             notePan = ev.Pan;
+                            noteReverb = ev.Reverb;
                         }
 
                         track.Notes.Add(new M64Note { 
                             StartTick = currentTick, 
-                            DurationTicks = duration, 
+                            DurationTicks = delay, 
                             Pitch = finalPitch, 
                             Velocity = vel, 
                             Instrument = currentInstrument, 
                             LayerIndex = (byte)layerIndex,
-                            Gate = 204,
+                            Gate = (byte)duration,
                             CommandType = 2,
                             ChannelVolume = noteVol,
-                            ChannelPan = notePan
+                            ChannelPan = notePan,
+                            Reverb = noteReverb
                         });
                         currentTick += delay;
                     }

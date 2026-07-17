@@ -33,7 +33,7 @@ namespace Sm64DecompLevelViewer
         private readonly System.Windows.Threading.DispatcherTimer _playbackTimer = new();
         private double _playheadTick = 0;
         private DateTime _lastTickTime;
-        private readonly double _tempoBpm = 150;
+        private double _tempoBpm = 150;
         private readonly double _ticksPerBeat = 48; // Quarter note division
         private bool _isPlaying = false;
         private bool _isUpdatingUi = false;
@@ -242,6 +242,29 @@ namespace Sm64DecompLevelViewer
 
         private void OnSequenceLoaded()
         {
+            StopPlayback();
+
+            _tempoBpm = _m64Service.Tempo * 0.5;
+            string fileName = System.IO.Path.GetFileName(_activeM64Path).ToLower();
+            if (_samplePlayer != null)
+            {
+                _samplePlayer.EnableReleaseFade = !fileName.Contains("1e");
+            }
+
+            _maxSongTick = 0;
+            if (_sequenceTracks != null)
+            {
+                foreach (var track in _sequenceTracks)
+                {
+                    foreach (var note in track.Notes)
+                    {
+                        int end = note.StartTick + note.DurationTicks;
+                        if (end > _maxSongTick) _maxSongTick = end;
+                    }
+                }
+            }
+            if (_maxSongTick <= 0) _maxSongTick = 480;
+
             _isNoteEditingDisabled = false;
             if (WarningBanner != null) WarningBanner.Visibility = Visibility.Collapsed;
 
@@ -1514,6 +1537,7 @@ namespace Sm64DecompLevelViewer
             _isPlaying = true;
             _playheadTick = 0;
             _lastTickTime = DateTime.UtcNow;
+            _tempoBpm = _m64Service.Tempo * 0.5;
 
             _trackPlayIndices.Clear();
             _activePlayingNotesList.Clear();
@@ -1646,16 +1670,23 @@ namespace Sm64DecompLevelViewer
                             {
                                 byte gmPatch = MapSm64InstrumentToGm(_activeM64Path, targetChannel, note.Instrument);
                                 _midiPlayer.ProgramChange(targetChannel, gmPatch);
+                                _midiPlayer.ControlChange(targetChannel, 7, note.ChannelVolume);
+                                _midiPlayer.ControlChange(targetChannel, 10, note.ChannelPan);
+                                _midiPlayer.ControlChange(targetChannel, 91, note.Reverb);
                                 _midiPlayer.NoteOn(targetChannel, note.Pitch, note.Velocity);
                             }
                             
                             _activeMidiNotes.Add((targetChannel << 8) | note.Pitch);
                             
+                            double gateFactor = note.Gate / 256.0;
+                            if (gateFactor <= 0.0 || gateFactor > 1.0) gateFactor = 0.8;
+                            int playTicks = (int)Math.Max(1, Math.Round(note.DurationTicks * gateFactor));
+
                             _activePlayingNotesList.Add(new ActivePlayingNote
                             {
                                 Channel = targetChannel,
                                 Pitch = note.Pitch,
-                                EndTick = note.StartTick + note.DurationTicks
+                                EndTick = note.StartTick + playTicks
                             });
                         }
                     }

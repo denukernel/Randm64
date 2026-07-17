@@ -2337,10 +2337,14 @@ void apply_chaos_intro_camera(struct Camera *c) {
             var panOffsets = new List<int>();
             var reverbOffsets = new List<int>();
             var pitchBendOffsets = new List<int>();
+            var percussionPitchOffsets = new HashSet<int>();
 
             var visited = new HashSet<int>();
             var channelOffsets = new HashSet<int>();
             var layerLargeNotes = new Dictionary<int, bool>();
+            var layerInstruments = new Dictionary<int, int>();
+
+            bool isShindou = DetectIsShindou(data);
 
             int seqStartOffset = 0;
             if (data.Length >= 6 && data[0] == 0x00 && data[1] == 0x02)
@@ -2364,7 +2368,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 visited.Clear();
                 foreach (int chanPos in channelOffsets)
                 {
-                    ParseChanCommandsForOffsets(data, chanPos, visited, layerLargeNotes, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets, false);
+                    ParseChanCommandsForOffsets(data, chanPos, visited, layerLargeNotes, layerInstruments, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets, isShindou, -1, false);
                 }
             }
             catch (Exception ex)
@@ -2380,7 +2384,8 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 {
                     int layerPos = kvp.Key;
                     bool largeNotes = kvp.Value;
-                    ParseLayerCommandsForOffsets(data, layerPos, visited, pitchOffsets, velocityOffsets, instrumentOffsets, largeNotes);
+                    int layerInstr = layerInstruments.ContainsKey(layerPos) ? layerInstruments[layerPos] : -1;
+                    ParseLayerCommandsForOffsets(data, layerPos, visited, pitchOffsets, velocityOffsets, instrumentOffsets, percussionPitchOffsets, largeNotes, layerInstr);
                 }
             }
             catch (Exception ex)
@@ -2439,6 +2444,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                         {
                             if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
                             {
+                                if (percussionPitchOffsets.Contains(offset)) continue;
                                 byte cmd = data[offset];
                                 int pitch = cmd & 0x3f;
                                 int newPitch = Math.Clamp(pitch + pitchOffset, minPitch, maxPitch);
@@ -2502,15 +2508,19 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 }
                 else if (m64Mode == 3) // Duration Glitcher
                 {
-                    foreach (int offset in pitchOffsets)
+                    for (int i = 0; i < pitchOffsets.Count; i++)
                     {
-                        if (offset >= 0 && offset + 2 < data.Length)
+                        int offset = pitchOffsets[i];
+                        int velOffset = velocityOffsets[i];
+                        if (offset >= 0 && offset < data.Length && velOffset >= 0 && velOffset < data.Length)
                         {
                             byte cmd = data[offset];
-                            if ((cmd & 0xc0) == 0x80) // note2
+                            bool isType2 = (cmd & 0xc0) == 0x80;
+                            bool isType0 = (cmd & 0xc0) == 0x00;
+                            if (isType2 || isType0)
                             {
-                                int durOffset = offset + 2;
-                                if (!modifiedDurations.Contains(durOffset) && _random.NextDouble() < (intensity / 100.0))
+                                int durOffset = velOffset + 1;
+                                if (durOffset >= 0 && durOffset < data.Length && !modifiedDurations.Contains(durOffset) && _random.NextDouble() < (intensity / 100.0))
                                 {
                                     data[durOffset] = (byte)_random.Next(10, 255);
                                     modifiedDurations.Add(durOffset);
@@ -2540,14 +2550,42 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 }
                 else if (m64Mode == 5) // Melody Scrambler (Shuffle)
                 {
-                    if (pitchOffsets.Count > 0)
+                    var melodyOffsetsList = pitchOffsets.Where(off => !percussionPitchOffsets.Contains(off)).ToList();
+                    var percussionOffsetsList = pitchOffsets.Where(off => percussionPitchOffsets.Contains(off)).ToList();
+
+                    if (melodyOffsetsList.Count > 0)
                     {
-                        int shuffleCount = (int)(pitchOffsets.Count * (intensity / 100.0) * 0.1);
+                        int shuffleCount = (int)(melodyOffsetsList.Count * (intensity / 100.0) * 0.1);
                         if (shuffleCount <= 0) shuffleCount = 1;
                         for (int s = 0; s < shuffleCount; s++)
                         {
-                            int idx1 = pitchOffsets[_random.Next(0, pitchOffsets.Count)];
-                            int idx2 = pitchOffsets[_random.Next(0, pitchOffsets.Count)];
+                            int idx1 = melodyOffsetsList[_random.Next(0, melodyOffsetsList.Count)];
+                            int idx2 = melodyOffsetsList[_random.Next(0, melodyOffsetsList.Count)];
+                            if (idx1 >= 0 && idx1 < data.Length && idx2 >= 0 && idx2 < data.Length)
+                            {
+                                if (!modifiedPitches.Contains(idx1) && !modifiedPitches.Contains(idx2))
+                                {
+                                    byte cmd1 = data[idx1];
+                                    byte cmd2 = data[idx2];
+                                    byte newCmd1 = (byte)((cmd1 & 0xc0) | (cmd2 & 0x3f));
+                                    byte newCmd2 = (byte)((cmd2 & 0xc0) | (cmd1 & 0x3f));
+                                    data[idx1] = newCmd1;
+                                    data[idx2] = newCmd2;
+                                    modifiedPitches.Add(idx1);
+                                    modifiedPitches.Add(idx2);
+                                }
+                            }
+                        }
+                    }
+
+                    if (percussionOffsetsList.Count > 0)
+                    {
+                        int shuffleCount = (int)(percussionOffsetsList.Count * (intensity / 100.0) * 0.1);
+                        if (shuffleCount <= 0) shuffleCount = 1;
+                        for (int s = 0; s < shuffleCount; s++)
+                        {
+                            int idx1 = percussionOffsetsList[_random.Next(0, percussionOffsetsList.Count)];
+                            int idx2 = percussionOffsetsList[_random.Next(0, percussionOffsetsList.Count)];
                             if (idx1 >= 0 && idx1 < data.Length && idx2 >= 0 && idx2 < data.Length)
                             {
                                 if (!modifiedPitches.Contains(idx1) && !modifiedPitches.Contains(idx2))
@@ -2571,6 +2609,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     {
                         if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
                         {
+                            if (percussionPitchOffsets.Contains(offset)) continue;
                             byte cmd = data[offset];
                             int pitch = cmd & 0x3f;
                             int maxOctaves = (int)Math.Clamp(Math.Round(3 * intensityFactor), 1, 4);
@@ -2630,15 +2669,19 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 }
                 else if (m64Mode == 11) // Note Lengthener (Sustain)
                 {
-                    foreach (int offset in pitchOffsets)
+                    for (int i = 0; i < pitchOffsets.Count; i++)
                     {
-                        if (offset >= 0 && offset + 2 < data.Length)
+                        int offset = pitchOffsets[i];
+                        int velOffset = velocityOffsets[i];
+                        if (offset >= 0 && offset < data.Length && velOffset >= 0 && velOffset < data.Length)
                         {
                             byte cmd = data[offset];
-                            if ((cmd & 0xc0) == 0x80) // note2 has duration parameter at offset+2
+                            bool isType2 = (cmd & 0xc0) == 0x80;
+                            bool isType0 = (cmd & 0xc0) == 0x00;
+                            if (isType2 || isType0)
                             {
-                                int durOffset = offset + 2;
-                                if (!modifiedDurations.Contains(durOffset) && _random.NextDouble() < (intensity / 100.0))
+                                int durOffset = velOffset + 1;
+                                if (durOffset >= 0 && durOffset < data.Length && !modifiedDurations.Contains(durOffset) && _random.NextDouble() < (intensity / 100.0))
                                 {
                                     int val = data[durOffset];
                                     double mult = 1.0 + (3.0 * intensityFactor);
@@ -2651,15 +2694,19 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 }
                 else if (m64Mode == 12) // Note Shortener (Staccato)
                 {
-                    foreach (int offset in pitchOffsets)
+                    for (int i = 0; i < pitchOffsets.Count; i++)
                     {
-                        if (offset >= 0 && offset + 2 < data.Length)
+                        int offset = pitchOffsets[i];
+                        int velOffset = velocityOffsets[i];
+                        if (offset >= 0 && offset < data.Length && velOffset >= 0 && velOffset < data.Length)
                         {
                             byte cmd = data[offset];
-                            if ((cmd & 0xc0) == 0x80)
+                            bool isType2 = (cmd & 0xc0) == 0x80;
+                            bool isType0 = (cmd & 0xc0) == 0x00;
+                            if (isType2 || isType0)
                             {
-                                int durOffset = offset + 2;
-                                if (!modifiedDurations.Contains(durOffset) && _random.NextDouble() < (intensity / 100.0))
+                                int durOffset = velOffset + 1;
+                                if (durOffset >= 0 && durOffset < data.Length && !modifiedDurations.Contains(durOffset) && _random.NextDouble() < (intensity / 100.0))
                                 {
                                     data[durOffset] = (byte)_random.Next(1, 8); // extremely short duration
                                     modifiedDurations.Add(durOffset);
@@ -2675,6 +2722,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     {
                         if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
                         {
+                            if (percussionPitchOffsets.Contains(offset)) continue;
                             byte cmd = data[offset];
                             int pitch = cmd & 0x3f;
                             int noteNum = pitch % 12;
@@ -2693,6 +2741,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     {
                         if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
                         {
+                            if (percussionPitchOffsets.Contains(offset)) continue;
                             byte cmd = data[offset];
                             int pitch = cmd & 0x3f;
                             int noteNum = pitch % 12;
@@ -2710,12 +2759,23 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     {
                         if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
                         {
-                            byte cmd = data[offset];
-                            int pitch = cmd & 0x3f;
-                            int atonalRange = (int)Math.Max(2, Math.Round(24 * intensityFactor));
-                            int newPitch = Math.Clamp(pitch + _random.Next(-atonalRange, atonalRange + 1), minPitch, maxPitch);
-                            data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
-                            modifiedPitches.Add(offset);
+                            if (percussionPitchOffsets.Contains(offset))
+                            {
+                                byte cmd = data[offset];
+                                int pitch = cmd & 0x3f;
+                                int newPitch = Math.Clamp(21 + _random.Next(0, 43), 21, 63);
+                                data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
+                                modifiedPitches.Add(offset);
+                            }
+                            else
+                            {
+                                byte cmd = data[offset];
+                                int pitch = cmd & 0x3f;
+                                int atonalRange = (int)Math.Max(2, Math.Round(24 * intensityFactor));
+                                int newPitch = Math.Clamp(pitch + _random.Next(-atonalRange, atonalRange + 1), minPitch, maxPitch);
+                                data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
+                                modifiedPitches.Add(offset);
+                            }
                         }
                     }
                 }
@@ -2758,6 +2818,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                         int offset = pitchOffsets[i];
                         if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
                         {
+                            if (percussionPitchOffsets.Contains(offset)) continue;
                             byte cmd = data[offset];
                             int pitch = cmd & 0x3f;
                             int ch = i % 16;
@@ -2774,6 +2835,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                         int offset2 = pitchOffsets[i + 1];
                         if (offset2 >= 0 && offset2 < data.Length && !modifiedPitches.Contains(offset2) && _random.NextDouble() < (intensity / 100.0) * 0.5)
                         {
+                            if (percussionPitchOffsets.Contains(offset2)) continue;
                             int offset1 = pitchOffsets[i];
                             if (offset1 >= 0 && offset1 < data.Length)
                             {
@@ -2788,12 +2850,33 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 }
                 else if (m64Mode == 20) // Drum Roll Glitcher
                 {
-                    foreach (int offset in velocityOffsets)
+                    for (int i = 0; i < pitchOffsets.Count; i++)
                     {
-                        if (offset >= 0 && offset < data.Length && !modifiedVelocities.Contains(offset) && _random.NextDouble() < (intensity / 100.0) * 0.2)
+                        int offset = pitchOffsets[i];
+                        int velOffset = velocityOffsets[i];
+                        if (offset >= 0 && offset < data.Length && velOffset >= 0 && velOffset < data.Length)
                         {
-                            data[offset] = 127;
-                            modifiedVelocities.Add(offset);
+                            if (percussionPitchOffsets.Contains(offset))
+                            {
+                                if (!modifiedVelocities.Contains(velOffset) && _random.NextDouble() < (intensity / 100.0))
+                                {
+                                    data[velOffset] = 127;
+                                    modifiedVelocities.Add(velOffset);
+
+                                    byte cmd = data[offset];
+                                    bool isType2 = (cmd & 0xc0) == 0x80;
+                                    bool isType0 = (cmd & 0xc0) == 0x00;
+                                    if (isType2 || isType0)
+                                    {
+                                        int durOffset = velOffset + 1;
+                                        if (durOffset >= 0 && durOffset < data.Length && !modifiedDurations.Contains(durOffset))
+                                        {
+                                            data[durOffset] = (byte)_random.Next(2, 8);
+                                            modifiedDurations.Add(durOffset);
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -2863,10 +2946,41 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 }
                 else if (m64Mode == 24) // Melody Reverser
                 {
-                    if (pitchOffsets.Count > 0)
+                    var melodyOffsetsList = pitchOffsets.Where(off => !percussionPitchOffsets.Contains(off)).ToList();
+                    var percussionOffsetsList = pitchOffsets.Where(off => percussionPitchOffsets.Contains(off)).ToList();
+
+                    if (melodyOffsetsList.Count > 0)
                     {
                         List<int> targetOffsets = new List<int>();
-                        foreach (int offset in pitchOffsets)
+                        foreach (int offset in melodyOffsetsList)
+                        {
+                            if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
+                            {
+                                targetOffsets.Add(offset);
+                            }
+                        }
+                        
+                        List<byte> pitches = new List<byte>();
+                        foreach (int offset in targetOffsets)
+                        {
+                            pitches.Add((byte)(data[offset] & 0x3f));
+                        }
+                        pitches.Reverse();
+                        
+                        for (int i = 0; i < targetOffsets.Count; i++)
+                        {
+                            int offset = targetOffsets[i];
+                            byte cmd = data[offset];
+                            byte newPitch = pitches[i];
+                            data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
+                            modifiedPitches.Add(offset);
+                        }
+                    }
+
+                    if (percussionOffsetsList.Count > 0)
+                    {
+                        List<int> targetOffsets = new List<int>();
+                        foreach (int offset in percussionOffsetsList)
                         {
                             if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
                             {
@@ -2898,6 +3012,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                         int offset2 = pitchOffsets[i + 1];
                         if (offset2 >= 0 && offset2 < data.Length && !modifiedPitches.Contains(offset2) && _random.NextDouble() < (intensity / 100.0) * 0.5)
                         {
+                            if (percussionPitchOffsets.Contains(offset2)) continue;
                             int offset1 = pitchOffsets[i];
                             if (offset1 >= 0 && offset1 < data.Length)
                             {
@@ -2917,20 +3032,23 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     {
                         var chanVisited = new HashSet<int>();
                         var chanLayerLargeNotes = new Dictionary<int, bool>();
+                        var chanLayerInstruments = new Dictionary<int, int>();
                         var chanInstrumentOffsets = new List<int>();
                         var chanVolumeOffsets = new List<int>();
                         var chanPanOffsets = new List<int>();
                         var chanReverbOffsets = new List<int>();
                         var chanPitchBendOffsets = new List<int>();
 
-                        ParseChanCommandsForOffsets(data, chanPos, chanVisited, chanLayerLargeNotes, chanInstrumentOffsets, chanVolumeOffsets, chanPanOffsets, chanReverbOffsets, chanPitchBendOffsets, false);
+                        ParseChanCommandsForOffsets(data, chanPos, chanVisited, chanLayerLargeNotes, chanLayerInstruments, chanInstrumentOffsets, chanVolumeOffsets, chanPanOffsets, chanReverbOffsets, chanPitchBendOffsets, isShindou, -1, false);
 
                         var chanPitchOffsets = new List<int>();
                         var chanVelocityOffsets = new List<int>();
                         var chanVisitedLayers = new HashSet<int>();
                         foreach (var kvp in chanLayerLargeNotes)
                         {
-                            ParseLayerCommandsForOffsets(data, kvp.Key, chanVisitedLayers, chanPitchOffsets, chanVelocityOffsets, chanInstrumentOffsets, kvp.Value);
+                            int layerPos = kvp.Key;
+                            int layerInstr = chanLayerInstruments.ContainsKey(layerPos) ? chanLayerInstruments[layerPos] : -1;
+                            ParseLayerCommandsForOffsets(data, layerPos, chanVisitedLayers, chanPitchOffsets, chanVelocityOffsets, chanInstrumentOffsets, percussionPitchOffsets, kvp.Value, layerInstr);
                         }
 
                         if (chanPitchOffsets.Count > 0)
@@ -2947,9 +3065,19 @@ void apply_chaos_intro_camera(struct Camera *c) {
                             {
                                 if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
                                 {
-                                    byte cmd = data[offset];
-                                    data[offset] = (byte)((cmd & 0xc0) | (targetPitch & 0x3f));
-                                    modifiedPitches.Add(offset);
+                                    if (percussionPitchOffsets.Contains(offset))
+                                    {
+                                        int targetPercussionPitch = Math.Clamp(targetPitch, 21, 63);
+                                        byte cmd = data[offset];
+                                        data[offset] = (byte)((cmd & 0xc0) | (targetPercussionPitch & 0x3f));
+                                        modifiedPitches.Add(offset);
+                                    }
+                                    else
+                                    {
+                                        byte cmd = data[offset];
+                                        data[offset] = (byte)((cmd & 0xc0) | (targetPitch & 0x3f));
+                                        modifiedPitches.Add(offset);
+                                    }
                                 }
                             }
                         }
@@ -3068,6 +3196,26 @@ void apply_chaos_intro_camera(struct Camera *c) {
             }
         }
 
+        private bool DetectIsShindou(byte[] data)
+        {
+            for (int i = 0; i < data.Length - 2; i++)
+            {
+                byte cmd = data[i];
+                if (cmd >= 0x88 && cmd <= 0x8b)
+                {
+                    int offset = (data[i + 1] << 8) | data[i + 2];
+                    if (offset > 0 && offset < data.Length)
+                    {
+                        if (data[offset] <= 0xc0 || data[offset] == 0xfc || data[offset] == 0xfb || data[offset] == 0xff)
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
         private int ReadVarIntForOffsets(byte[] data, ref int pos)
         {
             int val = 0;
@@ -3130,11 +3278,12 @@ void apply_chaos_intro_camera(struct Camera *c) {
             return 0;
         }
 
-        private int GetChanCmdSizeForOffsets(byte cmd, byte[] data, ref int pos)
+        private int GetChanCmdSizeForOffsets(byte cmd, byte[] data, ref int pos, bool isShindou)
         {
             // 0 parameter bytes
             if (cmd == 0xff || cmd == 0xfe || cmd == 0xf7 || cmd == 0xf6 || 
-                cmd == 0xf1 || cmd == 0xc5 || cmd == 0xc3 || cmd == 0xc4 || 
+                (cmd == 0xf1 && !isShindou) || (cmd == 0xf0 && isShindou) ||
+                cmd == 0xc5 || cmd == 0xc3 || cmd == 0xc4 || 
                 cmd == 0xe4 || cmd == 0xea || cmd == 0xec)
             {
                 return 0;
@@ -3148,12 +3297,10 @@ void apply_chaos_intro_camera(struct Camera *c) {
             }
 
             // 1 parameter byte
-            if (cmd == 0xf8 || cmd == 0xf4 || cmd == 0xf3 || cmd == 0xf2 || 
-                cmd == 0xc6 || cmd == 0xc1 || cmd == 0xdf || cmd == 0xe0 || 
-                cmd == 0xdd || cmd == 0xdc || cmd == 0xdb || cmd == 0xd9 || 
-                cmd == 0xd8 || cmd == 0xd7 || cmd == 0xd6 || cmd == 0xd4 || 
-                cmd == 0xd3 || cmd == 0xd2 || cmd == 0xd1 || cmd == 0xe3 || 
-                cmd == 0xe5 || cmd == 0xe6 || cmd == 0xeb)
+            if (cmd == 0xf8 || (cmd == 0xf2 && !isShindou) || (cmd == 0xf1 && isShindou) || cmd == 0xdc || cmd == 0xda || 
+                cmd == 0xd5 || cmd == 0xdf || cmd == 0xde || cmd == 0xdd || 
+                cmd == 0xdb || cmd == 0xd3 || cmd == 0xd0 || cmd == 0xcc || 
+                cmd == 0xc9 || cmd == 0xc8 || cmd == 0xd9)
             {
                 return 1;
             }
@@ -3178,7 +3325,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             }
 
             // Default for any sub-commands or note events that fall into channel parsing
-            if ((cmd & 0xF0) == 0x90) return 2;
+            if ((cmd & 0xF0) == 0x90) return isShindou ? 0 : 2;
             if ((cmd & 0xF0) == 0x10) return 2;
             if ((cmd & 0xF0) == 0x20) return 0;
             if ((cmd & 0xF0) == 0x30) return 1;
@@ -3304,7 +3451,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             }
         }
 
-        private void ParseChanCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, Dictionary<int, bool> layerLargeNotes, List<int> instrumentOffsets, List<int> volumeOffsets, List<int> panOffsets, List<int> reverbOffsets, List<int> pitchBendOffsets, bool largeNotesState = false)
+        private void ParseChanCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, Dictionary<int, bool> layerLargeNotes, Dictionary<int, int> layerInstruments, List<int> instrumentOffsets, List<int> volumeOffsets, List<int> panOffsets, List<int> reverbOffsets, List<int> pitchBendOffsets, bool isShindou, int currentInstr = -1, bool largeNotesState = false)
         {
             if (pos < 0 || pos >= data.Length || visited.Contains(pos)) return;
             visited.Add(pos);
@@ -3320,7 +3467,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     int jumpOffset = (data[pos++] << 8) | data[pos++];
                     if (jumpOffset > 0 && jumpOffset < data.Length)
                     {
-                        ParseChanCommandsForOffsets(data, jumpOffset, visited, layerLargeNotes, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets, largeNotesState);
+                        ParseChanCommandsForOffsets(data, jumpOffset, visited, layerLargeNotes, layerInstruments, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets, isShindou, currentInstr, largeNotesState);
                     }
                     break;
                 }
@@ -3331,6 +3478,10 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 else if (cmd == 0xc1)
                 {
                     instrumentOffsets.Add(pos);
+                    if (pos < data.Length)
+                    {
+                        currentInstr = data[pos];
+                    }
                     pos++;
                 }
                 else if (cmd == 0xc3) // chan_largenotesoff
@@ -3366,24 +3517,25 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     _decayReleaseOffsets.Add(pos);
                     pos++;
                 }
-                else if ((cmd & 0xf0) == 0x90)
+                else if (isShindou ? (cmd >= 0x88 && cmd <= 0x8b) : ((cmd & 0xf0) == 0x90))
                 {
                     _layerPointerOffsets.Add(pos);
                     int layerPos = (data[pos++] << 8) | data[pos++];
                     if (layerPos > 0 && layerPos < data.Length)
                     {
                         layerLargeNotes[layerPos] = largeNotesState;
+                        layerInstruments[layerPos] = currentInstr;
                     }
                 }
                 else
                 {
-                    int argSize = GetChanCmdSizeForOffsets(cmd, data, ref pos);
+                    int argSize = GetChanCmdSizeForOffsets(cmd, data, ref pos, isShindou);
                     pos += argSize;
                 }
             }
         }
 
-        private void ParseLayerCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, List<int> pitchOffsets, List<int> velocityOffsets, List<int> instrumentOffsets, bool largeNotes)
+        private void ParseLayerCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, List<int> pitchOffsets, List<int> velocityOffsets, List<int> instrumentOffsets, HashSet<int> percussionPitchOffsets, bool largeNotes, int layerInstr = -1)
         {
             if (pos < 0 || pos >= data.Length || visited.Contains(pos)) return;
             visited.Add(pos);
@@ -3399,7 +3551,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     int jumpOffset = (data[pos++] << 8) | data[pos++];
                     if (jumpOffset > 0 && jumpOffset < data.Length)
                     {
-                        ParseLayerCommandsForOffsets(data, jumpOffset, visited, pitchOffsets, velocityOffsets, instrumentOffsets, largeNotes);
+                        ParseLayerCommandsForOffsets(data, jumpOffset, visited, pitchOffsets, velocityOffsets, instrumentOffsets, percussionPitchOffsets, largeNotes, layerInstr);
                     }
                     break;
                 }
@@ -3409,7 +3561,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     int callOffset = (data[pos++] << 8) | data[pos++];
                     if (callOffset > 0 && callOffset < data.Length)
                     {
-                        ParseLayerCommandsForOffsets(data, callOffset, visited, pitchOffsets, velocityOffsets, instrumentOffsets, largeNotes);
+                        ParseLayerCommandsForOffsets(data, callOffset, visited, pitchOffsets, velocityOffsets, instrumentOffsets, percussionPitchOffsets, largeNotes, layerInstr);
                     }
                 }
                 else if (cmd == 0xfd)
@@ -3419,25 +3571,44 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 else if (cmd == 0xc6)
                 {
                     instrumentOffsets.Add(pos);
+                    if (pos < data.Length)
+                    {
+                        layerInstr = data[pos];
+                    }
                     pos++;
                 }
                 else if (cmd >= 0x00 && cmd <= 0x3f) // Type 0 note (large)
                 {
-                    pitchOffsets.Add(pos - 1);
+                    int pitchOffset = pos - 1;
+                    pitchOffsets.Add(pitchOffset);
+                    if (layerInstr == 127)
+                    {
+                        percussionPitchOffsets.Add(pitchOffset);
+                    }
                     ReadVarIntForOffsets(data, ref pos);
                     velocityOffsets.Add(pos);
                     pos += 2; // Skip velocity (1 byte) and gate (1 byte)
                 }
                 else if (cmd >= 0x40 && cmd <= 0x7f) // Type 1 note (medium)
                 {
-                    pitchOffsets.Add(pos - 1);
+                    int pitchOffset = pos - 1;
+                    pitchOffsets.Add(pitchOffset);
+                    if (layerInstr == 127)
+                    {
+                        percussionPitchOffsets.Add(pitchOffset);
+                    }
                     ReadVarIntForOffsets(data, ref pos);
                     velocityOffsets.Add(pos);
                     pos++; // Skip velocity (1 byte)
                 }
                 else if (cmd >= 0x80 && cmd <= 0xbf) // Type 2 note (small)
                 {
-                    pitchOffsets.Add(pos - 1);
+                    int pitchOffset = pos - 1;
+                    pitchOffsets.Add(pitchOffset);
+                    if (layerInstr == 127)
+                    {
+                        percussionPitchOffsets.Add(pitchOffset);
+                    }
                     velocityOffsets.Add(pos);
                     pos += 2; // Skip velocity (1 byte) and duration/gate (1 byte)
                 }
