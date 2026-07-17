@@ -15,14 +15,24 @@ namespace Sm64DecompLevelViewer
     public partial class ChaosEngineWindow : Window
     {
         private readonly string _projectRoot;
-        private readonly Random _random = new();
+        private Random _random = new();
         private readonly List<SoundReplacerWindow.SoundReplacementRule> _sfxReplacementRules = new();
         private readonly List<TextureReplacerWindow.TextureReplacementRule> _textureReplacementRules = new();
         private readonly List<int> _activeM64Modes = new() { 0, 1, 2, 3, 4, 5 };
+        private readonly List<int> _activeGameLogicModes = new() { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 };
+        private bool _gameLogicSimultaneous = true;
 
         private readonly string _presetsDir;
         private bool _isLoadingPreset = false;
         private List<string> _selectedTextures = new();
+
+        private readonly List<ChaosPreset> _stockpile = new();
+        private readonly List<ChaosPreset> _queue = new();
+        private bool _isQueueRunning = false;
+        private bool _isQueueAccumulating = false;
+        private readonly HashSet<string> _filesModifiedInQueue = new();
+        private readonly Dictionary<string, string> _accumulatedMacros = new();
+        private readonly HashSet<int> _accumulatedGameLogicModes = new();
 
         public ChaosEngineWindow(string projectRoot)
         {
@@ -44,6 +54,56 @@ namespace Sm64DecompLevelViewer
 
         private async void ChaosButton_Click(object sender, RoutedEventArgs e)
         {
+            _isQueueRunning = false;
+            _isQueueAccumulating = false;
+            _filesModifiedInQueue.Clear();
+            _accumulatedMacros.Clear();
+            _accumulatedGameLogicModes.Clear();
+
+            ChaosButton.IsEnabled = false;
+            CorruptionProgressBar.Visibility = Visibility.Visible;
+            CorruptionProgressBar.Value = 0;
+            StatusTextBlock.Text = "Scanning workspace for files...";
+
+            try
+            {
+                await InflictChaosInternalAsync();
+                StatusTextBlock.Text = "Chaos successfully inflicted! Rebuild project to see effects.";
+                MessageBox.Show("Chaos successfully inflicted! Build the ROM via WSL to experience the glitched results.\n\nYou can revert all corruptions anytime using the standard Git checkout option.", "Chaos Inflicted", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                StatusTextBlock.Text = "Error running Chaos Engine.";
+                MessageBox.Show($"Error running Chaos Engine: {ex.Message}", "Chaos Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                ChaosButton.IsEnabled = true;
+                CorruptionProgressBar.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private async Task InflictChaosInternalAsync()
+        {
+            int seed = 0;
+            bool useRandomSeed = UseRandomSeedCheck.IsChecked == true;
+            string seedText = ChaosSeedTextBox.Text;
+
+            if (useRandomSeed || string.IsNullOrWhiteSpace(seedText))
+            {
+                seed = new Random().Next();
+                ChaosSeedTextBox.Text = seed.ToString();
+            }
+            else
+            {
+                if (!int.TryParse(seedText, out seed))
+                {
+                    seed = seedText.GetHashCode();
+                }
+            }
+
+            _random = new Random(seed);
+
             double intensity = IntensifySlider.Value;
             bool targetMusic = TargetMusicNotesCheck.IsChecked == true;
             bool targetSounds = TargetSoundsCheck.IsChecked == true;
@@ -83,6 +143,7 @@ namespace Sm64DecompLevelViewer
             bool limboMario = LimboMarioCheck.IsChecked == true;
             int limboMarioMode = LimboMarioModeComboBox.SelectedIndex;
             bool alienSound = AlienSoundCheatCheck.IsChecked == true;
+            bool gameLogicRandomizer = GameLogicRandomizerCheck.IsChecked == true;
 
             bool scrambleTitleScreen = ScrambleTitleScreenCheck.IsChecked == true;
             int titleScramblerMode = TitleScreenScramblerModeComboBox.SelectedIndex;
@@ -113,21 +174,14 @@ namespace Sm64DecompLevelViewer
             if (!targetMusic && !targetSounds && !randomizeDl && !randomizeCollision && !targetModels && !targetGoddard && !shuffleSounds &&
                 !randomizeSkybox && !randomizeText && !jumpWeird && !jumpDeath && !limboMario && !alienSound && !randomizeTextures &&
                 !glitchAnimations && !glitchHud && !replaceSfx && !replaceTexturesCustom && !randomizeMarioColors && DlExclusionCheck.IsChecked != true &&
-                !scrambleTitleScreen && !randomizeCutsceneCamera && !startLevelChaos && !lakituCameraChaos)
+                !scrambleTitleScreen && !randomizeCutsceneCamera && !startLevelChaos && !lakituCameraChaos && !gameLogicRandomizer)
             {
                 MessageBox.Show("Please select at least one target asset type or cheat to inflict.", "No Targets Selected", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            ChaosButton.IsEnabled = false;
-            CorruptionProgressBar.Visibility = Visibility.Visible;
-            CorruptionProgressBar.Value = 0;
-            StatusTextBlock.Text = "Scanning workspace for files...";
-
-            try
+            await Task.Run(() =>
             {
-                await Task.Run(() =>
-                {
                     // Perform sound shuffling first if requested
                     if (shuffleSounds)
                     {
@@ -208,7 +262,14 @@ namespace Sm64DecompLevelViewer
                                 {
                                     string sourceBackup = sourceBackups[i];
                                     string targetFile = aiffFiles[i];
-                                    File.Copy(sourceBackup, targetFile, true);
+                                    if (!_isQueueRunning || !_isQueueAccumulating || !_filesModifiedInQueue.Contains(targetFile))
+                                    {
+                                        File.Copy(sourceBackup, targetFile, true);
+                                    }
+                                    if (_isQueueRunning)
+                                    {
+                                        _filesModifiedInQueue.Add(targetFile);
+                                    }
 
                                     // Apply our custom pitch / mode changes to the target file!
                                     if (sfxMode != 0 || sfxPitchVariation)
@@ -339,6 +400,35 @@ namespace Sm64DecompLevelViewer
                                 foreach (var line in existingLines)
                                 {
                                     string trimmed = line.Trim();
+                                    if (trimmed.StartsWith("#define CHAOS_"))
+                                    {
+                                        var parts = trimmed.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                                        if (parts.Length >= 2)
+                                        {
+                                            string macroName = parts[1];
+                                            if (!_accumulatedMacros.ContainsKey(macroName))
+                                            {
+                                                _accumulatedMacros[macroName] = trimmed;
+                                            }
+                                            if (macroName == "CHAOS_ACTIVE_LOGIC_MODES_LIST")
+                                            {
+                                                int idx = trimmed.IndexOf("CHAOS_ACTIVE_LOGIC_MODES_LIST");
+                                                if (idx != -1)
+                                                {
+                                                    string listStr = trimmed.Substring(idx + "CHAOS_ACTIVE_LOGIC_MODES_LIST".Length).Trim();
+                                                    var modes = listStr.Split(',');
+                                                    foreach (var m in modes)
+                                                    {
+                                                        if (int.TryParse(m.Trim(), out int val))
+                                                        {
+                                                            _accumulatedGameLogicModes.Add(val);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     if (trimmed.Contains("CHAOS_RANDOM_SKYBOX") ||
                                         trimmed.Contains("CHAOS_SKYBOX_SEED") ||
                                         trimmed.Contains("CHAOS_JUMP_WEIRD") ||
@@ -349,7 +439,11 @@ namespace Sm64DecompLevelViewer
                                         trimmed.Contains("CHAOS_TITLE_SCRAMBLER_MODE") ||
                                         trimmed.Contains("CHAOS_CUTSCENE_CAMERA_MODE") ||
                                         trimmed.Contains("CHAOS_START_LEVEL") ||
-                                        trimmed.Contains("CHAOS_FACELESS_V2"))
+                                        trimmed.Contains("CHAOS_FACELESS_V2") ||
+                                        trimmed.Contains("CHAOS_ACTIVE_LOGIC_MODES_COUNT") ||
+                                        trimmed.Contains("CHAOS_ACTIVE_LOGIC_MODES_LIST") ||
+                                        trimmed.Contains("CHAOS_GAME_LOGIC_SIMULTANEOUS") ||
+                                        trimmed.Contains("CHAOS_SEED"))
                                     {
                                         continue;
                                     }
@@ -373,50 +467,112 @@ namespace Sm64DecompLevelViewer
                                 endifIndex = lines.Count - 1;
                             }
 
-                            var newOptions = new List<string>();
+                            int gameSeed = _random.Next(1, 1000000);
+                            _accumulatedMacros["CHAOS_SEED"] = $"#define CHAOS_SEED {gameSeed}";
+
                             if (randomizeSkybox)
                             {
-                                newOptions.Add("#define CHAOS_RANDOM_SKYBOX");
-                                newOptions.Add($"#define CHAOS_SKYBOX_SEED {skyboxSeed}");
+                                _accumulatedMacros["CHAOS_RANDOM_SKYBOX"] = "#define CHAOS_RANDOM_SKYBOX";
+                                _accumulatedMacros["CHAOS_SKYBOX_SEED"] = $"#define CHAOS_SKYBOX_SEED {skyboxSeed}";
                             }
                             if (jumpWeird)
                             {
-                                newOptions.Add("#define CHAOS_JUMP_WEIRD");
+                                if (_accumulatedMacros.ContainsKey("CHAOS_JUMP_WEIRD"))
+                                {
+                                    throw new InvalidOperationException("Weird jump mode is already applied. Operation refused to prevent redundancy.");
+                                }
+                                _accumulatedMacros["CHAOS_JUMP_WEIRD"] = "#define CHAOS_JUMP_WEIRD";
                             }
                             if (jumpDeath)
                             {
-                                newOptions.Add("#define CHAOS_JUMP_DEATH");
+                                if (_accumulatedMacros.ContainsKey("CHAOS_JUMP_DEATH"))
+                                {
+                                    throw new InvalidOperationException("Death jump mode is already applied. Operation refused to prevent redundancy.");
+                                }
+                                _accumulatedMacros["CHAOS_JUMP_DEATH"] = "#define CHAOS_JUMP_DEATH";
                             }
                             if (limboMario)
                             {
-                                newOptions.Add("#define CHAOS_LIMBO_MARIO");
-                                newOptions.Add($"#define CHAOS_LIMBO_MARIO_MODE {limboMarioMode}");
+                                string expectedLimboMacro = $"#define CHAOS_LIMBO_MARIO_MODE {limboMarioMode}";
+                                if (_accumulatedMacros.TryGetValue("CHAOS_LIMBO_MARIO_MODE", out var existingLimbo) && existingLimbo == expectedLimboMacro)
+                                {
+                                    throw new InvalidOperationException($"Limbo Mario mode {limboMarioMode} is already applied. Operation refused to prevent redundancy.");
+                                }
+                                _accumulatedMacros["CHAOS_LIMBO_MARIO"] = "#define CHAOS_LIMBO_MARIO";
+                                _accumulatedMacros["CHAOS_LIMBO_MARIO_MODE"] = expectedLimboMacro;
                             }
                             if (lakituCameraChaos)
                             {
-                                newOptions.Add($"#define CHAOS_LAKITU_CAMERA_MODE {lakituCameraMode}");
+                                string expectedCameraMacro = $"#define CHAOS_LAKITU_CAMERA_MODE {lakituCameraMode}";
+                                if (_accumulatedMacros.TryGetValue("CHAOS_LAKITU_CAMERA_MODE", out var existingCam) && existingCam == expectedCameraMacro)
+                                {
+                                    throw new InvalidOperationException($"Lakitu camera mode {lakituCameraMode} is already applied. Operation refused to prevent redundancy.");
+                                }
+                                _accumulatedMacros["CHAOS_LAKITU_CAMERA_MODE"] = expectedCameraMacro;
                             }
                             if (alienSound)
                             {
-                                newOptions.Add("#define CHAOS_ALIEN_SOUND");
+                                if (_accumulatedMacros.ContainsKey("CHAOS_ALIEN_SOUND"))
+                                {
+                                    throw new InvalidOperationException("Alien sound cheat is already applied. Operation refused to prevent redundancy.");
+                                }
+                                _accumulatedMacros["CHAOS_ALIEN_SOUND"] = "#define CHAOS_ALIEN_SOUND";
                             }
                             if (scrambleTitleScreen)
                             {
-                                newOptions.Add($"#define CHAOS_TITLE_SCRAMBLER_MODE {titleScramblerMode}");
+                                string expectedTitleMacro = $"#define CHAOS_TITLE_SCRAMBLER_MODE {titleScramblerMode}";
+                                if (_accumulatedMacros.TryGetValue("CHAOS_TITLE_SCRAMBLER_MODE", out var existingTitle) && existingTitle == expectedTitleMacro)
+                                {
+                                    throw new InvalidOperationException($"Title screen scrambler mode {titleScramblerMode} is already applied. Operation refused to prevent redundancy.");
+                                }
+                                _accumulatedMacros["CHAOS_TITLE_SCRAMBLER_MODE"] = expectedTitleMacro;
                             }
                             if (randomizeCutsceneCamera)
                             {
-                                newOptions.Add($"#define CHAOS_CUTSCENE_CAMERA_MODE {cutsceneCameraMode}");
+                                string expectedCutsceneMacro = $"#define CHAOS_CUTSCENE_CAMERA_MODE {cutsceneCameraMode}";
+                                if (_accumulatedMacros.TryGetValue("CHAOS_CUTSCENE_CAMERA_MODE", out var existingCutscene) && existingCutscene == expectedCutsceneMacro)
+                                {
+                                    throw new InvalidOperationException($"Cutscene camera mode {cutsceneCameraMode} is already applied. Operation refused to prevent redundancy.");
+                                }
+                                _accumulatedMacros["CHAOS_CUTSCENE_CAMERA_MODE"] = expectedCutsceneMacro;
                             }
                             if (startLevelChaos)
                             {
-                                newOptions.Add($"#define CHAOS_START_LEVEL {startLevelConstant}");
+                                string expectedStartLevelMacro = $"#define CHAOS_START_LEVEL {startLevelConstant}";
+                                if (_accumulatedMacros.TryGetValue("CHAOS_START_LEVEL", out var existingStartLevel) && existingStartLevel == expectedStartLevelMacro)
+                                {
+                                    throw new InvalidOperationException($"Start level {startLevelConstant} is already applied. Operation refused to prevent redundancy.");
+                                }
+                                _accumulatedMacros["CHAOS_START_LEVEL"] = expectedStartLevelMacro;
                             }
                             if (randomizeDl && dlMode == 8)
                             {
-                                newOptions.Add("#define CHAOS_FACELESS_V2");
+                                if (_accumulatedMacros.ContainsKey("CHAOS_FACELESS_V2"))
+                                {
+                                    throw new InvalidOperationException("Faceless V2 mode (dlMode 8) is already applied. Operation refused to prevent redundancy.");
+                                }
+                                _accumulatedMacros["CHAOS_FACELESS_V2"] = "#define CHAOS_FACELESS_V2";
+                            }
+                            if (gameLogicRandomizer && _activeGameLogicModes.Count > 0)
+                            {
+                                bool allModesAlreadyActive = _activeGameLogicModes.All(m => _accumulatedGameLogicModes.Contains(m));
+                                if (allModesAlreadyActive)
+                                {
+                                    throw new InvalidOperationException("All selected game logic randomizer modes are already active. Operation refused to prevent redundancy.");
+                                }
+                                foreach (var glMode in _activeGameLogicModes)
+                                {
+                                    _accumulatedGameLogicModes.Add(glMode);
+                                }
+                                _accumulatedMacros["CHAOS_ACTIVE_LOGIC_MODES_COUNT"] = $"#define CHAOS_ACTIVE_LOGIC_MODES_COUNT {_accumulatedGameLogicModes.Count}";
+                                _accumulatedMacros["CHAOS_ACTIVE_LOGIC_MODES_LIST"] = $"#define CHAOS_ACTIVE_LOGIC_MODES_LIST {string.Join(", ", _accumulatedGameLogicModes)}";
+                                if (_gameLogicSimultaneous)
+                                {
+                                    _accumulatedMacros["CHAOS_GAME_LOGIC_SIMULTANEOUS"] = "#define CHAOS_GAME_LOGIC_SIMULTANEOUS";
+                                }
                             }
 
+                            var newOptions = _accumulatedMacros.Values.ToList();
                             lines.InsertRange(endifIndex, newOptions);
 
                             File.WriteAllText(configPath, string.Join("\n", lines).Replace("\r\n", "\n") + "\n");
@@ -562,6 +718,214 @@ namespace Sm64DecompLevelViewer
                         PatchSourceFile("src/game/mario.c", "#include \"sm64.h\"", "#include \"sm64.h\"\n#include \"chaos_config.h\"");
                     }
                     
+                    if (gameLogicRandomizer)
+                    {
+                        string oldFunc = "s32 execute_mario_action(UNUSED struct Object *o) {";
+                        string newFunc = @"#ifdef CHAOS_ACTIVE_LOGIC_MODES_COUNT
+static s32 sActiveModes[] = { CHAOS_ACTIVE_LOGIC_MODES_LIST };
+static s32 sChaosCurrentMode = -1;
+static u32 sChaosModeTimer = 0;
+
+void handle_game_logic_randomizer_pre(struct MarioState *m) {
+    static u32 sLastWarpTimer = 0;
+    extern u32 gGlobalTimer;
+    extern u16 random_u16(void);
+    s32 i;
+    s32 runMode;
+
+    #ifdef CHAOS_GAME_LOGIC_SIMULTANEOUS
+    for (i = 0; i < CHAOS_ACTIVE_LOGIC_MODES_COUNT; i++) {
+        runMode = sActiveModes[i];
+    #else
+    if (sChaosCurrentMode == -1 || gGlobalTimer - sChaosModeTimer >= 300) {
+        sChaosCurrentMode = sActiveModes[random_u16() % CHAOS_ACTIVE_LOGIC_MODES_COUNT];
+        sChaosModeTimer = gGlobalTimer;
+    }
+    runMode = sChaosCurrentMode;
+    #endif
+
+    if (runMode == 1) {
+        if ((gGlobalTimer % 240) < 90) {
+            m->action = ACT_COUGHING;
+            m->vel[0] = 0.0f;
+            m->vel[1] = 0.0f;
+            m->vel[2] = 0.0f;
+            m->forwardVel = 0.0f;
+        }
+    }
+    if (runMode == 3) {
+        if (m->forwardVel > 0.0f && m->forwardVel < 30.0f) {
+            m->forwardVel = 30.0f;
+        }
+    }
+    if (runMode == 4) {
+        if (m->vel[1] < 0.0f) {
+            m->vel[1] += 2.0f;
+        }
+    }
+    if (runMode == 5) {
+        if (m->vel[1] < 0.0f) {
+            m->vel[1] -= 3.0f;
+        }
+    }
+    if (runMode == 6) {
+        m->controller->stickX = -m->controller->stickX;
+        m->controller->stickY = -m->controller->stickY;
+    }
+    if (runMode == 7) {
+        m->forwardVel *= 2.5f;
+        m->vel[0] *= 2.5f;
+        m->vel[2] *= 2.5f;
+    }
+    if (runMode == 11) {
+        extern struct Camera *gCamera;
+        if (gCamera) {
+            gCamera->areaCenY += (random_u16() % 10 - 5);
+        }
+    }
+    if (runMode == 12) {
+        if (m->action & ACT_FLAG_AIR) {
+            m->action = ACT_TWIRLING;
+        }
+    }
+    if (runMode == 13) {
+        if (gGlobalTimer - sLastWarpTimer >= 120) {
+            m->pos[1] += 400.0f;
+            sLastWarpTimer = gGlobalTimer;
+        }
+    }
+    if (runMode == 14) {
+        if (m->pos[1] <= m->floorHeight + 2.0f && m->vel[1] <= 0.0f) {
+            m->vel[1] = 50.0f;
+            m->action = ACT_DOUBLE_JUMP;
+        }
+    }
+    if (runMode == 15) {
+        if (gGlobalTimer % 2 == 0) {
+            m->particleFlags |= PARTICLE_FIRE;
+        }
+    }
+    if (runMode == 16) {
+        u32 capTick = (gGlobalTimer / 90) % 3;
+        if (capTick == 0) {
+            m->flags |= MARIO_WING_CAP;
+            m->flags &= ~(MARIO_METAL_CAP | MARIO_VANISH_CAP);
+        } else if (capTick == 1) {
+            m->flags |= MARIO_METAL_CAP;
+            m->flags &= ~(MARIO_WING_CAP | MARIO_VANISH_CAP);
+        } else {
+            m->flags |= MARIO_VANISH_CAP;
+            m->flags &= ~(MARIO_WING_CAP | MARIO_METAL_CAP);
+        }
+    }
+    if (runMode == 17) {
+        if (gGlobalTimer % 15 == 0 && m->health > 0x100) {
+            m->health -= 0x20;
+        }
+    }
+    if (runMode == 19) {
+        if ((m->action & ACT_FLAG_MOVING) && !(m->action & ACT_FLAG_AIR)) {
+            m->action = ACT_BUTT_SLIDE;
+        }
+    }
+    if (runMode == 20) {
+        if (gGlobalTimer - sLastWarpTimer >= 150) {
+            m->pos[0] += sins(m->faceAngle[1]) * 400.0f;
+            m->pos[2] += coss(m->faceAngle[1]) * 400.0f;
+            sLastWarpTimer = gGlobalTimer;
+        }
+    }
+
+    #ifdef CHAOS_GAME_LOGIC_SIMULTANEOUS
+    }
+    #endif
+}
+
+void handle_game_logic_randomizer_post(struct MarioState *m) {
+    static Vec3f sFrozenGfxPos;
+    static u8 sGfxPosFrozen = FALSE;
+    s32 i;
+    s32 runMode;
+
+    m->marioObj->header.gfx.scale[0] = 1.0f;
+    m->marioObj->header.gfx.scale[1] = 1.0f;
+    m->marioObj->header.gfx.scale[2] = 1.0f;
+
+    #ifdef CHAOS_GAME_LOGIC_SIMULTANEOUS
+    for (i = 0; i < CHAOS_ACTIVE_LOGIC_MODES_COUNT; i++) {
+        runMode = sActiveModes[i];
+    #else
+        runMode = sChaosCurrentMode;
+    #endif
+
+    if (runMode == 2) {
+        if (m->action & ACT_FLAG_STATIONARY) {
+            sGfxPosFrozen = FALSE;
+        } else {
+            if (!sGfxPosFrozen) {
+                vec3f_copy(sFrozenGfxPos, m->marioObj->header.gfx.pos);
+                sGfxPosFrozen = TRUE;
+            }
+            vec3f_copy(m->marioObj->header.gfx.pos, sFrozenGfxPos);
+        }
+    }
+    if (runMode == 8) {
+        m->marioObj->header.gfx.scale[0] = 3.0f;
+        m->marioObj->header.gfx.scale[1] = 3.0f;
+        m->marioObj->header.gfx.scale[2] = 3.0f;
+    }
+    if (runMode == 9) {
+        m->marioObj->header.gfx.scale[0] = 0.3f;
+        m->marioObj->header.gfx.scale[1] = 0.3f;
+        m->marioObj->header.gfx.scale[2] = 0.3f;
+    }
+    if (runMode == 10) {
+        m->marioObj->header.gfx.scale[0] = 0.1f;
+    }
+    if (runMode == 18) {
+        m->marioObj->header.gfx.node.flags |= GRAPH_RENDER_INVISIBLE;
+    }
+
+    #ifdef CHAOS_GAME_LOGIC_SIMULTANEOUS
+    }
+    #endif
+
+    #ifdef CHAOS_GAME_LOGIC_SIMULTANEOUS
+    {
+        u8 mode2Found = FALSE;
+        for (i = 0; i < CHAOS_ACTIVE_LOGIC_MODES_COUNT; i++) {
+            if (sActiveModes[i] == 2) {
+                mode2Found = TRUE;
+                break;
+            }
+        }
+        if (!mode2Found) {
+            sGfxPosFrozen = FALSE;
+        }
+    }
+    #else
+    if (sChaosCurrentMode != 2) {
+        sGfxPosFrozen = FALSE;
+    }
+    #endif
+}
+#endif
+
+s32 execute_mario_action(UNUSED struct Object *o) {";
+
+                        PatchSourceFile("src/game/mario.c", oldFunc, newFunc);
+
+                        string oldPre = "        mario_reset_bodystate(gMarioState);\n        update_mario_inputs(gMarioState);";
+                        string newPre = "        mario_reset_bodystate(gMarioState);\n        update_mario_inputs(gMarioState);\n#ifdef CHAOS_ACTIVE_LOGIC_MODES_COUNT\n        handle_game_logic_randomizer_pre(gMarioState);\n#endif";
+                        PatchSourceFile("src/game/mario.c", oldPre, newPre);
+
+                        string oldPost = "        return gMarioState->particleFlags;";
+                        string newPost = "#ifdef CHAOS_ACTIVE_LOGIC_MODES_COUNT\n        handle_game_logic_randomizer_post(gMarioState);\n#endif\n        return gMarioState->particleFlags;";
+                        PatchSourceFile("src/game/mario.c", oldPost, newPost);
+
+                        PatchSourceFile("src/game/mario.c", "#include \"sm64.h\"", "#include \"sm64.h\"\n#include \"chaos_config.h\"");
+                    }
+                    
                     if (alienSound)
                     {
                         string oldAlienLoop = "        {\n            u8 *_ptr_pc;\n            _ptr_pc = (*state).pc++;\n            cmd = *_ptr_pc;\n        }";
@@ -672,7 +1036,11 @@ namespace Sm64DecompLevelViewer
                         string cameraHelper = @"#ifdef CHAOS_CUTSCENE_CAMERA_MODE
 void apply_chaos_intro_camera(struct Camera *c) {
     extern u32 gGlobalTimer;
+    #ifdef CHAOS_SEED
+    u32 seed = (gGlobalTimer + CHAOS_SEED) * 1664525 + 1013904223;
+    #else
     u32 seed = gGlobalTimer * 1664525 + 1013904223;
+    #endif
     f32 rx, rz;
     
     switch (CHAOS_CUTSCENE_CAMERA_MODE) {
@@ -736,7 +1104,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     if (lakituCameraChaos)
                     {
                         string oldCameraHelper = "    clamp_pitch(gLakituState.pos, gLakituState.focus, 0x3E00, -0x3E00);\n    gLakituState.mode = c->mode;\n    gLakituState.defMode = c->defMode;\n}";
-                        string newCameraHelper = "    clamp_pitch(gLakituState.pos, gLakituState.focus, 0x3E00, -0x3E00);\n    gLakituState.mode = c->mode;\n    gLakituState.defMode = c->defMode;\n}\n\n#ifdef CHAOS_LAKITU_CAMERA_MODE\nvoid apply_chaos_lakitu_camera(struct Camera *c) {\n    extern struct MarioState gMarioStates[];\n    struct MarioState *m = &gMarioStates[0];\n    extern u32 gGlobalTimer;\n    u32 seed = gGlobalTimer * 1664525 + 1013904223;\n    f32 dist;\n    int activeMode = CHAOS_LAKITU_CAMERA_MODE;\n    if (activeMode == 10) {\n        activeMode = (gGlobalTimer / 90) % 9 + 1;\n    }\n\n    switch (activeMode) {\n        case 1:\n            gLakituState.pos[0] += (seed % 60 - 30) * 1.5f;\n            gLakituState.pos[1] += ((seed >> 4) % 60 - 30) * 1.5f;\n            gLakituState.pos[2] += ((seed >> 8) % 60 - 30) * 1.5f;\n            gLakituState.focus[0] += ((seed >> 12) % 40 - 20) * 1.0f;\n            gLakituState.focus[1] += ((seed >> 16) % 40 - 20) * 1.0f;\n            gLakituState.focus[2] += ((seed >> 20) % 40 - 20) * 1.0f;\n            break;\n        case 2:\n            gLakituState.pos[0] = m->pos[0];\n            gLakituState.pos[1] = m->pos[1] + 1800.f;\n            gLakituState.pos[2] = m->pos[2] + 1.f;\n            vec3f_copy(gLakituState.focus, m->pos);\n            break;\n        case 3:\n            gLakituState.pos[0] = m->pos[0] + 500.f * sins(m->faceAngle[1]);\n            gLakituState.pos[1] = m->pos[1] + 120.f;\n            gLakituState.pos[2] = m->pos[2] + 500.f * coss(m->faceAngle[1]);\n            vec3f_copy(gLakituState.focus, m->pos);\n            break;\n        case 4:\n            dist = 800.f;\n            gLakituState.pos[0] = m->pos[0] + dist * sins(gGlobalTimer * 200);\n            gLakituState.pos[1] = m->pos[1] + 250.f;\n            gLakituState.pos[2] = m->pos[2] + dist * coss(gGlobalTimer * 200);\n            vec3f_copy(gLakituState.focus, m->pos);\n            break;\n        case 5:\n            gLakituState.pos[0] += 300.f * sins(gGlobalTimer * 250);\n            gLakituState.pos[1] += 150.f * coss(gGlobalTimer * 180);\n            break;\n        case 6:\n            dist = 700.f + 500.f * sins(gGlobalTimer * 150);\n            gLakituState.pos[0] = m->pos[0] + dist * sins(c->yaw);\n            gLakituState.pos[2] = m->pos[2] + dist * coss(c->yaw);\n            break;\n        case 7:\n            gLakituState.pos[0] = m->pos[0];\n            gLakituState.pos[1] = m->pos[1] + 200.f;\n            gLakituState.pos[2] = m->pos[2] + 900.f;\n            vec3f_copy(gLakituState.focus, m->pos);\n            break;\n        case 8:\n            gLakituState.pos[0] = m->pos[0] - (m->pos[0] - gLakituState.pos[0]) * 0.999f;\n            gLakituState.pos[1] = m->pos[1] + 600.f;\n            gLakituState.pos[2] = m->pos[2] - (m->pos[2] - gLakituState.pos[2]) * 0.999f;\n            vec3f_copy(gLakituState.focus, m->pos);\n            break;\n        case 9:\n            gLakituState.pos[1] = m->pos[1] - (gLakituState.pos[1] - m->pos[1]);\n            break;\n    }\n    vec3f_copy(c->pos, gLakituState.pos);\n    vec3f_copy(c->focus, gLakituState.focus);\n}\n#endif";
+                        string newCameraHelper = "    clamp_pitch(gLakituState.pos, gLakituState.focus, 0x3E00, -0x3E00);\n    gLakituState.mode = c->mode;\n    gLakituState.defMode = c->defMode;\n}\n\n#ifdef CHAOS_LAKITU_CAMERA_MODE\nvoid apply_chaos_lakitu_camera(struct Camera *c) {\n    extern struct MarioState gMarioStates[];\n    struct MarioState *m = &gMarioStates[0];\n    extern u32 gGlobalTimer;\n#ifdef CHAOS_SEED\n    u32 seed = (gGlobalTimer + CHAOS_SEED) * 1664525 + 1013904223;\n#else\n    u32 seed = gGlobalTimer * 1664525 + 1013904223;\n#endif\n    f32 dist;\n    int activeMode = CHAOS_LAKITU_CAMERA_MODE;\n    if (activeMode == 10) {\n        activeMode = (gGlobalTimer / 90) % 9 + 1;\n    }\n\n    switch (activeMode) {\n        case 1:\n            gLakituState.pos[0] += (seed % 60 - 30) * 1.5f;\n            gLakituState.pos[1] += ((seed >> 4) % 60 - 30) * 1.5f;\n            gLakituState.pos[2] += ((seed >> 8) % 60 - 30) * 1.5f;\n            gLakituState.focus[0] += ((seed >> 12) % 40 - 20) * 1.0f;\n            gLakituState.focus[1] += ((seed >> 16) % 40 - 20) * 1.0f;\n            gLakituState.focus[2] += ((seed >> 20) % 40 - 20) * 1.0f;\n            break;\n        case 2:\n            gLakituState.pos[0] = m->pos[0];\n            gLakituState.pos[1] = m->pos[1] + 1800.f;\n            gLakituState.pos[2] = m->pos[2] + 1.f;\n            vec3f_copy(gLakituState.focus, m->pos);\n            break;\n        case 3:\n            gLakituState.pos[0] = m->pos[0] + 500.f * sins(m->faceAngle[1]);\n            gLakituState.pos[1] = m->pos[1] + 120.f;\n            gLakituState.pos[2] = m->pos[2] + 500.f * coss(m->faceAngle[1]);\n            vec3f_copy(gLakituState.focus, m->pos);\n            break;\n        case 4:\n            dist = 800.f;\n            gLakituState.pos[0] = m->pos[0] + dist * sins(gGlobalTimer * 200);\n            gLakituState.pos[1] = m->pos[1] + 250.f;\n            gLakituState.pos[2] = m->pos[2] + dist * coss(gGlobalTimer * 200);\n            vec3f_copy(gLakituState.focus, m->pos);\n            break;\n        case 5:\n            gLakituState.pos[0] += 300.f * sins(gGlobalTimer * 250);\n            gLakituState.pos[1] += 150.f * coss(gGlobalTimer * 180);\n            break;\n        case 6:\n            dist = 700.f + 500.f * sins(gGlobalTimer * 150);\n            gLakituState.pos[0] = m->pos[0] + dist * sins(c->yaw);\n            gLakituState.pos[2] = m->pos[2] + dist * coss(c->yaw);\n            break;\n        case 7:\n            gLakituState.pos[0] = m->pos[0];\n            gLakituState.pos[1] = m->pos[1] + 200.f;\n            gLakituState.pos[2] = m->pos[2] + 900.f;\n            vec3f_copy(gLakituState.focus, m->pos);\n            break;\n        case 8:\n            gLakituState.pos[0] = m->pos[0] - (m->pos[0] - gLakituState.pos[0]) * 0.999f;\n            gLakituState.pos[1] = m->pos[1] + 600.f;\n            gLakituState.pos[2] = m->pos[2] - (m->pos[2] - gLakituState.pos[2]) * 0.999f;\n            vec3f_copy(gLakituState.focus, m->pos);\n            break;\n        case 9:\n            gLakituState.pos[1] = m->pos[1] - (gLakituState.pos[1] - m->pos[1]);\n            break;\n    }\n    vec3f_copy(c->pos, gLakituState.pos);\n    vec3f_copy(c->focus, gLakituState.focus);\n}\n#endif";
                         PatchSourceFile("src/game/camera.c", oldCameraHelper, newCameraHelper);
 
                         string oldCameraLakitu = "    update_lakitu(c);\n\n    gLakituState.lastFrameAction = sMarioCamState->action;";
@@ -846,10 +1214,15 @@ void apply_chaos_intro_camera(struct Camera *c) {
                                     {
                                         File.Copy(file, backupPath);
                                     }
-                                    string content = File.ReadAllText(backupPath);
+                                    string readPath = (_isQueueRunning && _isQueueAccumulating && _filesModifiedInQueue.Contains(file)) ? file : backupPath;
+                                    string content = File.ReadAllText(readPath);
                                     string mutated = RandomizeGameText(content, textMode);
                                     File.WriteAllText(file, mutated);
                                     File.SetLastWriteTime(file, DateTime.Now);
+                                    if (_isQueueRunning)
+                                    {
+                                        _filesModifiedInQueue.Add(file);
+                                    }
                                 }
                                 catch (Exception ex)
                                 {
@@ -1144,9 +1517,13 @@ void apply_chaos_intro_camera(struct Camera *c) {
                             {
                                 File.Copy(file, backupPath);
                             }
-                            else
+                            else if (!_isQueueRunning || !_isQueueAccumulating || !_filesModifiedInQueue.Contains(file))
                             {
                                 File.Copy(backupPath, file, true);
+                            }
+                            if (_isQueueRunning)
+                            {
+                                _filesModifiedInQueue.Add(file);
                             }
 
                             string ext = Path.GetExtension(file).ToLower();
@@ -1224,20 +1601,6 @@ void apply_chaos_intro_camera(struct Camera *c) {
                         });
                     }
                 });
-
-                StatusTextBlock.Text = "Chaos successfully inflicted! Rebuild project to see effects.";
-                MessageBox.Show("Chaos successfully inflicted! Build the ROM via WSL to experience the glitched results.\n\nYou can revert all corruptions anytime using the standard Git checkout option.", "Chaos Inflicted", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                StatusTextBlock.Text = "Error running Chaos Engine.";
-                MessageBox.Show($"Error running Chaos Engine: {ex.Message}", "Chaos Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-            finally
-            {
-                ChaosButton.IsEnabled = true;
-                CorruptionProgressBar.Visibility = Visibility.Collapsed;
-            }
         }
 
         private void IntensifySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -1346,6 +1709,35 @@ void apply_chaos_intro_camera(struct Camera *c) {
             if (StartLevelChaosPanel != null)
             {
                 StartLevelChaosPanel.Visibility = StartLevelChaosCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private void GameLogicRandomizerCheck_Toggle(object sender, RoutedEventArgs e)
+        {
+            if (GameLogicRandomizerPanel != null)
+            {
+                GameLogicRandomizerPanel.Visibility = GameLogicRandomizerCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private void ConfigureGameLogicModes_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new GameLogicModesWindow(_activeGameLogicModes, _gameLogicSimultaneous) { Owner = this };
+            if (dialog.ShowDialog() == true)
+            {
+                _activeGameLogicModes.Clear();
+                _activeGameLogicModes.AddRange(dialog.SelectedModeIds);
+                _gameLogicSimultaneous = dialog.IsSimultaneous;
+                UpdateGameLogicModesSummaryText();
+            }
+        }
+
+        private void UpdateGameLogicModesSummaryText()
+        {
+            if (ActiveGameLogicModesSummaryText != null)
+            {
+                string method = _gameLogicSimultaneous ? "Simultaneous" : "Cycle";
+                ActiveGameLogicModesSummaryText.Text = $"Active logic modes: {_activeGameLogicModes.Count} ({method})";
             }
         }
 
@@ -4201,6 +4593,11 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 ChaosLogicJumpDeath.IsChecked = false;
                 LimboMarioCheck.IsChecked = false;
                 AlienSoundCheatCheck.IsChecked = false;
+                GameLogicRandomizerCheck.IsChecked = false;
+                _activeGameLogicModes.Clear();
+                _activeGameLogicModes.AddRange(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 });
+                _gameLogicSimultaneous = true;
+                UpdateGameLogicModesSummaryText();
                 return;
             }
 
@@ -4209,21 +4606,109 @@ void apply_chaos_intro_camera(struct Camera *c) {
             LoadPresetFromFile(filePath);
         }
 
-        private void LoadPresetFromFile(string filePath)
+        private void UseRandomSeedCheck_Toggle(object sender, RoutedEventArgs e)
         {
-            if (!File.Exists(filePath)) return;
+            if (ChaosSeedTextBox != null && RandomizeSeedButton != null)
+            {
+                bool isRandom = UseRandomSeedCheck.IsChecked == true;
+                ChaosSeedTextBox.IsEnabled = !isRandom;
+                RandomizeSeedButton.IsEnabled = !isRandom;
+            }
+        }
 
+        private void RandomizeSeedButton_Click(object sender, RoutedEventArgs e)
+        {
+            ChaosSeedTextBox.Text = new Random().Next().ToString();
+        }
+
+        private ChaosPreset CreatePresetFromUI(string name)
+        {
+            return new ChaosPreset
+            {
+                PresetName = name,
+                Intensity = IntensifySlider.Value,
+                TargetLevelIndex = LevelSelectionComboBox.SelectedIndex,
+                ChaosSeed = ChaosSeedTextBox.Text,
+                UseRandomSeed = UseRandomSeedCheck.IsChecked == true,
+
+                TargetMusicNotes = TargetMusicNotesCheck.IsChecked == true,
+                MusicNotesMode = _activeM64Modes.FirstOrDefault(),
+                ActiveM64Modes = new List<int>(_activeM64Modes),
+                M64All = M64AllRadio.IsChecked == true,
+                M64Select = M64SelectRadio.IsChecked == true,
+
+                TargetSounds = TargetSoundsCheck.IsChecked == true,
+                ShuffleSounds = ShuffleSoundsCheck.IsChecked == true,
+                ExcludeInstrumentsShuffle = ExcludeInstrumentsShuffleCheck.IsChecked == true,
+                ExcludeSfxShuffle = ExcludeSfxShuffleCheck.IsChecked == true,
+                ShuffleSfxOnly = ShuffleSfxOnlyCheck.IsChecked == true,
+                SfxIdentityShuffle = SfxIdentityShuffleCheck.IsChecked == true,
+                SfxPitchVariation = SfxPitchVariationCheck.IsChecked == true,
+                SfxRandomizerMode = SfxRandomizerModeComboBox.SelectedIndex,
+
+                ReplaceSfx = ReplaceSfxCheck.IsChecked == true,
+
+                RandomizeDl = RandomizeDlCheck.IsChecked == true,
+                DlRandomizerMode = DlRandomizerModeComboBox.SelectedIndex,
+                DlExclusion = DlExclusionCheck.IsChecked == true,
+
+                TargetModels = TargetModelsCheck.IsChecked == true,
+                TargetGoddard = TargetGoddardCheck.IsChecked == true,
+                GoddardMode = GoddardModeComboBox.SelectedIndex,
+                RandomizeMarioColors = RandomizeMarioColorsCheck.IsChecked == true,
+                MarioColorsArea = MarioColorsAreaComboBox.SelectedIndex,
+                MarioColorsMode = MarioColorsModeComboBox.SelectedIndex,
+
+                GlitchAnimations = GlitchAnimationsCheck.IsChecked == true,
+                AnimationGlitcherMode = AnimationGlitcherModeComboBox.SelectedIndex,
+
+                GlitchHud = GlitchHudCheck.IsChecked == true,
+                HudGlitcherMode = HudGlitcherModeComboBox.SelectedIndex,
+
+                RandomizeTextures = RandomizeTexturesCheck.IsChecked == true,
+                TextureRandomizeMode = TextureRandomizeModeComboBox.SelectedIndex,
+                ReplaceTexturesCustom = ReplaceTexturesCustomCheck.IsChecked == true,
+                ReplaceTexturesRules = _textureReplacementRules.ToList(),
+                TextureRandomizeSelectedOnly = TextureRandomizeSelectedRadio.IsChecked == true,
+                TextureRandomizeSelectedPaths = _selectedTextures.ToList(),
+
+                ModeIndex = ModeComboBox.SelectedIndex,
+                RandomizeSkybox = RandomizeSkyboxCheck.IsChecked == true,
+                RandomizeText = RandomizeTextCheck.IsChecked == true,
+                TextRandomizeMode = TextRandomizeModeComboBox.SelectedIndex,
+
+                ChaosLogicJumpWeird = ChaosLogicJumpWeird.IsChecked == true,
+                ChaosLogicJumpDeath = ChaosLogicJumpDeath.IsChecked == true,
+                LimboMario = LimboMarioCheck.IsChecked == true,
+                LimboMarioMode = LimboMarioModeComboBox.SelectedIndex,
+                AlienSoundCheat = AlienSoundCheatCheck.IsChecked == true,
+                GameLogicRandomizer = GameLogicRandomizerCheck.IsChecked == true,
+                ActiveGameLogicModes = new List<int>(_activeGameLogicModes),
+                GameLogicSimultaneous = _gameLogicSimultaneous,
+
+                ScrambleTitleScreen = ScrambleTitleScreenCheck.IsChecked == true,
+                TitleScreenScramblerMode = TitleScreenScramblerModeComboBox.SelectedIndex,
+                RandomizeCutsceneCamera = RandomizeCutsceneCameraCheck.IsChecked == true,
+                CutsceneCameraMode = CutsceneCameraModeComboBox.SelectedIndex,
+                LakituCameraChaos = LakituCameraChaosCheck.IsChecked == true,
+                LakituCameraMode = LakituCameraModeComboBox.SelectedIndex,
+                StartLevelChaos = StartLevelChaosCheck.IsChecked == true,
+                StartLevelIndex = StartLevelComboBox.SelectedIndex
+            };
+        }
+
+        private void ApplyPresetToUI(ChaosPreset preset)
+        {
+            _isLoadingPreset = true;
             try
             {
-                string json = File.ReadAllText(filePath);
-                var preset = System.Text.Json.JsonSerializer.Deserialize<ChaosPreset>(json);
-                if (preset == null) return;
-
-                _isLoadingPreset = true;
-
                 IntensifySlider.Value = preset.Intensity;
                 if (preset.TargetLevelIndex < LevelSelectionComboBox.Items.Count)
                     LevelSelectionComboBox.SelectedIndex = preset.TargetLevelIndex;
+
+                ChaosSeedTextBox.Text = preset.ChaosSeed;
+                UseRandomSeedCheck.IsChecked = preset.UseRandomSeed;
+                UseRandomSeedCheck_Toggle(null, null);
 
                 TargetMusicNotesCheck.IsChecked = preset.TargetMusicNotes;
                 _activeM64Modes.Clear();
@@ -4295,6 +4780,18 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 LimboMarioCheck.IsChecked = preset.LimboMario;
                 LimboMarioModeComboBox.SelectedIndex = preset.LimboMarioMode;
                 AlienSoundCheatCheck.IsChecked = preset.AlienSoundCheat;
+                GameLogicRandomizerCheck.IsChecked = preset.GameLogicRandomizer;
+                _activeGameLogicModes.Clear();
+                if (preset.ActiveGameLogicModes != null)
+                {
+                    _activeGameLogicModes.AddRange(preset.ActiveGameLogicModes);
+                }
+                else
+                {
+                    _activeGameLogicModes.AddRange(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 });
+                }
+                _gameLogicSimultaneous = preset.GameLogicSimultaneous;
+                UpdateGameLogicModesSummaryText();
 
                 ScrambleTitleScreenCheck.IsChecked = preset.ScrambleTitleScreen;
                 TitleScreenScramblerModeComboBox.SelectedIndex = preset.TitleScreenScramblerMode;
@@ -4305,14 +4802,10 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 StartLevelChaosCheck.IsChecked = preset.StartLevelChaos;
                 StartLevelComboBox.SelectedIndex = preset.StartLevelIndex;
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Failed to load preset: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
             finally
             {
                 _isLoadingPreset = false;
-                
+
                 // Trigger visibility updates manually
                 TargetMusicNotesCheck_Toggle(null, null);
                 ShuffleSoundsCheck_Toggle(null, null);
@@ -4333,78 +4826,31 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 LakituCameraChaosCheck_Toggle(null, null);
                 LimboMarioCheck_Toggle(null, null);
                 StartLevelChaosCheck_Toggle(null, null);
+                GameLogicRandomizerCheck_Toggle(null, null);
+            }
+        }
+
+        private void LoadPresetFromFile(string filePath)
+        {
+            if (!File.Exists(filePath)) return;
+
+            try
+            {
+                string json = File.ReadAllText(filePath);
+                var preset = System.Text.Json.JsonSerializer.Deserialize<ChaosPreset>(json);
+                if (preset == null) return;
+
+                ApplyPresetToUI(preset);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to load preset: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
         private void SavePresetToFile(string filePath)
         {
-            var preset = new ChaosPreset
-            {
-                PresetName = Path.GetFileNameWithoutExtension(filePath),
-                Intensity = IntensifySlider.Value,
-                TargetLevelIndex = LevelSelectionComboBox.SelectedIndex,
-
-                TargetMusicNotes = TargetMusicNotesCheck.IsChecked == true,
-                MusicNotesMode = _activeM64Modes.FirstOrDefault(),
-                ActiveM64Modes = new List<int>(_activeM64Modes),
-                M64All = M64AllRadio.IsChecked == true,
-                M64Select = M64SelectRadio.IsChecked == true,
-
-                TargetSounds = TargetSoundsCheck.IsChecked == true,
-                ShuffleSounds = ShuffleSoundsCheck.IsChecked == true,
-                ExcludeInstrumentsShuffle = ExcludeInstrumentsShuffleCheck.IsChecked == true,
-                ExcludeSfxShuffle = ExcludeSfxShuffleCheck.IsChecked == true,
-                ShuffleSfxOnly = ShuffleSfxOnlyCheck.IsChecked == true,
-                SfxIdentityShuffle = SfxIdentityShuffleCheck.IsChecked == true,
-                SfxPitchVariation = SfxPitchVariationCheck.IsChecked == true,
-                SfxRandomizerMode = SfxRandomizerModeComboBox.SelectedIndex,
-
-                ReplaceSfx = ReplaceSfxCheck.IsChecked == true,
-
-                RandomizeDl = RandomizeDlCheck.IsChecked == true,
-                DlRandomizerMode = DlRandomizerModeComboBox.SelectedIndex,
-                DlExclusion = DlExclusionCheck.IsChecked == true,
-
-                TargetModels = TargetModelsCheck.IsChecked == true,
-                TargetGoddard = TargetGoddardCheck.IsChecked == true,
-                GoddardMode = GoddardModeComboBox.SelectedIndex,
-                RandomizeMarioColors = RandomizeMarioColorsCheck.IsChecked == true,
-                MarioColorsArea = MarioColorsAreaComboBox.SelectedIndex,
-                MarioColorsMode = MarioColorsModeComboBox.SelectedIndex,
-
-                GlitchAnimations = GlitchAnimationsCheck.IsChecked == true,
-                AnimationGlitcherMode = AnimationGlitcherModeComboBox.SelectedIndex,
-
-                GlitchHud = GlitchHudCheck.IsChecked == true,
-                HudGlitcherMode = HudGlitcherModeComboBox.SelectedIndex,
-
-                RandomizeTextures = RandomizeTexturesCheck.IsChecked == true,
-                TextureRandomizeMode = TextureRandomizeModeComboBox.SelectedIndex,
-                ReplaceTexturesCustom = ReplaceTexturesCustomCheck.IsChecked == true,
-                ReplaceTexturesRules = _textureReplacementRules.ToList(),
-                TextureRandomizeSelectedOnly = TextureRandomizeSelectedRadio.IsChecked == true,
-                TextureRandomizeSelectedPaths = _selectedTextures.ToList(),
-
-                ModeIndex = ModeComboBox.SelectedIndex,
-                RandomizeSkybox = RandomizeSkyboxCheck.IsChecked == true,
-                RandomizeText = RandomizeTextCheck.IsChecked == true,
-                TextRandomizeMode = TextRandomizeModeComboBox.SelectedIndex,
-
-                ChaosLogicJumpWeird = ChaosLogicJumpWeird.IsChecked == true,
-                ChaosLogicJumpDeath = ChaosLogicJumpDeath.IsChecked == true,
-                LimboMario = LimboMarioCheck.IsChecked == true,
-                LimboMarioMode = LimboMarioModeComboBox.SelectedIndex,
-                AlienSoundCheat = AlienSoundCheatCheck.IsChecked == true,
-
-                ScrambleTitleScreen = ScrambleTitleScreenCheck.IsChecked == true,
-                TitleScreenScramblerMode = TitleScreenScramblerModeComboBox.SelectedIndex,
-                RandomizeCutsceneCamera = RandomizeCutsceneCameraCheck.IsChecked == true,
-                CutsceneCameraMode = CutsceneCameraModeComboBox.SelectedIndex,
-                LakituCameraChaos = LakituCameraChaosCheck.IsChecked == true,
-                LakituCameraMode = LakituCameraModeComboBox.SelectedIndex,
-                StartLevelChaos = StartLevelChaosCheck.IsChecked == true,
-                StartLevelIndex = StartLevelComboBox.SelectedIndex
-            };
+            var preset = CreatePresetFromUI(Path.GetFileNameWithoutExtension(filePath));
 
             try
             {
@@ -4677,6 +5123,301 @@ void apply_chaos_intro_camera(struct Camera *c) {
             };
             window.ShowDialog();
         }
+
+        // --- QUEUE & STOCKPILE OPERATIONS ---
+        private void UpdateStockpileListBox()
+        {
+            StockpileListBox.Items.Clear();
+            foreach (var preset in _stockpile)
+            {
+                StockpileListBox.Items.Add(preset.PresetName);
+            }
+        }
+
+        private void UpdateQueueListBox()
+        {
+            QueueListBox.Items.Clear();
+            for (int i = 0; i < _queue.Count; i++)
+            {
+                QueueListBox.Items.Add($"{i + 1}. {(_queue[i].PresetName ?? "Unnamed Preset")}");
+            }
+        }
+
+        private void AddCurrentToStockpile_Click(object sender, RoutedEventArgs e)
+        {
+            string name = InputBox.Show("Enter a name for the stockpile preset:", "Add to Stockpile", "MyStockpilePreset");
+            if (string.IsNullOrEmpty(name)) return;
+
+            foreach (char c in Path.GetInvalidFileNameChars())
+            {
+                name = name.Replace(c, '_');
+            }
+
+            if (_stockpile.Any(p => p.PresetName.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            {
+                MessageBox.Show($"A preset with the name '{name}' already exists in the stockpile.", "Duplicate Name", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var preset = CreatePresetFromUI(name);
+            _stockpile.Add(preset);
+            UpdateStockpileListBox();
+            StatusTextBlock.Text = $"Added '{name}' to stockpile library.";
+        }
+
+        private void StockpileListBox_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            int index = StockpileListBox.SelectedIndex;
+            if (index >= 0 && index < _stockpile.Count)
+            {
+                ApplyPresetToUI(_stockpile[index]);
+                StatusTextBlock.Text = $"Loaded '{_stockpile[index].PresetName}' settings to configuration tab.";
+            }
+        }
+
+        private void QueueSelected_Click(object sender, RoutedEventArgs e)
+        {
+            int index = StockpileListBox.SelectedIndex;
+            if (index >= 0 && index < _stockpile.Count)
+            {
+                var presetCopy = System.Text.Json.JsonSerializer.Deserialize<ChaosPreset>(
+                    System.Text.Json.JsonSerializer.Serialize(_stockpile[index])
+                );
+                if (presetCopy != null)
+                {
+                    _queue.Add(presetCopy);
+                    UpdateQueueListBox();
+                    StatusTextBlock.Text = $"Queued '{presetCopy.PresetName}'.";
+                }
+            }
+            else
+            {
+                MessageBox.Show("Please select a preset from the stockpile library first.", "No Selection", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+
+        private void RemoveStockpile_Click(object sender, RoutedEventArgs e)
+        {
+            int index = StockpileListBox.SelectedIndex;
+            if (index >= 0 && index < _stockpile.Count)
+            {
+                string name = _stockpile[index].PresetName;
+                _stockpile.RemoveAt(index);
+                UpdateStockpileListBox();
+                StatusTextBlock.Text = $"Removed '{name}' from stockpile.";
+            }
+        }
+
+        private void RenameStockpile_Click(object sender, RoutedEventArgs e)
+        {
+            int index = StockpileListBox.SelectedIndex;
+            if (index >= 0 && index < _stockpile.Count)
+            {
+                string oldName = _stockpile[index].PresetName;
+                string newName = InputBox.Show("Enter a new name for the preset:", "Rename Stockpile Preset", oldName);
+                if (string.IsNullOrEmpty(newName) || newName == oldName) return;
+
+                foreach (char c in Path.GetInvalidFileNameChars())
+                {
+                    newName = newName.Replace(c, '_');
+                }
+
+                _stockpile[index].PresetName = newName;
+                UpdateStockpileListBox();
+                StatusTextBlock.Text = $"Renamed '{oldName}' to '{newName}'.";
+            }
+        }
+
+        private void AddCurrentToQueue_Click(object sender, RoutedEventArgs e)
+        {
+            string defaultName = $"Run {_queue.Count + 1}";
+            string name = InputBox.Show("Enter a label for this queue item:", "Add to Queue", defaultName);
+            if (string.IsNullOrEmpty(name)) return;
+
+            var preset = CreatePresetFromUI(name);
+            _queue.Add(preset);
+            UpdateQueueListBox();
+            StatusTextBlock.Text = $"Added '{name}' directly to active queue.";
+        }
+
+        private void MoveQueueUp_Click(object sender, RoutedEventArgs e)
+        {
+            int index = QueueListBox.SelectedIndex;
+            if (index > 0 && index < _queue.Count)
+            {
+                var temp = _queue[index];
+                _queue[index] = _queue[index - 1];
+                _queue[index - 1] = temp;
+                UpdateQueueListBox();
+                QueueListBox.SelectedIndex = index - 1;
+            }
+        }
+
+        private void MoveQueueDown_Click(object sender, RoutedEventArgs e)
+        {
+            int index = QueueListBox.SelectedIndex;
+            if (index >= 0 && index < _queue.Count - 1)
+            {
+                var temp = _queue[index];
+                _queue[index] = _queue[index + 1];
+                _queue[index + 1] = temp;
+                UpdateQueueListBox();
+                QueueListBox.SelectedIndex = index + 1;
+            }
+        }
+
+        private void RemoveQueue_Click(object sender, RoutedEventArgs e)
+        {
+            int index = QueueListBox.SelectedIndex;
+            if (index >= 0 && index < _queue.Count)
+            {
+                _queue.RemoveAt(index);
+                UpdateQueueListBox();
+                StatusTextBlock.Text = "Removed item from queue.";
+            }
+        }
+
+        private void ClearQueue_Click(object sender, RoutedEventArgs e)
+        {
+            _queue.Clear();
+            UpdateQueueListBox();
+            StatusTextBlock.Text = "Active queue cleared.";
+        }
+
+        private void SetWindowEnabled(bool enabled)
+        {
+            ChaosButton.IsEnabled = enabled;
+            AddCurrentToQueueButton.IsEnabled = enabled;
+            AddCurrentToStockpileButton.IsEnabled = enabled;
+            RunQueueButton.IsEnabled = enabled;
+            StockpileListBox.IsEnabled = enabled;
+            QueueListBox.IsEnabled = enabled;
+            LoadQueueButton.IsEnabled = enabled;
+            SaveQueueButton.IsEnabled = enabled;
+            PresetComboBox.IsEnabled = enabled;
+        }
+
+        private async void RunQueue_Click(object sender, RoutedEventArgs e)
+        {
+            if (_queue.Count == 0)
+            {
+                MessageBox.Show("Active queue is empty! Please add some presets to the queue first.", "Queue Empty", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            SetWindowEnabled(false);
+            CorruptionProgressBar.Visibility = Visibility.Visible;
+            CorruptionProgressBar.Value = 0;
+
+            _isQueueRunning = true;
+            _isQueueAccumulating = AccumulateQueueCheck.IsChecked == true;
+            _filesModifiedInQueue.Clear();
+            _accumulatedMacros.Clear();
+            _accumulatedGameLogicModes.Clear();
+
+            try
+            {
+                int totalPresets = _queue.Count;
+                for (int p = 0; p < totalPresets; p++)
+                {
+                    var preset = _queue[p];
+                    StatusTextBlock.Text = $"[Queue {p + 1}/{totalPresets}] Applying: '{preset.PresetName}'...";
+                    
+                    ApplyPresetToUI(preset);
+
+                    await Task.Delay(100);
+
+                    await InflictChaosInternalAsync();
+                }
+
+                StatusTextBlock.Text = "Queue successfully inflicted! Rebuild project to see effects.";
+                MessageBox.Show("Queue successfully inflicted! Build the ROM via WSL to experience the combined glitched results.", "Queue Inflicted", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                StatusTextBlock.Text = "Error running Queue.";
+                MessageBox.Show($"Error running Chaos Queue: {ex.Message}", "Queue Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                _isQueueRunning = false;
+                SetWindowEnabled(true);
+                CorruptionProgressBar.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private void LoadQueueFile_Click(object sender, RoutedEventArgs e)
+        {
+            var openFileDialog = new OpenFileDialog
+            {
+                Filter = "Chaos Engine Queue Files (*.ceq)|*.ceq",
+                Title = "Load Chaos Queue"
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                try
+                {
+                    string json = File.ReadAllText(openFileDialog.FileName);
+                    var queueFile = System.Text.Json.JsonSerializer.Deserialize<ChaosQueueFile>(json);
+                    if (queueFile != null)
+                    {
+                        _queue.Clear();
+                        if (queueFile.Queue != null)
+                        {
+                            _queue.AddRange(queueFile.Queue);
+                        }
+
+                        _stockpile.Clear();
+                        if (queueFile.Stockpile != null)
+                        {
+                            _stockpile.AddRange(queueFile.Stockpile);
+                        }
+
+                        AccumulateQueueCheck.IsChecked = queueFile.Accumulate;
+
+                        UpdateQueueListBox();
+                        UpdateStockpileListBox();
+                        StatusTextBlock.Text = "Queue and stockpile loaded successfully.";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed to load queue file: {ex.Message}", "Load Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
+
+        private void SaveQueueFile_Click(object sender, RoutedEventArgs e)
+        {
+            var saveFileDialog = new SaveFileDialog
+            {
+                Filter = "Chaos Engine Queue Files (*.ceq)|*.ceq",
+                Title = "Save Chaos Queue",
+                FileName = "MyChaosQueue.ceq"
+            };
+
+            if (saveFileDialog.ShowDialog() == true)
+            {
+                try
+                {
+                    var queueFile = new ChaosQueueFile
+                    {
+                        Queue = _queue.ToList(),
+                        Stockpile = _stockpile.ToList(),
+                        Accumulate = AccumulateQueueCheck.IsChecked == true
+                    };
+
+                    string json = System.Text.Json.JsonSerializer.Serialize(queueFile, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                    File.WriteAllText(saveFileDialog.FileName, json);
+                    StatusTextBlock.Text = "Queue and stockpile saved successfully.";
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed to save queue file: {ex.Message}", "Save Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
     }
 
     public class ChaosPreset
@@ -4684,6 +5425,8 @@ void apply_chaos_intro_camera(struct Camera *c) {
         public string PresetName { get; set; } = string.Empty;
         public double Intensity { get; set; } = 10;
         public int TargetLevelIndex { get; set; } = 0;
+        public string ChaosSeed { get; set; } = string.Empty;
+        public bool UseRandomSeed { get; set; } = true;
         
         public bool TargetMusicNotes { get; set; } = true;
         public int MusicNotesMode { get; set; } = 0;
@@ -4736,6 +5479,9 @@ void apply_chaos_intro_camera(struct Camera *c) {
         public bool LimboMario { get; set; } = false;
         public int LimboMarioMode { get; set; } = 0;
         public bool AlienSoundCheat { get; set; } = false;
+        public bool GameLogicRandomizer { get; set; } = false;
+        public List<int> ActiveGameLogicModes { get; set; } = new() { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 };
+        public bool GameLogicSimultaneous { get; set; } = true;
 
         public bool ScrambleTitleScreen { get; set; } = false;
         public int TitleScreenScramblerMode { get; set; } = 0;
@@ -4745,6 +5491,13 @@ void apply_chaos_intro_camera(struct Camera *c) {
         public int LakituCameraMode { get; set; } = 0;
         public bool StartLevelChaos { get; set; } = false;
         public int StartLevelIndex { get; set; } = 0;
+    }
+
+    public class ChaosQueueFile
+    {
+        public List<ChaosPreset> Queue { get; set; } = new();
+        public List<ChaosPreset> Stockpile { get; set; } = new();
+        public bool Accumulate { get; set; } = true;
     }
 
     public static class InputBox

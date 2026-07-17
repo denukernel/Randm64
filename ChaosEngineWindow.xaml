@@ -1,14 +1,53 @@
 <Window x:Class="Sm64DecompLevelViewer.ChaosEngineWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Chaos Engine" Height="500" Width="460"
+        Title="Chaos Engine" Height="680" Width="680"
         Background="#121212" Foreground="#E0E0E0"
-        WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip">
     <Window.Resources>
         <SolidColorBrush x:Key="PanelBrush" Color="#1E1E1E"/>
         <SolidColorBrush x:Key="BorderBrush" Color="#333333"/>
         <SolidColorBrush x:Key="AccentBrush" Color="#D32F2F"/>
         <SolidColorBrush x:Key="AccentHoverBrush" Color="#F44336"/>
+
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="#121212"/>
+            <Setter Property="BorderBrush" Value="#333333"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="0"/>
+        </Style>
+        <Style TargetType="TabItem">
+            <Setter Property="Background" Value="#1E1E1E"/>
+            <Setter Property="Foreground" Value="#CCCCCC"/>
+            <Setter Property="BorderBrush" Value="#333333"/>
+            <Setter Property="BorderThickness" Value="1,1,1,0"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="Border" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4,4,0,0" Margin="0,0,2,0" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter x:Name="ContentSite" ContentSource="Header" RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#D32F2F"/>
+                                <Setter Property="Foreground" Value="White"/>
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#D32F2F"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsSelected" Value="False"/>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Border" Property="Background" Value="#2E2E2E"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
     
     <Grid Margin="20">
@@ -27,18 +66,34 @@
 
         <!-- Presets Bar -->
         <Border Grid.Row="1" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,12">
-            <DockPanel>
-                <TextBlock Text="Chaos Preset:" VerticalAlignment="Center" Foreground="#CCCCCC" Margin="0,0,10,0"/>
-                <Button Content="Save As..." Click="SavePreset_Click" DockPanel.Dock="Right" Padding="10,4" Margin="5,0,0,0" Background="#3E3E42" Foreground="White" BorderThickness="0" Cursor="Hand"/>
-                <Button Content="Delete" Click="DeletePreset_Click" DockPanel.Dock="Right" Padding="10,4" Margin="5,0,0,0" Background="#A12424" Foreground="White" BorderThickness="0" Cursor="Hand"/>
-                <ComboBox x:Name="PresetComboBox" SelectedIndex="0" Height="24" SelectionChanged="PresetComboBox_SelectionChanged" Background="#252526" Foreground="Black" BorderBrush="#3F3F46">
-                    <ComboBoxItem Content="Default Settings"/>
-                </ComboBox>
-            </DockPanel>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <DockPanel Grid.Column="0" Margin="0,0,15,0">
+                    <TextBlock Text="Chaos Preset:" VerticalAlignment="Center" Foreground="#CCCCCC" Margin="0,0,10,0"/>
+                    <Button Content="Save As..." Click="SavePreset_Click" DockPanel.Dock="Right" Padding="10,4" Margin="5,0,0,0" Background="#3E3E42" Foreground="White" BorderThickness="0" Cursor="Hand"/>
+                    <Button Content="Delete" Click="DeletePreset_Click" DockPanel.Dock="Right" Padding="10,4" Margin="5,0,0,0" Background="#A12424" Foreground="White" BorderThickness="0" Cursor="Hand"/>
+                    <ComboBox x:Name="PresetComboBox" SelectedIndex="0" Height="24" SelectionChanged="PresetComboBox_SelectionChanged" Background="#252526" Foreground="Black" BorderBrush="#3F3F46">
+                        <ComboBoxItem Content="Default Settings"/>
+                    </ComboBox>
+                </DockPanel>
+                
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Seed:" VerticalAlignment="Center" Foreground="#CCCCCC" Margin="0,0,8,0"/>
+                    <TextBox x:Name="ChaosSeedTextBox" Width="110" Height="24" Background="#252526" Foreground="White" BorderBrush="#3F3F46" VerticalContentAlignment="Center" Padding="4,0" ToolTip="Enter a custom integer seed for reproducible corruption results, or leave empty/check 'Random' for random seeds." IsEnabled="False"/>
+                    <Button x:Name="RandomizeSeedButton" Content="🎲" Click="RandomizeSeedButton_Click" Padding="6,0" Height="24" Margin="4,0,0,0" Background="#3E3E42" Foreground="White" BorderThickness="0" ToolTip="Generate a random seed" Cursor="Hand" IsEnabled="False"/>
+                    <CheckBox x:Name="UseRandomSeedCheck" Content="Random" IsChecked="True" Foreground="#CCCCCC" Margin="8,0,0,0" VerticalAlignment="Center" ToolTip="If checked, a new random seed is generated for each run." Checked="UseRandomSeedCheck_Toggle" Unchecked="UseRandomSeedCheck_Toggle"/>
+                </StackPanel>
+            </Grid>
         </Border>
 
         <!-- Configuration -->
-        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,0,0,15">
+        <TabControl Grid.Row="2" Margin="0,0,0,15" Background="Transparent" BorderThickness="0">
+            <TabItem Header="Configure Effects">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
             <StackPanel Grid.IsSharedSizeScope="True">
                 <!-- Intensify Slider -->
                 <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="15" Margin="0,0,0,12">
@@ -413,10 +468,88 @@
                             </DockPanel>
                         </StackPanel>
                         <CheckBox x:Name="AlienSoundCheatCheck" Content="Alien Sound Glitch (Inject GameShark A031C1AF)" Foreground="#CCCCCC" IsChecked="False"/>
+                        <CheckBox x:Name="GameLogicRandomizerCheck" Content="Game Logic Randomizer" Foreground="#CCCCCC" Margin="0,8,0,8" IsChecked="False" Checked="GameLogicRandomizerCheck_Toggle" Unchecked="GameLogicRandomizerCheck_Toggle"/>
+                        <!-- Sub-options for Game Logic Randomizer -->
+                        <StackPanel x:Name="GameLogicRandomizerPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <Button x:Name="ConfigureGameLogicModesButton" Content="Configure Game Logic Modes..." Click="ConfigureGameLogicModes_Click" Height="24" Width="200" HorizontalAlignment="Left" Background="#007ACC" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                            <TextBlock x:Name="ActiveGameLogicModesSummaryText" Text="Active logic modes: 0 (Simultaneous)" Foreground="#999999" Margin="0,2,0,0"/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
-            </StackPanel>
-        </ScrollViewer>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="Queue &amp; Stockpile">
+                <Grid Margin="0,15,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="15"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Stockpile (Left Column) -->
+                    <Grid Grid.Column="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="Stockpile (Presets Library)" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
+                        <ListBox x:Name="StockpileListBox" Grid.Row="1" Background="#1E1E1E" Foreground="#E0E0E0" BorderBrush="#333333" BorderThickness="1" MinHeight="250" ScrollViewer.VerticalScrollBarVisibility="Auto" SelectionMode="Single" MouseDoubleClick="StockpileListBox_MouseDoubleClick"/>
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+                            <Button Content="Queue Selected" Click="QueueSelected_Click" Margin="0,0,5,0" Padding="10,5" Background="#3E3E42" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Cursor="Hand"/>
+                            <Button Content="Remove" Click="RemoveStockpile_Click" Margin="0,0,5,0" Padding="10,5" Background="#A12424" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Cursor="Hand"/>
+                            <Button Content="Rename" Click="RenameStockpile_Click" Padding="10,5" Background="#3E3E42" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Cursor="Hand"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Queue (Right Column) -->
+                    <Grid Grid.Column="2">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="Active Queue" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
+                        <ListBox x:Name="QueueListBox" Grid.Row="1" Background="#1E1E1E" Foreground="#E0E0E0" BorderBrush="#333333" BorderThickness="1" MinHeight="250" ScrollViewer.VerticalScrollBarVisibility="Auto" SelectionMode="Single"/>
+                        <Grid Grid.Row="2" Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                <Button Content="▲" Click="MoveQueueUp_Click" Margin="0,0,4,0" Padding="8,4" ToolTip="Move Up" Background="#3E3E42" Foreground="White" BorderThickness="0" FontWeight="Bold" Cursor="Hand"/>
+                                <Button Content="▼" Click="MoveQueueDown_Click" Margin="0,0,4,0" Padding="8,4" ToolTip="Move Down" Background="#3E3E42" Foreground="White" BorderThickness="0" FontWeight="Bold" Cursor="Hand"/>
+                                <Button Content="Remove" Click="RemoveQueue_Click" Margin="0,0,4,0" Padding="10,5" Background="#A12424" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Cursor="Hand"/>
+                            </StackPanel>
+                            <Button Grid.Column="2" Content="Clear" Click="ClearQueue_Click" Padding="10,5" Background="#3E3E42" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Cursor="Hand"/>
+                        </Grid>
+                    </Grid>
+
+                    <!-- Bottom Operations across both columns -->
+                    <Grid Grid.Row="1" Grid.ColumnSpan="3" Margin="0,15,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="LoadQueueButton" Content="Load Queue (.ceq)..." Click="LoadQueueFile_Click" Margin="0,0,8,0" Padding="12,8" Background="#3E3E42" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Cursor="Hand"/>
+                            <Button x:Name="SaveQueueButton" Content="Save Queue (.ceq)..." Click="SaveQueueFile_Click" Padding="12,8" Background="#3E3E42" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Cursor="Hand"/>
+                        </StackPanel>
+                        
+                        <CheckBox x:Name="AccumulateQueueCheck" Grid.Column="1" Content="Accumulate Corruptions" IsChecked="True" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="15,0,0,0" ToolTip="If checked, corruptions from each preset in the queue will be applied on top of each other. Otherwise, files are restored to clean backups before each preset is applied."/>
+
+                        <Button x:Name="RunQueueButton" Grid.Column="2" Content="INFLICT QUEUE!" Click="RunQueue_Click" Padding="25,10" Background="#D32F2F" Foreground="White" BorderThickness="0" FontSize="13" FontWeight="Bold" Cursor="Hand"/>
+                    </Grid>
+                </Grid>
+            </TabItem>
+        </TabControl>
 
         <!-- Action / Status -->
         <Grid Grid.Row="3">
@@ -430,9 +563,17 @@
                 <ProgressBar x:Name="CorruptionProgressBar" Height="6" Margin="0,4,0,0" Background="#222" Foreground="{StaticResource AccentBrush}" Visibility="Collapsed"/>
             </StackPanel>
 
-            <Button Grid.Column="1" x:Name="ChaosButton" Content="INFLICT CHAOS!" Click="ChaosButton_Click"
-                    Padding="25,12" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0" 
-                    FontSize="14" FontWeight="Bold" Cursor="Hand"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button x:Name="AddCurrentToStockpileButton" Content="Add to Stockpile" Click="AddCurrentToStockpile_Click"
+                        Padding="12,12" Margin="0,0,6,0" Background="#3E3E42" Foreground="White" BorderThickness="0" 
+                        FontSize="12" FontWeight="SemiBold" Cursor="Hand"/>
+                <Button x:Name="AddCurrentToQueueButton" Content="Add to Queue" Click="AddCurrentToQueue_Click"
+                        Padding="12,12" Margin="0,0,6,0" Background="#3E3E42" Foreground="White" BorderThickness="0" 
+                        FontSize="12" FontWeight="SemiBold" Cursor="Hand"/>
+                <Button x:Name="ChaosButton" Content="INFLICT CHAOS!" Click="ChaosButton_Click"
+                        Padding="20,12" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0" 
+                        FontSize="14" FontWeight="Bold" Cursor="Hand"/>
+            </StackPanel>
         </Grid>
     </Grid>
 </Window>

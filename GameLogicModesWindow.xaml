@@ -1,0 +1,111 @@
+<Window x:Class="Sm64DecompLevelViewer.GameLogicModesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Configure Game Logic Modes" Height="520" Width="700"
+        Background="#1E1E1E" Foreground="White"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    
+    <Window.Resources>
+        <SolidColorBrush x:Key="PanelBackground" Color="#252526"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#3F3F46"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#F1F1F1"/>
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="#3F3F46"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="3">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#4F4F56"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#007ACC"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="Game Logic Modes Configuration" FontSize="18" FontWeight="Bold" Foreground="#E57373"/>
+            <TextBlock Text="Select which gameplay logic modifications are enabled. You can choose to run them all at once or cycle through them randomly during gameplay." FontSize="11" Foreground="#999999" TextWrapping="Wrap" Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <!-- Main Workspace -->
+        <Grid Grid.Row="1" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="240"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Left: List of Modes -->
+            <GroupBox Header="Available Game Logic Modes" BorderBrush="{StaticResource BorderBrush}" Background="{StaticResource PanelBackground}" Foreground="#CCCCCC" Padding="5" Margin="0,0,10,0">
+                <ListBox x:Name="ModesListBox" Background="#1E1E1E" BorderBrush="{StaticResource BorderBrush}" SelectionChanged="ModesListBox_SelectionChanged">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <CheckBox IsChecked="{Binding IsEnabled}" Content="{Binding Name}" Foreground="White" Margin="3" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </GroupBox>
+
+            <!-- Right: Options & Description -->
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <GroupBox Header="Application Method" BorderBrush="{StaticResource BorderBrush}" Background="{StaticResource PanelBackground}" Foreground="#CCCCCC" Padding="8" Margin="0,0,0,10">
+                    <StackPanel>
+                        <RadioButton x:Name="SimultaneousRadio" Content="Run Selected Simultaneously" Foreground="White" Margin="0,0,0,6" IsChecked="True"/>
+                        <RadioButton x:Name="CycleRadio" Content="Cycle Randomly (10s Roulette)" Foreground="White"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Grid.Row="1" Header="Quick Select" BorderBrush="{StaticResource BorderBrush}" Background="{StaticResource PanelBackground}" Foreground="#CCCCCC" Padding="8" Margin="0,0,0,10">
+                    <StackPanel>
+                        <Button Content="Select All Modes" Click="SelectAll_Click" Margin="0,0,0,6" Height="26" Background="#3F3F46"/>
+                        <Button Content="Deselect All Modes" Click="DeselectAll_Click" Height="26" Background="#3F3F46"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Grid.Row="2" Header="Mode Description" BorderBrush="{StaticResource BorderBrush}" Background="{StaticResource PanelBackground}" Foreground="#CCCCCC" Padding="8">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <TextBlock x:Name="DescriptionTextBlock" Text="Select a mode from the list to view its description." TextWrapping="Wrap" Foreground="#CCCCCC" FontSize="11.5"/>
+                    </ScrollViewer>
+                </GroupBox>
+            </Grid>
+        </Grid>
+
+        <!-- Bottom Controls -->
+        <DockPanel Grid.Row="2">
+            <Button Content="Cancel" Click="CancelButton_Click" Width="80" Height="26" DockPanel.Dock="Right"/>
+            <Button Content="Save Configuration" Click="SaveButton_Click" Width="130" Height="26" DockPanel.Dock="Right" Background="#007ACC" FontWeight="Bold" Margin="0,0,10,0"/>
+            <TextBlock x:Name="StatusTextBlock" Text="0 modes active" Foreground="#999999" VerticalAlignment="Center"/>
+        </DockPanel>
+    </Grid>
+</Window>
