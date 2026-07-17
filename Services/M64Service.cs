@@ -14,11 +14,20 @@ namespace Sm64DecompLevelViewer.Services
         public byte LayerIndex { get; set; } = 0;
         public byte Gate { get; set; } = 204;
         public byte CommandType { get; set; } = 0;
+        public byte ChannelVolume { get; set; } = 127;
+        public byte ChannelPan { get; set; } = 64;
 
         public override string ToString()
         {
             return $"Note {Pitch} at {StartTick} (Duration: {DurationTicks})";
         }
+    }
+
+    public class ChannelStateEvent
+    {
+        public int Tick { get; set; }
+        public byte Volume { get; set; } = 127;
+        public byte Pan { get; set; } = 64;
     }
 
     public class M64Track
@@ -41,6 +50,7 @@ namespace Sm64DecompLevelViewer.Services
     public class M64Service
     {
         public byte Tempo { get; set; } = 120;
+        public int LoopStartTick { get; set; } = 0;
 
         private byte[] _originalHeader = null;
         private Dictionary<byte, int> _chanPointerLocations = new();
@@ -212,14 +222,19 @@ namespace Sm64DecompLevelViewer.Services
 
                 int pos = seqStartOffset;
                 var channelSegments = new List<ChannelSegment>();
-                var visitedSeqOffsets = new HashSet<int>();
+                var visitedSeqOffsets = new Dictionary<int, int>();
                 int seqTick = 0;
+                LoopStartTick = 0;
 
                 // Parse sequence commands to find all channel segments over the timeline
                 while (pos < data.Length)
                 {
-                    if (visitedSeqOffsets.Contains(pos)) break;
-                    visitedSeqOffsets.Add(pos);
+                    if (visitedSeqOffsets.TryGetValue(pos, out int firstVisitTick))
+                    {
+                        LoopStartTick = firstVisitTick;
+                        break;
+                    }
+                    visitedSeqOffsets[pos] = seqTick;
 
                     byte cmd = data[pos++];
                     if (cmd == 0xff) break; // end of seq commands
@@ -274,6 +289,51 @@ namespace Sm64DecompLevelViewer.Services
                         var layerOffsets = new List<int>();
                         int lIndex = 0;
 
+                        // Trace channel events to build a timeline of volume and panning changes
+                        var channelEvents = new List<ChannelStateEvent>();
+                        int currentChTick = segment.StartTick;
+                        byte currentVol = track.Volume;
+                        byte currentPan = 64;
+
+                        channelEvents.Add(new ChannelStateEvent { Tick = currentChTick, Volume = currentVol, Pan = currentPan });
+
+                        int tracePos = pos;
+                        while (tracePos < data.Length)
+                        {
+                            byte cmd = data[tracePos++];
+                            if (cmd == 0xff) break; // end of channel
+                            if (cmd == 0xfb) break; // jump
+
+                            if (cmd == 0xc1) // instrument
+                            {
+                                tracePos++;
+                            }
+                            else if (cmd == 0xdf) // volume
+                            {
+                                currentVol = Math.Min((byte)127, data[tracePos++]);
+                                channelEvents.Add(new ChannelStateEvent { Tick = currentChTick, Volume = currentVol, Pan = currentPan });
+                            }
+                            else if (cmd == 0xda) // pan
+                            {
+                                currentPan = data[tracePos++];
+                                channelEvents.Add(new ChannelStateEvent { Tick = currentChTick, Volume = currentVol, Pan = currentPan });
+                            }
+                            else if (cmd == 0xc0) // delay
+                            {
+                                currentChTick += ReadVarInt(data, ref tracePos);
+                            }
+                            else if (cmd == 0xfe) // delay1
+                            {
+                                currentChTick += 1;
+                            }
+                            else
+                            {
+                                int argSize = GetChanCmdSize(cmd, data, ref tracePos);
+                                tracePos += argSize;
+                            }
+                        }
+
+                        // Linear channel parsing as before to extract layer offsets
                         while (pos < data.Length)
                         {
                             byte cmd = data[pos++];
@@ -320,7 +380,7 @@ namespace Sm64DecompLevelViewer.Services
                             int currentTranspose = 0;
                             int lastPlayPercentage = 48; // Default initial play percentage
                             var visitedOffsets = new HashSet<int>();
-                            ParseLayerEvents(data, layerOffset, track, l, ref currentTick, visitedOffsets, ref currentTranspose, ref lastPlayPercentage);
+                            ParseLayerEvents(data, layerOffset, track, l, ref currentTick, visitedOffsets, ref currentTranspose, ref lastPlayPercentage, channelEvents);
                         }
                     }
                 }
@@ -910,7 +970,7 @@ namespace Sm64DecompLevelViewer.Services
             public int RemIters;
         }
 
-        private void ParseLayerEvents(byte[] data, int startOffset, M64Track track, int layerIndex, ref int currentTick, HashSet<int> visitedOffsets, ref int currentTranspose, ref int lastPlayPercentage, int depth = 0)
+        private void ParseLayerEvents(byte[] data, int startOffset, M64Track track, int layerIndex, ref int currentTick, HashSet<int> visitedOffsets, ref int currentTranspose, ref int lastPlayPercentage, List<ChannelStateEvent> channelEvents, int depth = 0)
         {
             const int MIN_NOTE_PITCH = 0;
             const int MAX_NOTE_PITCH = 127;
@@ -1001,13 +1061,13 @@ namespace Sm64DecompLevelViewer.Services
                     else if (cmd == 0xfb) // layer_jump
                     {
                         int jumpOffset = (data[pos++] << 8) | data[pos++];
-                        ParseLayerEvents(data, jumpOffset, track, layerIndex, ref currentTick, pathVisited, ref currentTranspose, ref lastPlayPercentage, depth + 1);
+                        ParseLayerEvents(data, jumpOffset, track, layerIndex, ref currentTick, pathVisited, ref currentTranspose, ref lastPlayPercentage, channelEvents, depth + 1);
                         break;
                     }
                     else if (cmd == 0xfc) // layer_call
                     {
                         int callOffset = (data[pos++] << 8) | data[pos++];
-                        ParseLayerEvents(data, callOffset, track, layerIndex, ref currentTick, pathVisited, ref currentTranspose, ref lastPlayPercentage, depth + 1);
+                        ParseLayerEvents(data, callOffset, track, layerIndex, ref currentTick, pathVisited, ref currentTranspose, ref lastPlayPercentage, channelEvents, depth + 1);
                     }
                     else if (cmd == 0xc7) // portamento (dynamic size)
                     {
@@ -1035,6 +1095,16 @@ namespace Sm64DecompLevelViewer.Services
                         lastPlayPercentage = duration;
                         
                         byte finalPitch = (byte)Math.Clamp(pitch + currentTranspose, MIN_NOTE_PITCH, MAX_NOTE_PITCH);
+                        byte noteVol = 127;
+                        byte notePan = 64;
+                        int localTick = currentTick;
+                        if (channelEvents != null && channelEvents.Count > 0)
+                        {
+                            var ev = channelEvents.FindLast(e => e.Tick <= localTick) ?? channelEvents[0];
+                            noteVol = ev.Volume;
+                            notePan = ev.Pan;
+                        }
+
                         track.Notes.Add(new M64Note { 
                             StartTick = currentTick, 
                             DurationTicks = duration, 
@@ -1043,7 +1113,9 @@ namespace Sm64DecompLevelViewer.Services
                             Instrument = currentInstrument, 
                             LayerIndex = (byte)layerIndex,
                             Gate = gate,
-                            CommandType = 0
+                            CommandType = 0,
+                            ChannelVolume = noteVol,
+                            ChannelPan = notePan
                         });
                         currentTick += duration;
                     }
@@ -1056,6 +1128,16 @@ namespace Sm64DecompLevelViewer.Services
                         lastPlayPercentage = duration;
                         
                         byte finalPitch = (byte)Math.Clamp(pitch + currentTranspose, MIN_NOTE_PITCH, MAX_NOTE_PITCH);
+                        byte noteVol = 127;
+                        byte notePan = 64;
+                        int localTick = currentTick;
+                        if (channelEvents != null && channelEvents.Count > 0)
+                        {
+                            var ev = channelEvents.FindLast(e => e.Tick <= localTick) ?? channelEvents[0];
+                            noteVol = ev.Volume;
+                            notePan = ev.Pan;
+                        }
+
                         track.Notes.Add(new M64Note { 
                             StartTick = currentTick, 
                             DurationTicks = duration, 
@@ -1064,7 +1146,9 @@ namespace Sm64DecompLevelViewer.Services
                             Instrument = currentInstrument, 
                             LayerIndex = (byte)layerIndex,
                             Gate = 250,
-                            CommandType = 1
+                            CommandType = 1,
+                            ChannelVolume = noteVol,
+                            ChannelPan = notePan
                         });
                         currentTick += duration;
                     }
@@ -1077,6 +1161,16 @@ namespace Sm64DecompLevelViewer.Services
                         int delay = lastPlayPercentage;
                         
                         byte finalPitch = (byte)Math.Clamp(pitch + currentTranspose, MIN_NOTE_PITCH, MAX_NOTE_PITCH);
+                        byte noteVol = 127;
+                        byte notePan = 64;
+                        int localTick = currentTick;
+                        if (channelEvents != null && channelEvents.Count > 0)
+                        {
+                            var ev = channelEvents.FindLast(e => e.Tick <= localTick) ?? channelEvents[0];
+                            noteVol = ev.Volume;
+                            notePan = ev.Pan;
+                        }
+
                         track.Notes.Add(new M64Note { 
                             StartTick = currentTick, 
                             DurationTicks = duration, 
@@ -1085,7 +1179,9 @@ namespace Sm64DecompLevelViewer.Services
                             Instrument = currentInstrument, 
                             LayerIndex = (byte)layerIndex,
                             Gate = 204,
-                            CommandType = 2
+                            CommandType = 2,
+                            ChannelVolume = noteVol,
+                            ChannelPan = notePan
                         });
                         currentTick += delay;
                     }

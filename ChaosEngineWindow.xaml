@@ -124,9 +124,14 @@
                         <!-- Sub-options for M64 Music Notes -->
                         <StackPanel x:Name="MusicNotesOptionsPanel" Margin="20,0,0,8" Visibility="Visible">
                             <DockPanel Margin="0,0,0,6">
-                                <TextBlock Text="Modes:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                 <Button x:Name="ConfigureM64ModesButton" Content="Configure M64 Corruption Modes..." Click="ConfigureM64Modes_Click" Height="24" Width="200" HorizontalAlignment="Left" Background="#007ACC" Foreground="White" BorderThickness="0" FontWeight="SemiBold"/>
                             </DockPanel>
+                            
+                            <StackPanel Margin="0,4,0,6" Orientation="Horizontal">
+                                <TextBlock Text="Structure:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <RadioButton x:Name="M64KeepStructureRadio" Content="Keep Intact (Safe Note Swaps)" GroupName="M64StructureGroup" Foreground="#CCCCCC" IsChecked="True" ToolTip="Keeps the tracks, tempos, and command structures intact. Only swaps/modifies notes, pitches, and instrument parameters."/>
+                                <RadioButton x:Name="M64AlienateRadio" Content="Alienate Completely" GroupName="M64StructureGroup" Foreground="#CCCCCC" Margin="15,0,0,0" ToolTip="Completely scrambles the music byte-level structure using crash-safe binary corruptions."/>
+                            </StackPanel>
                             <StackPanel Margin="0,0,0,4">
                                 <RadioButton x:Name="M64AllRadio" Content="Corrupt All Sequences" Foreground="#CCCCCC" IsChecked="True" Checked="M64Radio_Checked" Unchecked="M64Radio_Checked"/>
                                 <RadioButton x:Name="M64SelectRadio" Content="Corrupt Selected Sequences" Foreground="#CCCCCC" Margin="0,4,0,0" Checked="M64Radio_Checked" Unchecked="M64Radio_Checked"/>

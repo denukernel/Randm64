@@ -32,6 +32,7 @@ namespace Sm64DecompLevelViewer
         
         private readonly System.Windows.Threading.DispatcherTimer _playbackTimer = new();
         private double _playheadTick = 0;
+        private DateTime _lastTickTime;
         private readonly double _tempoBpm = 150;
         private readonly double _ticksPerBeat = 48; // Quarter note division
         private bool _isPlaying = false;
@@ -68,6 +69,7 @@ namespace Sm64DecompLevelViewer
         private static int _copiedNotesMinTick = 0;
         private readonly Stack<List<M64Note>> _undoStack = new();
         private int _maxSongTick = 0;
+        private int _loopStartTick = 0;
         private HashSet<byte> _audibleSelectedChannels = new() { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
 
         public MusicEditorWindow(string projectRoot)
@@ -283,6 +285,8 @@ namespace Sm64DecompLevelViewer
             if (OctaveDownButton != null) OctaveDownButton.IsEnabled = !_isNoteEditingDisabled;
             if (DoubleSpeedButton != null) DoubleSpeedButton.IsEnabled = !_isNoteEditingDisabled;
             if (HalfSpeedButton != null) HalfSpeedButton.IsEnabled = !_isNoteEditingDisabled;
+            
+            _loopStartTick = _m64Service.LoopStartTick;
         }
 
         private readonly List<SequenceSelectItem> _scannedSequences = new();
@@ -355,7 +359,7 @@ namespace Sm64DecompLevelViewer
         {
             StopPlayback();
             _midiPlayer.Dispose();
-            _samplePlayer?.StopAll();
+            _samplePlayer?.Dispose();
         }
 
         private byte MapSm64InstrumentToGm(string m64Path, byte channel, byte sm64Inst)
@@ -548,10 +552,11 @@ namespace Sm64DecompLevelViewer
                     byte patch = _currentTrack?.Instrument ?? 0;
                     
                     bool forceMidi = UseMidiSynthCheckBox != null && UseMidiSynthCheckBox.IsChecked == true;
-                    string samplePath = forceMidi ? null : GetSamplePathForInstrument(_activeM64Path, patch);
+                    double tuning = 0.0;
+                    string samplePath = forceMidi ? null : GetSamplePathForInstrument(_activeM64Path, patch, p, out tuning);
                     if (!string.IsNullOrEmpty(samplePath))
                     {
-                        _samplePlayer?.PlayNote(ch, p, samplePath, 100, _currentTrack?.Volume ?? 127);
+                        _samplePlayer?.PlayNote(ch, p, samplePath, 100, _currentTrack?.Volume ?? 127, 64, tuning);
                     }
                     else
                     {
@@ -1023,10 +1028,11 @@ namespace Sm64DecompLevelViewer
                         byte ch = _currentTrack?.ChannelIndex ?? 0;
                         byte patch = _currentTrack?.Instrument ?? 0;
                         bool forceMidi = UseMidiSynthCheckBox != null && UseMidiSynthCheckBox.IsChecked == true;
-                        string samplePath = forceMidi ? null : GetSamplePathForInstrument(_activeM64Path, patch);
+                        double tuning = 0.0;
+                        string samplePath = forceMidi ? null : GetSamplePathForInstrument(_activeM64Path, patch, noteData.Pitch, out tuning);
                         if (!string.IsNullOrEmpty(samplePath))
                         {
-                            _samplePlayer?.PlayNote(ch, noteData.Pitch, samplePath, 100, _currentTrack?.Volume ?? 127);
+                            _samplePlayer?.PlayNote(ch, noteData.Pitch, samplePath, 100, _currentTrack?.Volume ?? 127, 64, tuning);
                         }
                         else
                         {
@@ -1180,10 +1186,11 @@ namespace Sm64DecompLevelViewer
                         byte ch = _currentTrack?.ChannelIndex ?? 0;
                         byte patch = _currentTrack?.Instrument ?? 0;
                         bool forceMidi = UseMidiSynthCheckBox != null && UseMidiSynthCheckBox.IsChecked == true;
-                        string samplePath = forceMidi ? null : GetSamplePathForInstrument(_activeM64Path, patch);
+                        double tuning = 0.0;
+                        string samplePath = forceMidi ? null : GetSamplePathForInstrument(_activeM64Path, patch, pitch, out tuning);
                         if (!string.IsNullOrEmpty(samplePath))
                         {
-                            _samplePlayer?.PlayNote(ch, pitch, samplePath, 100, _currentTrack?.Volume ?? 127);
+                            _samplePlayer?.PlayNote(ch, pitch, samplePath, 100, _currentTrack?.Volume ?? 127, 64, tuning);
                         }
                         else
                         {
@@ -1506,6 +1513,7 @@ namespace Sm64DecompLevelViewer
 
             _isPlaying = true;
             _playheadTick = 0;
+            _lastTickTime = DateTime.UtcNow;
 
             _trackPlayIndices.Clear();
             _activePlayingNotesList.Clear();
@@ -1559,8 +1567,13 @@ namespace Sm64DecompLevelViewer
         {
             if (!_isPlaying || _sequenceTracks == null || _isDraggingPlayhead) return;
 
-            // Delta time: timer ticks every 20ms = 0.02s
-            double dt = 0.02;
+            DateTime now = DateTime.UtcNow;
+            double dt = (now - _lastTickTime).TotalSeconds;
+            _lastTickTime = now;
+
+            // Clamp dt to a reasonable range to prevent jumps if the app freezes/lags
+            if (dt < 0.0) dt = 0.02;
+            if (dt > 0.3) dt = 0.3;
             double beatsPassed = dt * (_tempoBpm / 60.0);
             double ticksPassed = beatsPassed * _ticksPerBeat;
 
@@ -1570,7 +1583,7 @@ namespace Sm64DecompLevelViewer
             for (int i = _activePlayingNotesList.Count - 1; i >= 0; i--)
             {
                 var note = _activePlayingNotesList[i];
-                if (note.EndTick >= _playheadTick && note.EndTick < nextTick)
+                if (note.EndTick < nextTick)
                 {
                     _midiPlayer.NoteOff(note.Channel, note.Pitch);
                     _samplePlayer?.StopNote(note.Channel, note.Pitch);
@@ -1623,10 +1636,11 @@ namespace Sm64DecompLevelViewer
                         if (shouldPlay)
                         {
                             bool forceMidi = UseMidiSynthCheckBox != null && UseMidiSynthCheckBox.IsChecked == true;
-                            string samplePath = forceMidi ? null : GetSamplePathForInstrument(_activeM64Path, note.Instrument);
+                            double tuning = 0.0;
+                            string samplePath = forceMidi ? null : GetSamplePathForInstrument(_activeM64Path, note.Instrument, note.Pitch, out tuning);
                             if (!string.IsNullOrEmpty(samplePath))
                             {
-                                _samplePlayer?.PlayNote(targetChannel, note.Pitch, samplePath, note.Velocity, track.Volume);
+                                _samplePlayer?.PlayNote(targetChannel, note.Pitch, samplePath, note.Velocity, note.ChannelVolume, note.ChannelPan, tuning);
                             }
                             else
                             {
@@ -1658,8 +1672,8 @@ namespace Sm64DecompLevelViewer
             // Auto loop back at the end of the music
             if (_playheadTick >= _maxSongTick)
             {
-                StopPlayback();
-                PlayButton_Click(this, new RoutedEventArgs());
+                _playheadTick = _loopStartTick;
+                RefreshPlaybackIndices();
             }
         }
 
@@ -1827,9 +1841,47 @@ namespace Sm64DecompLevelViewer
             soundEditor.ShowDialog();
         }
 
-        private static string GetBankIdForSequence(string m64Path)
+        private string GetBankIdForSequence(string m64Path)
         {
-            string fileName = System.IO.Path.GetFileName(m64Path).ToLower();
+            string fileName = System.IO.Path.GetFileNameWithoutExtension(m64Path).ToLower();
+            string sequencesJsonPath = System.IO.Path.Combine(_projectRoot, "sound", "sequences.json");
+
+            if (System.IO.File.Exists(sequencesJsonPath))
+            {
+                try
+                {
+                    string jsonText = System.IO.File.ReadAllText(sequencesJsonPath);
+                    using (var doc = System.Text.Json.JsonDocument.Parse(jsonText))
+                    {
+                        var root = doc.RootElement;
+                        foreach (var prop in root.EnumerateObject())
+                        {
+                            string key = prop.Name.ToLower();
+                            if (fileName.Contains(key) || key.Contains(fileName))
+                            {
+                                var val = prop.Value;
+                                if (val.ValueKind == System.Text.Json.JsonValueKind.Array && val.GetArrayLength() > 0)
+                                {
+                                    return val[0].GetString() ?? "22";
+                                }
+                                else if (val.ValueKind == System.Text.Json.JsonValueKind.Object)
+                                {
+                                    if (val.TryGetProperty("banks", out var banksProp) && banksProp.ValueKind == System.Text.Json.JsonValueKind.Array && banksProp.GetArrayLength() > 0)
+                                    {
+                                        return banksProp[0].GetString() ?? "22";
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error reading sequences.json: {ex.Message}");
+                }
+            }
+
+            // Expanded fallback heuristics if sequences.json is unavailable
             if (fileName.Contains("grass") || fileName.Contains("bob_omb") || fileName.Contains("field")) return "22";
             if (fileName.Contains("castle") || fileName.Contains("inside")) return "0E";
             if (fileName.Contains("water") || fileName.Contains("ocean") || fileName.Contains("docks")) return "13";
@@ -1839,12 +1891,46 @@ namespace Sm64DecompLevelViewer
             if (fileName.Contains("lakitu") || fileName.Contains("cutscene")) return "1B";
             if (fileName.Contains("piranha") || fileName.Contains("lullaby")) return "14_piranha_music_box";
             if (fileName.Contains("stairs")) return "1C_endless_stairs";
-            
+            if (fileName.Contains("race")) return "1A";
+            if (fileName.Contains("powerup")) return "17";
+            if (fileName.Contains("metal")) return "18";
+            if (fileName.Contains("credits")) return "25";
+            if (fileName.Contains("ending")) return "23";
+            if (fileName.Contains("file")) return "24";
+            if (fileName.Contains("spooky")) return "10";
+
             return "22";
         }
 
-        private string GetSamplePathForInstrument(string m64Path, byte sm64Inst)
+        private string ParseSoundProperty(System.Text.Json.JsonElement prop, out double tuning)
         {
+            tuning = 0.0;
+            if (prop.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                return prop.GetString() ?? "";
+            }
+            else if (prop.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                string sample = "";
+                if (prop.TryGetProperty("sample", out var sampleProp))
+                {
+                    sample = sampleProp.GetString() ?? "";
+                }
+                if (prop.TryGetProperty("tuning", out var tuningProp))
+                {
+                    if (tuningProp.ValueKind == System.Text.Json.JsonValueKind.Number)
+                    {
+                        tuning = tuningProp.GetDouble();
+                    }
+                }
+                return sample;
+            }
+            return "";
+        }
+
+        private string GetSamplePathForInstrument(string m64Path, byte sm64Inst, byte pitch, out double tuning)
+        {
+            tuning = 0.0;
             string bankId = GetBankIdForSequence(m64Path);
             string bankPath = System.IO.Path.Combine(_projectRoot, "sound", "sound_banks", bankId + ".json");
 
@@ -1872,36 +1958,17 @@ namespace Sm64DecompLevelViewer
                         }
                     }
 
-                    if (root.TryGetProperty("instrument_list", out var listProp) && 
-                        root.TryGetProperty("instruments", out var instsProp))
+                    if (sm64Inst == 127) // Percussion/Drums
                     {
-                        if (sm64Inst < listProp.GetArrayLength())
+                        if (root.TryGetProperty("percussion", out var percProp) && percProp.ValueKind == System.Text.Json.JsonValueKind.Array)
                         {
-                            var instNameElement = listProp[sm64Inst];
-                            if (instNameElement.ValueKind == System.Text.Json.JsonValueKind.String)
+                            int index = pitch - 21;
+                            if (index >= 0 && index < percProp.GetArrayLength())
                             {
-                                string instName = instNameElement.GetString() ?? "";
-                                if (instsProp.TryGetProperty(instName, out var instProp))
+                                var percElement = percProp[index];
+                                if (percElement.TryGetProperty("sound", out var soundProp))
                                 {
-                                    string soundSample = "";
-                                    if (instProp.TryGetProperty("sound", out var soundProp))
-                                    {
-                                        if (soundProp.ValueKind == System.Text.Json.JsonValueKind.String)
-                                        {
-                                            soundSample = soundProp.GetString() ?? "";
-                                        }
-                                        else if (soundProp.ValueKind == System.Text.Json.JsonValueKind.Object)
-                                        {
-                                            if (soundProp.TryGetProperty("sample", out var sampleProp))
-                                            {
-                                                soundSample = sampleProp.GetString() ?? "";
-                                            }
-                                        }
-                                    }
-                                    else if (instProp.TryGetProperty("sound_hi", out var soundHiProp))
-                                    {
-                                        soundSample = soundHiProp.GetString() ?? "";
-                                    }
+                                    string soundSample = ParseSoundProperty(soundProp, out tuning);
 
                                     if (!string.IsNullOrEmpty(soundSample))
                                     {
@@ -1916,6 +1983,67 @@ namespace Sm64DecompLevelViewer
                             }
                         }
                     }
+                    else // Normal instrument
+                    {
+                        if (root.TryGetProperty("instrument_list", out var listProp) && 
+                            root.TryGetProperty("instruments", out var instsProp))
+                        {
+                            if (sm64Inst < listProp.GetArrayLength())
+                            {
+                                var instNameElement = listProp[sm64Inst];
+                                if (instNameElement.ValueKind == System.Text.Json.JsonValueKind.String)
+                                {
+                                    string instName = instNameElement.GetString() ?? "";
+                                    if (instsProp.TryGetProperty(instName, out var instProp))
+                                    {
+                                        string soundSample = "";
+                                        
+                                        int rangeLo = 0;
+                                        int rangeHi = 127;
+                                        if (instProp.TryGetProperty("normal_range_lo", out var loProp))
+                                        {
+                                            rangeLo = loProp.GetInt32();
+                                        }
+                                        if (instProp.TryGetProperty("normal_range_hi", out var hiProp))
+                                        {
+                                            rangeHi = hiProp.GetInt32();
+                                        }
+
+                                        if (pitch < rangeLo && instProp.TryGetProperty("sound_lo", out var soundLoProp))
+                                        {
+                                            soundSample = ParseSoundProperty(soundLoProp, out tuning);
+                                        }
+                                        else if (pitch > rangeHi && instProp.TryGetProperty("sound_hi", out var soundHiProp))
+                                        {
+                                            soundSample = ParseSoundProperty(soundHiProp, out tuning);
+                                        }
+                                        else if (instProp.TryGetProperty("sound", out var soundProp))
+                                        {
+                                            soundSample = ParseSoundProperty(soundProp, out tuning);
+                                        }
+                                        else if (instProp.TryGetProperty("sound_hi", out var fallbackHiProp))
+                                        {
+                                            soundSample = ParseSoundProperty(fallbackHiProp, out tuning);
+                                        }
+                                        else if (instProp.TryGetProperty("sound_lo", out var fallbackLoProp))
+                                        {
+                                            soundSample = ParseSoundProperty(fallbackLoProp, out tuning);
+                                        }
+
+                                        if (!string.IsNullOrEmpty(soundSample))
+                                        {
+                                            string sampleFile = soundSample + ".aiff";
+                                            string samplePath = System.IO.Path.Combine(_projectRoot, "sound", "samples", sampleBank, sampleFile);
+                                            if (System.IO.File.Exists(samplePath)) return samplePath;
+
+                                            samplePath = System.IO.Path.Combine(_projectRoot, "sound", "samples", "instruments", sampleFile);
+                                            if (System.IO.File.Exists(samplePath)) return samplePath;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             catch (Exception ex)
@@ -1925,250 +2053,9 @@ namespace Sm64DecompLevelViewer
 
             return string.Empty;
         }
-
-        private static int GetMidiPitchFromNoteName(string name)
-        {
-            name = name.ToUpper();
-            int idx = name.IndexOf('_');
-            if (idx >= 0) name = name.Substring(idx + 1);
-            
-            int octaveIndex = -1;
-            for (int i = 0; i < name.Length; i++)
-            {
-                if (char.IsDigit(name[i]) || name[i] == '-')
-                {
-                    octaveIndex = i;
-                    break;
-                }
-            }
-
-            if (octaveIndex == -1) return 60;
-
-            string notePart = name.Substring(0, octaveIndex);
-            string octavePart = name.Substring(octaveIndex);
-            
-            if (!int.TryParse(octavePart, out int octave)) octave = 4;
-
-            int noteOffset = 0;
-            switch (notePart[0])
-            {
-                case 'C': noteOffset = 0; break;
-                case 'D': noteOffset = 2; break;
-                case 'E': noteOffset = 4; break;
-                case 'F': noteOffset = 5; break;
-                case 'G': noteOffset = 7; break;
-                case 'A': noteOffset = 9; break;
-                case 'B': noteOffset = 11; break;
-            }
-
-            if (notePart.Contains("#")) noteOffset += 1;
-            else if (notePart.Contains("B") && notePart.Length > 1 && notePart[1] == 'B') noteOffset -= 1;
-            else if (notePart.Contains("E") && notePart.Length > 1 && notePart[1] == 'B') noteOffset -= 1;
-            else if (notePart.Contains("A") && notePart.Length > 1 && notePart[1] == 'B') noteOffset -= 1;
-            else if (notePart.Contains("D") && notePart.Length > 1 && notePart[1] == 'B') noteOffset -= 1;
-            else if (notePart.Contains("G") && notePart.Length > 1 && notePart[1] == 'B') noteOffset -= 1;
-            
-            return (octave + 1) * 12 + noteOffset;
-        }
     }
 
-    public class SampleSynthPlayer
-    {
-        public class ActiveNoteInstance
-        {
-            public System.Windows.Media.MediaPlayer Player { get; set; }
-            public string TempFilePath { get; set; }
-            public int NoteKey { get; set; }
-        }
 
-        private readonly string _scratchDir;
-        private readonly List<ActiveNoteInstance> _activeNoteInstances = new();
-        private readonly Dictionary<string, string> _pitchedWavCache = new();
-        private int _fileCounter = 0;
-
-        public SampleSynthPlayer(string conversationId)
-        {
-            _scratchDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), 
-                ".gemini", "antigravity-ide", "brain", conversationId, "scratch", "audio");
-            
-            try
-            {
-                if (System.IO.Directory.Exists(_scratchDir))
-                {
-                    System.IO.Directory.Delete(_scratchDir, true);
-                }
-                System.IO.Directory.CreateDirectory(_scratchDir);
-            }
-            catch { }
-        }
-
-        public void PlayNote(byte channel, byte pitch, string samplePath, byte velocity, byte channelVolume)
-        {
-            if (string.IsNullOrEmpty(samplePath) || !System.IO.File.Exists(samplePath)) return;
-
-            try
-            {
-                int noteKey = (channel << 8) | pitch;
-                StopNote(channel, pitch);
-
-                string cacheKey = $"{samplePath}_{pitch}";
-                string tempFile;
-
-                if (!_pitchedWavCache.TryGetValue(cacheKey, out tempFile) || !System.IO.File.Exists(tempFile))
-                {
-                    string fileName = System.IO.Path.GetFileNameWithoutExtension(samplePath);
-                    int basePitch = GetMidiPitchFromNoteName(fileName);
-
-                    int delta = pitch - basePitch;
-                    double ratio = Math.Pow(2.0, delta / 12.0);
-
-                    byte[] aiffBytes = AiffWavTranscoder.SafeReadAllBytes(samplePath);
-                    byte[] wavBytes = AiffWavTranscoder.ConvertAiffToWav(aiffBytes);
-                    if (wavBytes.Length == 0) return;
-
-                    int baseRate = BitConverter.ToInt32(wavBytes, 24);
-                    int targetRate = (int)(baseRate * ratio);
-                    if (targetRate <= 0) targetRate = 16000;
-
-                    byte[] rateBytes = BitConverter.GetBytes(targetRate);
-                    Array.Copy(rateBytes, 0, wavBytes, 24, 4);
-
-                    short blockAlign = BitConverter.ToInt16(wavBytes, 32);
-                    int targetByteRate = targetRate * blockAlign;
-                    byte[] byteRateBytes = BitConverter.GetBytes(targetByteRate);
-                    Array.Copy(byteRateBytes, 0, wavBytes, 28, 4);
-
-                    tempFile = System.IO.Path.Combine(_scratchDir, $"note_cache_{pitch}_{Guid.NewGuid()}.wav");
-                    System.IO.File.WriteAllBytes(tempFile, wavBytes);
-                    _pitchedWavCache[cacheKey] = tempFile;
-                }
-
-                string sampleName = System.IO.Path.GetFileName(samplePath).ToLower();
-                bool isDrum = channel == 9 ||
-                              sampleName.Contains("drum") || 
-                              sampleName.Contains("snare") || 
-                              sampleName.Contains("kick") || 
-                              sampleName.Contains("percuss") || 
-                              sampleName.Contains("cymbal") || 
-                              sampleName.Contains("hihat") || 
-                              sampleName.Contains("shaker") || 
-                              sampleName.Contains("clap") || 
-                              sampleName.Contains("tom") || 
-                              sampleName.Contains("ride") || 
-                              sampleName.Contains("crash") || 
-                              sampleName.Contains("hit") || 
-                              sampleName.Contains("cowbell") || 
-                              sampleName.Contains("tambourine");
-
-                bool shouldLoop = !isDrum;
-
-                Application.Current.Dispatcher.Invoke(() =>
-                {
-                    var player = new System.Windows.Media.MediaPlayer();
-                    player.Open(new Uri(tempFile));
-                    
-                    double vol = (velocity / 127.0) * (channelVolume / 127.0);
-                    player.Volume = Math.Clamp(vol, 0.0, 1.0);
-                    
-                    player.Play();
-
-                    var instance = new ActiveNoteInstance { Player = player, TempFilePath = tempFile, NoteKey = noteKey };
-                    _activeNoteInstances.Add(instance);
-
-                    player.MediaEnded += (s, e) =>
-                    {
-                        if (shouldLoop)
-                        {
-                            player.Position = TimeSpan.Zero;
-                            player.Play();
-                        }
-                        else
-                        {
-                            player.Close();
-                            _activeNoteInstances.Remove(instance);
-                        }
-                    };
-                });
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error playing sample note: {ex.Message}");
-            }
-        }
-
-        public void StopNote(byte channel, byte pitch)
-        {
-            int noteKey = (channel << 8) | pitch;
-            Application.Current.Dispatcher.Invoke(() =>
-            {
-                var toStop = _activeNoteInstances.Where(i => i.NoteKey == noteKey).ToList();
-                foreach (var instance in toStop)
-                {
-                    instance.Player.Stop();
-                    instance.Player.Close();
-                    _activeNoteInstances.Remove(instance);
-                }
-            });
-        }
-
-        private static int GetMidiPitchFromNoteName(string name)
-        {
-            name = name.ToUpper();
-            int idx = name.IndexOf('_');
-            if (idx >= 0) name = name.Substring(idx + 1);
-            
-            int octaveIndex = -1;
-            for (int i = 0; i < name.Length; i++)
-            {
-                if (char.IsDigit(name[i]) || name[i] == '-')
-                {
-                    octaveIndex = i;
-                    break;
-                }
-            }
-
-            if (octaveIndex == -1) return 60;
-
-            string notePart = name.Substring(0, octaveIndex);
-            string octavePart = name.Substring(octaveIndex);
-            
-            if (!int.TryParse(octavePart, out int octave)) octave = 4;
-
-            int noteOffset = 0;
-            switch (notePart[0])
-            {
-                case 'C': noteOffset = 0; break;
-                case 'D': noteOffset = 2; break;
-                case 'E': noteOffset = 4; break;
-                case 'F': noteOffset = 5; break;
-                case 'G': noteOffset = 7; break;
-                case 'A': noteOffset = 9; break;
-                case 'B': noteOffset = 11; break;
-            }
-
-            if (notePart.Contains("#")) noteOffset += 1;
-            else if (notePart.Contains("B") && notePart.Length > 1 && notePart[1] == 'B') noteOffset -= 1;
-            else if (notePart.Contains("E") && notePart.Length > 1 && notePart[1] == 'B') noteOffset -= 1;
-            else if (notePart.Contains("A") && notePart.Length > 1 && notePart[1] == 'B') noteOffset -= 1;
-            else if (notePart.Contains("D") && notePart.Length > 1 && notePart[1] == 'B') noteOffset -= 1;
-            else if (notePart.Contains("G") && notePart.Length > 1 && notePart[1] == 'B') noteOffset -= 1;
-            
-            return (octave + 1) * 12 + noteOffset;
-        }
-
-        public void StopAll()
-        {
-            Application.Current.Dispatcher.Invoke(() =>
-            {
-                foreach (var instance in _activeNoteInstances.ToList())
-                {
-                    instance.Player.Stop();
-                    instance.Player.Close();
-                }
-                _activeNoteInstances.Clear();
-            });
-        }
-    }
 
     public class ChannelSelectionWindow : Window
     {

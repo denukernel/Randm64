@@ -77,7 +77,9 @@ namespace Sm64DecompLevelViewer
                 new M64CorruptionModeItem { Id = 23, Name = "Note Eraser and Lengthener", Description = "Mutes 50% of note velocities entirely and multiplies the duration of some remaining notes, creating fragmented, sustaining sounds.", IsNew = true },
                 new M64CorruptionModeItem { Id = 24, Name = "Melody Reverser", Description = "Reverses the order of pitches in the sequence, playing melodies backward while preserving timing.", IsNew = true },
                 new M64CorruptionModeItem { Id = 25, Name = "Double Note (+3 Pitch)", Description = "Turns notes into double notes with a +3 pitch offset (minor third interval) mimicking chord voicings like G major 7.", IsNew = true },
-                new M64CorruptionModeItem { Id = 26, Name = "Pitch Flatten (Monotone)", Description = "Flattens all note pitches in each channel to a single note, making every instrument play in a monotone, straight-line drone.", IsNew = true }
+                new M64CorruptionModeItem { Id = 26, Name = "Pitch Flatten (Monotone)", Description = "Flattens all note pitches in each channel to a single note, making every instrument play in a monotone, straight-line drone.", IsNew = true },
+                new M64CorruptionModeItem { Id = 27, Name = "Sequence Pointer Slider", Description = "Slightly shifts/slides channel, layer, and jump offset pointers to neighbor structures in the sequence, warping track arrangements crash-free.", IsNew = true },
+                new M64CorruptionModeItem { Id = 28, Name = "Infinite Release", Description = "Maximizes channel release decay settings and individual note gate duration parameters (255) to sustain all notes indefinitely.", IsNew = true }
             };
 
             foreach (var item in allModes)
