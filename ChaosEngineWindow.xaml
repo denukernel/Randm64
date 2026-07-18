@@ -472,7 +472,12 @@
                                 </ComboBox>
                             </DockPanel>
                         </StackPanel>
-                        <CheckBox x:Name="AlienSoundCheatCheck" Content="Alien Sound Glitch (Inject GameShark A031C1AF)" Foreground="#CCCCCC" IsChecked="False"/>
+                        <CheckBox x:Name="AudioDistortionCheck" Content="Audio Distortion Patches" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="AudioDistortionCheck_Toggle" Unchecked="AudioDistortionCheck_Toggle"/>
+                        <!-- Sub-options for Audio Distortion Patches -->
+                        <StackPanel x:Name="AudioDistortionPanel" Margin="20,0,0,8" Visibility="Collapsed">
+                            <Button x:Name="ConfigureAudioDistortionButton" Content="Configure Audio Distortion Patches..." Click="ConfigureAudioDistortionModes_Click" Height="24" Width="220" HorizontalAlignment="Left" Background="#007ACC" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                            <TextBlock x:Name="ActiveAudioDistortionSummaryText" Text="Active patches: 1" Foreground="#999999" Margin="0,2,0,8"/>
+                        </StackPanel>
                         <CheckBox x:Name="GameLogicRandomizerCheck" Content="Game Logic Randomizer" Foreground="#CCCCCC" Margin="0,8,0,8" IsChecked="False" Checked="GameLogicRandomizerCheck_Toggle" Unchecked="GameLogicRandomizerCheck_Toggle"/>
                         <!-- Sub-options for Game Logic Randomizer -->
                         <StackPanel x:Name="GameLogicRandomizerPanel" Margin="20,0,0,8" Visibility="Collapsed">

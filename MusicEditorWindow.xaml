@@ -39,6 +39,7 @@
                     <Button Click="SoundEditorButton_Click" ToolTip="Open SM64 Sound &amp; SFX Editor" Margin="2" Background="#D45B0A" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">🔊 SFX Editor</Button>
                     <Button Click="DuplicateChannelButton_Click" ToolTip="Duplicate notes from active channel to another channel" Margin="2" Background="#6B6B6B" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">👥 Duplicate Channel</Button>
                     <Button Click="DisassembleButton_Click" ToolTip="View M64 Disassembly (WSL)" Margin="2" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">🔍 View Disassembly</Button>
+                    <Button Click="DiagnoseM64Button_Click" ToolTip="Run detailed structural diagnostics on the active M64 file" Margin="2" Background="#C43030" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">🛠️ Diagnose M64</Button>
                     <Button Click="HelpButton_Click" ToolTip="Music Editor Keyboard &amp; Mouse Controls" Margin="2" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">❓ Help</Button>
                 </StackPanel>
 

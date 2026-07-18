@@ -34,6 +34,10 @@ namespace Sm64DecompLevelViewer
             var settingsService = new SettingsService();
             _settings = settingsService.LoadSettings();
 
+#if !DEBUG
+            Open3DButton.Visibility = Visibility.Collapsed;
+#endif
+
             Loaded += ActorEditorWindow_Loaded;
             Closing += ActorEditorWindow_Closing;
         }
@@ -99,9 +103,13 @@ namespace Sm64DecompLevelViewer
             if (_selectedActor == "mario")
             {
                 MarioColorsPanel.Visibility = Visibility.Visible;
+#if DEBUG
                 MarioAnimationsPanel.Visibility = Visibility.Visible;
-                LoadMarioColorsFromSource(actorDir);
                 LoadMarioAnimations();
+#else
+                MarioAnimationsPanel.Visibility = Visibility.Collapsed;
+#endif
+                LoadMarioColorsFromSource(actorDir);
             }
             else
             {
@@ -179,6 +187,19 @@ namespace Sm64DecompLevelViewer
         private void Open3D_Click(object sender, RoutedEventArgs e)
         {
             if (string.IsNullOrEmpty(_selectedActor)) return;
+
+#if !DEBUG
+            return;
+#else
+            if (_selectedActor == "mario")
+            {
+                var result = MessageBox.Show("mario's model viewing is currently broken, do you want to continue?", "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                if (result != MessageBoxResult.Yes)
+                {
+                    return;
+                }
+            }
+#endif
 
             try
             {

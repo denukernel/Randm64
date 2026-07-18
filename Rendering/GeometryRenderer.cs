@@ -1507,15 +1507,40 @@ public class GeometryRenderer : GameWindow
                 var parser = new Services.AnimationParser();
                 var jointMatrices = parser.GetFrameTransforms(_activeAnimation, _currentFrame, _visualMesh.Joints);
 
+                // Calculate reference bind pose transformations
+                var bindMatrices = new Dictionary<int, Matrix4>();
+                for (int i = 0; i < _visualMesh.Joints.Count; i++)
+                {
+                    var joint = _visualMesh.Joints[i];
+                    var jointLocalMat = Matrix4.CreateTranslation(joint.Translation);
+                    Matrix4 parentMat = Matrix4.Identity;
+                    if (joint.ParentIndex != -1 && bindMatrices.TryGetValue(joint.ParentIndex, out var pMat))
+                    {
+                        parentMat = pMat;
+                    }
+                    bindMatrices[i] = jointLocalMat * parentMat;
+                }
+
                 foreach (var v in _visualMesh.Vertices)
                 {
                     if (v.JointIndex >= 0 && jointMatrices.TryGetValue(v.JointIndex, out var mat))
                     {
                         var refPos = new Vector3(v.RefX, v.RefY, v.RefZ);
-                        var animPos = Vector3.TransformPosition(refPos, mat);
-                        v.X = (int)animPos.X;
-                        v.Y = (int)animPos.Y;
-                        v.Z = (int)animPos.Z;
+                        if (bindMatrices.TryGetValue(v.JointIndex, out var bindMat))
+                        {
+                            var localPos = Vector3.TransformPosition(refPos, Matrix4.Invert(bindMat));
+                            var animPos = Vector3.TransformPosition(localPos, mat);
+                            v.X = (int)animPos.X;
+                            v.Y = (int)animPos.Y;
+                            v.Z = (int)animPos.Z;
+                        }
+                        else
+                        {
+                            var animPos = Vector3.TransformPosition(refPos, mat);
+                            v.X = (int)animPos.X;
+                            v.Y = (int)animPos.Y;
+                            v.Z = (int)animPos.Z;
+                        }
                     }
                 }
 

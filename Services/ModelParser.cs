@@ -131,18 +131,13 @@ public class ModelParser
     {
         var dlMatches = DisplayListPattern.Matches(content);
         
+        // Build display list content mapping and parse parent-child mappings
+        var dlContents = new Dictionary<string, string>();
         foreach (Match dlMatch in dlMatches)
         {
             string dlName = dlMatch.Groups[1].Value;
-            mesh.DisplayListNames.Add(dlName);
-            if (mesh.MainDisplayListName == null)
-            {
-                mesh.MainDisplayListName = dlName;
-            }
-
             int startIndex = dlMatch.Index + dlMatch.Length;
             
-            // Find the closing brace
             int braceCount = 1;
             int endIndex = startIndex;
             for (int i = startIndex; i < content.Length && braceCount > 0; i++)
@@ -151,19 +146,278 @@ public class ModelParser
                 if (content[i] == '}') braceCount--;
                 endIndex = i;
             }
-
             string dlContent = content.Substring(startIndex, endIndex - startIndex);
+            dlContents[dlName] = dlContent;
+        }
+
+        var spDisplayListRegex = new Regex(@"gsSPDisplayList\(\s*(\w+)\s*\)", RegexOptions.Compiled);
+
+        // Pre-parse command lists for each display list exactly once
+        var dlNodes = new Dictionary<string, List<(string type, string value)>>();
+        foreach (var pair in dlContents)
+        {
+            string dlName = pair.Key;
+            string dlContent = pair.Value;
+
+            var spLightMatches = SpLightPattern.Matches(dlContent);
+            var setTexImgMatches = SetTextureImagePattern.Matches(dlContent);
+            var spDisplayListMatches = spDisplayListRegex.Matches(dlContent);
+
+            var commands = new List<(int pos, string type, string value)>();
+            foreach (Match m in spLightMatches)
+                commands.Add((m.Index, "light", m.Groups[1].Value));
+            foreach (Match m in setTexImgMatches)
+                commands.Add((m.Index, "texture", m.Groups[1].Value));
+            foreach (Match m in spDisplayListMatches)
+                commands.Add((m.Index, "calldl", m.Groups[1].Value));
+
+            commands.Sort((a, b) => a.pos.CompareTo(b.pos));
+            dlNodes[dlName] = commands.Select(c => (c.type, c.value)).ToList();
+        }
+
+        var inheritedTextures = new Dictionary<string, string>();
+        var inheritedLights = new Dictionary<string, string>();
+        var inheritedJointIndices = new Dictionary<string, int>();
+        var inheritedTransforms = new Dictionary<string, Matrix4>();
+
+        // Seed BFS queue with direct values from geolayout
+        var queue = new Queue<string>();
+        if (mesh.DlToJointIndex != null)
+        {
+            foreach (var pair in mesh.DlToJointIndex)
+            {
+                inheritedJointIndices[pair.Key] = pair.Value;
+                queue.Enqueue(pair.Key);
+            }
+        }
+        if (transformations != null)
+        {
+            foreach (var pair in transformations)
+            {
+                inheritedTransforms[pair.Key] = pair.Value;
+                if (!inheritedJointIndices.ContainsKey(pair.Key))
+                {
+                    queue.Enqueue(pair.Key);
+                }
+            }
+        }
+
+        // Seed wrapper _dl mappings (e.g., X -> X_dl)
+        foreach (var dlName in dlContents.Keys)
+        {
+            if (!dlName.EndsWith("_dl"))
+            {
+                string dlNameWithSuffix = dlName + "_dl";
+                if (dlContents.ContainsKey(dlNameWithSuffix))
+                {
+                    bool added = false;
+                    if (inheritedJointIndices.TryGetValue(dlName, out int ji) && !inheritedJointIndices.ContainsKey(dlNameWithSuffix))
+                    {
+                        inheritedJointIndices[dlNameWithSuffix] = ji;
+                        added = true;
+                    }
+                    if (inheritedTransforms.TryGetValue(dlName, out var trans) && !inheritedTransforms.ContainsKey(dlNameWithSuffix))
+                    {
+                        inheritedTransforms[dlNameWithSuffix] = trans;
+                        added = true;
+                    }
+                    if (added)
+                    {
+                        queue.Enqueue(dlNameWithSuffix);
+                    }
+                }
+            }
+        }
+
+        // Run dataflow queue propagation with cycle protection
+        var updateCounts = new Dictionary<string, int>();
+        while (queue.Count > 0)
+        {
+            string parentDl = queue.Dequeue();
             
-            ProcessDisplayList(dlContent, vertexArrays, mesh, dlName, transformations);
+            if (!dlNodes.TryGetValue(parentDl, out var commands))
+            {
+                continue;
+            }
+
+            string? activeLight = inheritedLights.TryGetValue(parentDl, out var l) ? l : null;
+            string? activeTexture = inheritedTextures.TryGetValue(parentDl, out var t) ? t : null;
+            int? activeJointIndex = inheritedJointIndices.TryGetValue(parentDl, out int ji) ? ji : null;
+            Matrix4? activeTransform = inheritedTransforms.TryGetValue(parentDl, out var trans) ? trans : null;
+
+            foreach (var cmd in commands)
+            {
+                if (cmd.type == "light")
+                {
+                    activeLight = cmd.value;
+                }
+                else if (cmd.type == "texture")
+                {
+                    activeTexture = cmd.value;
+                }
+                else if (cmd.type == "calldl")
+                {
+                    string childDl = cmd.value;
+                    bool childChanged = false;
+
+                    if (activeLight != null && (!inheritedLights.TryGetValue(childDl, out var currentL) || currentL != activeLight))
+                    {
+                        inheritedLights[childDl] = activeLight;
+                        childChanged = true;
+                    }
+                    if (activeTexture != null && (!inheritedTextures.TryGetValue(childDl, out var currentT) || currentT != activeTexture))
+                    {
+                        inheritedTextures[childDl] = activeTexture;
+                        childChanged = true;
+                    }
+                    if (activeJointIndex.HasValue && (!inheritedJointIndices.TryGetValue(childDl, out var currentJi) || currentJi != activeJointIndex.Value))
+                    {
+                        inheritedJointIndices[childDl] = activeJointIndex.Value;
+                        childChanged = true;
+                    }
+                    if (activeTransform.HasValue && (!inheritedTransforms.TryGetValue(childDl, out var currentTrans) || currentTrans != activeTransform.Value))
+                    {
+                        inheritedTransforms[childDl] = activeTransform.Value;
+                        childChanged = true;
+                    }
+
+                    if (childChanged)
+                    {
+                        int count = updateCounts.TryGetValue(childDl, out var c) ? c : 0;
+                        if (count < 10)
+                        {
+                            updateCounts[childDl] = count + 1;
+                            queue.Enqueue(childDl);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Build set of reachable display lists to parse
+        var keptDls = new HashSet<string>();
+        if (mesh.DlToJointIndex != null && mesh.DlToJointIndex.Count > 0)
+        {
+            var keepQueue = new Queue<string>();
+            foreach (var key in mesh.DlToJointIndex.Keys)
+            {
+                if (keptDls.Add(key))
+                {
+                    keepQueue.Enqueue(key);
+                }
+            }
+            // Seed wrapper base/suffix name mappings
+            foreach (var key in mesh.DlToJointIndex.Keys)
+            {
+                if (!key.EndsWith("_dl"))
+                {
+                    string dlNameWithSuffix = key + "_dl";
+                    if (dlContents.ContainsKey(dlNameWithSuffix) && keptDls.Add(dlNameWithSuffix))
+                    {
+                        keepQueue.Enqueue(dlNameWithSuffix);
+                    }
+                }
+                else
+                {
+                    string baseName = key.Substring(0, key.Length - 3);
+                    if (dlContents.ContainsKey(baseName) && keptDls.Add(baseName))
+                    {
+                        keepQueue.Enqueue(baseName);
+                    }
+                }
+            }
+
+            while (keepQueue.Count > 0)
+            {
+                string parentDl = keepQueue.Dequeue();
+                
+                // Add suffix/base name counterparts if they exist
+                if (!parentDl.EndsWith("_dl"))
+                {
+                    string dlNameWithSuffix = parentDl + "_dl";
+                    if (dlContents.ContainsKey(dlNameWithSuffix) && keptDls.Add(dlNameWithSuffix))
+                    {
+                        keepQueue.Enqueue(dlNameWithSuffix);
+                    }
+                }
+                else
+                {
+                    string baseName = parentDl.Substring(0, parentDl.Length - 3);
+                    if (dlContents.ContainsKey(baseName) && keptDls.Add(baseName))
+                    {
+                        keepQueue.Enqueue(baseName);
+                    }
+                }
+
+                if (dlNodes.TryGetValue(parentDl, out var commands))
+                {
+                    foreach (var cmd in commands)
+                    {
+                        if (cmd.type == "calldl")
+                        {
+                            string childDl = cmd.value;
+                            if (dlContents.ContainsKey(childDl) && keptDls.Add(childDl))
+                            {
+                                keepQueue.Enqueue(childDl);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Apply propagated joint indices to mesh.DlToJointIndex
+        foreach (var pair in inheritedJointIndices)
+        {
+            mesh.DlToJointIndex[pair.Key] = pair.Value;
+        }
+
+        // Apply propagated transformations
+        if (transformations != null)
+        {
+            foreach (var pair in inheritedTransforms)
+            {
+                transformations[pair.Key] = pair.Value;
+            }
+        }
+
+        // Finally, parse the display lists that we keeping
+        foreach (var pair in dlContents)
+        {
+            string dlName = pair.Key;
+            string dlContent = pair.Value;
+
+            if (mesh.DlToJointIndex != null && mesh.DlToJointIndex.Count > 0)
+            {
+                if (!keptDls.Contains(dlName))
+                {
+                    continue;
+                }
+            }
+
+            mesh.DisplayListNames.Add(dlName);
+            if (mesh.MainDisplayListName == null)
+            {
+                mesh.MainDisplayListName = dlName;
+            }
+
+            ProcessDisplayList(dlContent, vertexArrays, mesh, dlName, transformations, inheritedTextures, inheritedLights);
         }
     }
 
-    private void ProcessDisplayList(string dlContent, Dictionary<string, List<ModelVertex>> vertexArrays, VisualMesh mesh, string dlName, Dictionary<string, Matrix4>? transformations)
+    private void ProcessDisplayList(
+        string dlContent, 
+        Dictionary<string, List<ModelVertex>> vertexArrays, 
+        VisualMesh mesh, 
+        string dlName, 
+        Dictionary<string, Matrix4>? transformations,
+        Dictionary<string, string> inheritedTextures,
+        Dictionary<string, string> inheritedLights)
     {
         List<ModelVertex>? currentVertexBuffer = null;
         int vertexBufferOffset = 0;
-        string? currentTextureSymbol = null;
-        string? currentLightSymbol = null;
+        string? currentTextureSymbol = inheritedTextures.TryGetValue(dlName, out var t) ? t : null;
+        string? currentLightSymbol = inheritedLights.TryGetValue(dlName, out var l) ? l : null;
 
         var spVertexMatches = SpVertexPattern.Matches(dlContent);
         var sp2TriMatches = Sp2TrianglesPattern.Matches(dlContent);
@@ -208,9 +462,12 @@ public class ModelParser
                     vertexBufferOffset = mesh.Vertices.Count;
                     
                     Matrix4? transform = null;
-                    if (transformations != null && dlName != null && transformations.TryGetValue(dlName, out var trans))
+                    if (transformations != null && dlName != null)
                     {
-                        transform = trans;
+                        if (transformations.TryGetValue(dlName, out var trans))
+                        {
+                            transform = trans;
+                        }
                     }
 
                     for (int i = 0; i < count && i < currentVertexBuffer.Count; i++)
@@ -223,9 +480,12 @@ public class ModelParser
                             RefZ = v.Z
                         };
 
-                        if (mesh.DlToJointIndex != null && dlName != null && mesh.DlToJointIndex.TryGetValue(dlName, out int jointIndex))
+                        if (mesh.DlToJointIndex != null && dlName != null)
                         {
-                            vertex.JointIndex = jointIndex;
+                            if (mesh.DlToJointIndex.TryGetValue(dlName, out int jointIndex))
+                            {
+                                vertex.JointIndex = jointIndex;
+                            }
                         }
 
                         if (transform.HasValue)

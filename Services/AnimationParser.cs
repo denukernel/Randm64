@@ -111,7 +111,7 @@ namespace Sm64DecompLevelViewer.Services
                 {
                     if (clean.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
                     {
-                        list.Add(Convert.ToInt16(clean, 16));
+                        list.Add((short)Convert.ToInt32(clean, 16));
                     }
                     else
                     {
@@ -173,7 +173,7 @@ namespace Sm64DecompLevelViewer.Services
                 float rotZ = (float)(rotation.Z * Math.PI / 32768.0);
 
                 var translationMat = Matrix4.CreateTranslation(translation);
-                var rotationMat = Matrix4.CreateRotationX(rotX) * Matrix4.CreateRotationY(rotY) * Matrix4.CreateRotationZ(rotZ);
+                var rotationMat = Matrix4.CreateRotationZ(rotZ) * Matrix4.CreateRotationX(rotX) * Matrix4.CreateRotationY(rotY);
                 var jointLocalMat = rotationMat * translationMat;
 
                 // Calculate parent matrix

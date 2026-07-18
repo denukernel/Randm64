@@ -33,7 +33,7 @@ namespace Sm64DecompLevelViewer
         private readonly System.Windows.Threading.DispatcherTimer _playbackTimer = new();
         private double _playheadTick = 0;
         private DateTime _lastTickTime;
-        private double _tempoBpm = 150;
+        private double _tempoBpm = 100;
         private readonly double _ticksPerBeat = 48; // Quarter note division
         private bool _isPlaying = false;
         private bool _isUpdatingUi = false;
@@ -244,7 +244,7 @@ namespace Sm64DecompLevelViewer
         {
             StopPlayback();
 
-            _tempoBpm = _m64Service.Tempo * 0.5;
+            _tempoBpm = _m64Service.Tempo;
             string fileName = System.IO.Path.GetFileName(_activeM64Path).ToLower();
             if (_samplePlayer != null)
             {
@@ -1537,7 +1537,7 @@ namespace Sm64DecompLevelViewer
             _isPlaying = true;
             _playheadTick = 0;
             _lastTickTime = DateTime.UtcNow;
-            _tempoBpm = _m64Service.Tempo * 0.5;
+            _tempoBpm = _m64Service.Tempo;
 
             _trackPlayIndices.Clear();
             _activePlayingNotesList.Clear();
@@ -1746,6 +1746,18 @@ namespace Sm64DecompLevelViewer
                 Owner = this
             };
             diagWindow.ShowDialog();
+        }
+
+        private void DiagnoseM64Button_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(_activeM64Path)) return;
+
+            var reportLines = _m64Service.DiagnoseM64(_activeM64Path);
+            var reportWindow = new M64DiagnosticsWindow(System.IO.Path.GetFileName(_activeM64Path), reportLines)
+            {
+                Owner = this
+            };
+            reportWindow.ShowDialog();
         }
 
         private void HelpButton_Click(object sender, RoutedEventArgs e)

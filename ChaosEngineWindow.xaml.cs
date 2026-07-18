@@ -22,6 +22,7 @@ namespace Sm64DecompLevelViewer
         private readonly List<int> _activeM64Modes = new() { 0, 1, 2, 3, 4, 5 };
         private readonly List<int> _activeGameLogicModes = new() { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 };
         private bool _gameLogicSimultaneous = true;
+        private readonly List<int> _activeAudioDistortionModes = new() { 0 };
         private readonly List<int> _channelPointerOffsets = new();
         private readonly List<int> _layerPointerOffsets = new();
         private readonly List<int> _jumpPointerOffsets = new();
@@ -148,7 +149,13 @@ namespace Sm64DecompLevelViewer
             bool jumpDeath = ChaosLogicJumpDeath.IsChecked == true;
             bool limboMario = LimboMarioCheck.IsChecked == true;
             int limboMarioMode = LimboMarioModeComboBox.SelectedIndex;
-            bool alienSound = AlienSoundCheatCheck.IsChecked == true;
+            bool audioDistortion = AudioDistortionCheck.IsChecked == true;
+            bool alienSound = audioDistortion && _activeAudioDistortionModes.Contains(0);
+            bool wackierSounds = audioDistortion && _activeAudioDistortionModes.Contains(1);
+            bool wackyInstruments = audioDistortion && _activeAudioDistortionModes.Contains(2);
+            bool adsrScrambler = audioDistortion && _activeAudioDistortionModes.Contains(3);
+            bool vibratoPitch = audioDistortion && _activeAudioDistortionModes.Contains(4);
+            bool dmaBitcrusher = audioDistortion && _activeAudioDistortionModes.Contains(5);
             bool gameLogicRandomizer = GameLogicRandomizerCheck.IsChecked == true;
 
             bool scrambleTitleScreen = ScrambleTitleScreenCheck.IsChecked == true;
@@ -178,7 +185,7 @@ namespace Sm64DecompLevelViewer
             });
 
             if (!targetMusic && !targetSounds && !randomizeDl && !randomizeCollision && !targetModels && !targetGoddard && !shuffleSounds &&
-                !randomizeSkybox && !randomizeText && !jumpWeird && !jumpDeath && !limboMario && !alienSound && !randomizeTextures &&
+                !randomizeSkybox && !randomizeText && !jumpWeird && !jumpDeath && !limboMario && !audioDistortion && !randomizeTextures &&
                 !glitchAnimations && !glitchHud && !replaceSfx && !replaceTexturesCustom && !randomizeMarioColors && DlExclusionCheck.IsChecked != true &&
                 !scrambleTitleScreen && !randomizeCutsceneCamera && !startLevelChaos && !lakituCameraChaos && !gameLogicRandomizer)
             {
@@ -442,6 +449,12 @@ namespace Sm64DecompLevelViewer
                                         trimmed.Contains("CHAOS_LIMBO_MARIO") ||
                                         trimmed.Contains("CHAOS_LAKITU_CAMERA_MODE") ||
                                         trimmed.Contains("CHAOS_ALIEN_SOUND") ||
+                                         trimmed.Contains("CHAOS_LONG_NOTES_DISTORTION") ||
+                                         trimmed.Contains("CHAOS_WACKIER_SOUNDS") ||
+                                         trimmed.Contains("CHAOS_WACKY_INSTRUMENTS") ||
+                                         trimmed.Contains("CHAOS_ADSR_ENVELOPE_SCRAMBLER") ||
+                                         trimmed.Contains("CHAOS_VIBRATO_PITCH_BEND_CHAOS") ||
+                                         trimmed.Contains("CHAOS_DMA_BITCRUSHER") ||
                                         trimmed.Contains("CHAOS_TITLE_SCRAMBLER_MODE") ||
                                         trimmed.Contains("CHAOS_CUTSCENE_CAMERA_MODE") ||
                                         trimmed.Contains("CHAOS_START_LEVEL") ||
@@ -518,11 +531,28 @@ namespace Sm64DecompLevelViewer
                             }
                             if (alienSound)
                             {
-                                if (_accumulatedMacros.ContainsKey("CHAOS_ALIEN_SOUND"))
-                                {
-                                    throw new InvalidOperationException("Alien sound cheat is already applied. Operation refused to prevent redundancy.");
-                                }
                                 _accumulatedMacros["CHAOS_ALIEN_SOUND"] = "#define CHAOS_ALIEN_SOUND";
+                                _accumulatedMacros["CHAOS_LONG_NOTES_DISTORTION"] = "#define CHAOS_LONG_NOTES_DISTORTION";
+                            }
+                            if (wackierSounds)
+                            {
+                                _accumulatedMacros["CHAOS_WACKIER_SOUNDS"] = "#define CHAOS_WACKIER_SOUNDS";
+                            }
+                            if (wackyInstruments)
+                            {
+                                _accumulatedMacros["CHAOS_WACKY_INSTRUMENTS"] = "#define CHAOS_WACKY_INSTRUMENTS";
+                            }
+                            if (adsrScrambler)
+                            {
+                                _accumulatedMacros["CHAOS_ADSR_ENVELOPE_SCRAMBLER"] = "#define CHAOS_ADSR_ENVELOPE_SCRAMBLER";
+                            }
+                            if (vibratoPitch)
+                            {
+                                _accumulatedMacros["CHAOS_VIBRATO_PITCH_BEND_CHAOS"] = "#define CHAOS_VIBRATO_PITCH_BEND_CHAOS";
+                            }
+                            if (dmaBitcrusher)
+                            {
+                                _accumulatedMacros["CHAOS_DMA_BITCRUSHER"] = "#define CHAOS_DMA_BITCRUSHER";
                             }
                             if (scrambleTitleScreen)
                             {
@@ -934,9 +964,44 @@ s32 execute_mario_action(UNUSED struct Object *o) {";
                     
                     if (alienSound)
                     {
-                        string oldAlienLoop = "        {\n            u8 *_ptr_pc;\n            _ptr_pc = (*state).pc++;\n            cmd = *_ptr_pc;\n        }";
-                        string newAlienLoop = "        {\n            u8 *_ptr_pc;\n            _ptr_pc = (*state).pc++;\n            cmd = *_ptr_pc;\n#ifdef CHAOS_ALIEN_SOUND\n            if (cmd > 0xc0) {\n                cmd = (cmd + 13) % 256;\n            }\n#endif\n        }";
-                        PatchSourceFile("src/audio/copt/seq_channel_layer_process_script_copt.inc.c", oldAlienLoop, newAlienLoop);
+                        string oldAlienDurationCopt = "        if (!layer->stopSomething && layer->delay <= layer->duration) {\n            seq_channel_layer_note_decay(layer);\n            layer->stopSomething = TRUE;\n        }";
+                        string newAlienDurationCopt =
+                            "#ifdef CHAOS_ALIEN_SOUND\n" +
+                            "        {\n" +
+                            "            volatile int offset = 221;\n" +
+                            "            s16 duration = *(s16 *)((u8 *)layer + offset);\n" +
+                            "            if (!layer->stopSomething && layer->delay <= duration) {\n" +
+                            "                seq_channel_layer_note_decay(layer);\n" +
+                            "                layer->stopSomething = TRUE;\n" +
+                            "            }\n" +
+                            "        }\n" +
+                            "#else\n" +
+                            "        if (!layer->stopSomething && layer->delay <= layer->duration) {\n" +
+                            "            seq_channel_layer_note_decay(layer);\n" +
+                            "            layer->stopSomething = TRUE;\n" +
+                            "        }\n" +
+                            "#endif";
+
+                        string oldAlienDurationEU = "        if (!layer->stopSomething && layer->delay <= layer->duration) {\n            seq_channel_layer_note_decay(layer);\n            layer->stopSomething = TRUE;\n        }";
+                        string newAlienDurationEU =
+                            "#ifdef CHAOS_ALIEN_SOUND\n" +
+                            "        {\n" +
+                            "            volatile int offset = 217;\n" +
+                            "            s16 duration = *(s16 *)((u8 *)layer + offset);\n" +
+                            "            if (!layer->stopSomething && layer->delay <= duration) {\n" +
+                            "                seq_channel_layer_note_decay(layer);\n" +
+                            "                layer->stopSomething = TRUE;\n" +
+                            "            }\n" +
+                            "        }\n" +
+                            "#else\n" +
+                            "        if (!layer->stopSomething && layer->delay <= layer->duration) {\n" +
+                            "            seq_channel_layer_note_decay(layer);\n" +
+                            "            layer->stopSomething = TRUE;\n" +
+                            "        }\n" +
+                            "#endif";
+
+                        PatchSourceFile("src/audio/copt/seq_channel_layer_process_script_copt.inc.c", oldAlienDurationCopt, newAlienDurationCopt);
+                        PatchSourceFile("src/audio/seqplayer.c", oldAlienDurationEU, newAlienDurationEU);
                         PatchSourceFile("src/audio/seqplayer.c", "#include \"seqplayer.h\"", "#include \"seqplayer.h\"\n#include \"chaos_config.h\"");
                         string parentFile = Path.Combine(_projectRoot, "src", "audio", "seqplayer.c");
                         if (File.Exists(parentFile))
@@ -1733,6 +1798,33 @@ void apply_chaos_intro_camera(struct Camera *c) {
             }
         }
 
+        private void AudioDistortionCheck_Toggle(object sender, RoutedEventArgs e)
+        {
+            if (AudioDistortionPanel != null)
+            {
+                AudioDistortionPanel.Visibility = AudioDistortionCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private void ConfigureAudioDistortionModes_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new AudioDistortionWindow(_activeAudioDistortionModes) { Owner = this };
+            if (dialog.ShowDialog() == true)
+            {
+                _activeAudioDistortionModes.Clear();
+                _activeAudioDistortionModes.AddRange(dialog.SelectedPatchIds);
+                UpdateAudioDistortionSummaryText();
+            }
+        }
+
+        private void UpdateAudioDistortionSummaryText()
+        {
+            if (ActiveAudioDistortionSummaryText != null)
+            {
+                ActiveAudioDistortionSummaryText.Text = $"Active patches: {_activeAudioDistortionModes.Count}";
+            }
+        }
+
         private void ConfigureGameLogicModes_Click(object sender, RoutedEventArgs e)
         {
             var dialog = new GameLogicModesWindow(_activeGameLogicModes, _gameLogicSimultaneous) { Owner = this };
@@ -2368,7 +2460,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 visited.Clear();
                 foreach (int chanPos in channelOffsets)
                 {
-                    ParseChanCommandsForOffsets(data, chanPos, visited, layerLargeNotes, layerInstruments, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets, isShindou, -1, false);
+                    ParseChanCommandsForOffsets(data, chanPos, visited, layerLargeNotes, layerInstruments, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets, isShindou, -1, false, true);
                 }
             }
             catch (Exception ex)
@@ -2385,7 +2477,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     int layerPos = kvp.Key;
                     bool largeNotes = kvp.Value;
                     int layerInstr = layerInstruments.ContainsKey(layerPos) ? layerInstruments[layerPos] : -1;
-                    ParseLayerCommandsForOffsets(data, layerPos, visited, pitchOffsets, velocityOffsets, instrumentOffsets, percussionPitchOffsets, largeNotes, layerInstr);
+                    ParseLayerCommandsForOffsets(data, layerPos, visited, pitchOffsets, velocityOffsets, instrumentOffsets, percussionPitchOffsets, largeNotes, layerInstr, true);
                 }
             }
             catch (Exception ex)
@@ -2420,6 +2512,13 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 int temp = shuffledModes[k];
                 shuffledModes[k] = shuffledModes[n];
                 shuffledModes[n] = temp;
+            }
+
+            // Ensure Pitch Flatten (Monotone) is executed at the very end to prevent other pitch-modifying modes from overriding it
+            if (shuffledModes.Contains(26))
+            {
+                shuffledModes.Remove(26);
+                shuffledModes.Add(26);
             }
 
             double intensityFactor = intensity / 100.0;
@@ -3063,7 +3162,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
 
                             foreach (int offset in chanPitchOffsets)
                             {
-                                if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
+                                if (offset >= 0 && offset < data.Length)
                                 {
                                     if (percussionPitchOffsets.Contains(offset))
                                     {
@@ -3297,10 +3396,15 @@ void apply_chaos_intro_camera(struct Camera *c) {
             }
 
             // 1 parameter byte
-            if (cmd == 0xf8 || (cmd == 0xf2 && !isShindou) || (cmd == 0xf1 && isShindou) || cmd == 0xdc || cmd == 0xda || 
-                cmd == 0xd5 || cmd == 0xdf || cmd == 0xde || cmd == 0xdd || 
-                cmd == 0xdb || cmd == 0xd3 || cmd == 0xd0 || cmd == 0xcc || 
-                cmd == 0xc9 || cmd == 0xc8 || cmd == 0xd9)
+            if (cmd == 0xf8 || cmd == 0xf4 || cmd == 0xf3 || 
+                (cmd == 0xf2 && !isShindou) || (cmd == 0xf1 && isShindou) || 
+                cmd == 0xc6 || cmd == 0xc1 || cmd == 0xdf || cmd == 0xe0 || 
+                cmd == 0xdd || cmd == 0xdc || cmd == 0xdb || cmd == 0xd9 || 
+                cmd == 0xd8 || cmd == 0xd7 || cmd == 0xd6 || cmd == 0xd4 || 
+                cmd == 0xd3 || cmd == 0xd2 || cmd == 0xd1 || cmd == 0xe3 || 
+                cmd == 0xe5 || cmd == 0xe6 || cmd == 0xeb ||
+                cmd == 0xda || cmd == 0xd5 || cmd == 0xde || cmd == 0xd0 || 
+                cmd == 0xcc || cmd == 0xc9 || cmd == 0xc8)
             {
                 return 1;
             }
@@ -3451,7 +3555,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             }
         }
 
-        private void ParseChanCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, Dictionary<int, bool> layerLargeNotes, Dictionary<int, int> layerInstruments, List<int> instrumentOffsets, List<int> volumeOffsets, List<int> panOffsets, List<int> reverbOffsets, List<int> pitchBendOffsets, bool isShindou, int currentInstr = -1, bool largeNotesState = false)
+        private void ParseChanCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, Dictionary<int, bool> layerLargeNotes, Dictionary<int, int> layerInstruments, List<int> instrumentOffsets, List<int> volumeOffsets, List<int> panOffsets, List<int> reverbOffsets, List<int> pitchBendOffsets, bool isShindou, int currentInstr = -1, bool largeNotesState = false, bool collectPointers = false)
         {
             if (pos < 0 || pos >= data.Length || visited.Contains(pos)) return;
             visited.Add(pos);
@@ -3463,11 +3567,11 @@ void apply_chaos_intro_camera(struct Camera *c) {
 
                 if (cmd == 0xfb)
                 {
-                    _jumpPointerOffsets.Add(pos);
+                    if (collectPointers) _jumpPointerOffsets.Add(pos);
                     int jumpOffset = (data[pos++] << 8) | data[pos++];
                     if (jumpOffset > 0 && jumpOffset < data.Length)
                     {
-                        ParseChanCommandsForOffsets(data, jumpOffset, visited, layerLargeNotes, layerInstruments, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets, isShindou, currentInstr, largeNotesState);
+                        ParseChanCommandsForOffsets(data, jumpOffset, visited, layerLargeNotes, layerInstruments, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets, isShindou, currentInstr, largeNotesState, collectPointers);
                     }
                     break;
                 }
@@ -3514,12 +3618,12 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 }
                 else if (cmd == 0xd9) // set decay release
                 {
-                    _decayReleaseOffsets.Add(pos);
+                    if (collectPointers) _decayReleaseOffsets.Add(pos);
                     pos++;
                 }
                 else if (isShindou ? (cmd >= 0x88 && cmd <= 0x8b) : ((cmd & 0xf0) == 0x90))
                 {
-                    _layerPointerOffsets.Add(pos);
+                    if (collectPointers) _layerPointerOffsets.Add(pos);
                     int layerPos = (data[pos++] << 8) | data[pos++];
                     if (layerPos > 0 && layerPos < data.Length)
                     {
@@ -3535,7 +3639,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             }
         }
 
-        private void ParseLayerCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, List<int> pitchOffsets, List<int> velocityOffsets, List<int> instrumentOffsets, HashSet<int> percussionPitchOffsets, bool largeNotes, int layerInstr = -1)
+        private void ParseLayerCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, List<int> pitchOffsets, List<int> velocityOffsets, List<int> instrumentOffsets, HashSet<int> percussionPitchOffsets, bool largeNotes, int layerInstr = -1, bool collectPointers = false)
         {
             if (pos < 0 || pos >= data.Length || visited.Contains(pos)) return;
             visited.Add(pos);
@@ -3547,21 +3651,21 @@ void apply_chaos_intro_camera(struct Camera *c) {
 
                 if (cmd == 0xfb)
                 {
-                    _jumpPointerOffsets.Add(pos);
+                    if (collectPointers) _jumpPointerOffsets.Add(pos);
                     int jumpOffset = (data[pos++] << 8) | data[pos++];
                     if (jumpOffset > 0 && jumpOffset < data.Length)
                     {
-                        ParseLayerCommandsForOffsets(data, jumpOffset, visited, pitchOffsets, velocityOffsets, instrumentOffsets, percussionPitchOffsets, largeNotes, layerInstr);
+                        ParseLayerCommandsForOffsets(data, jumpOffset, visited, pitchOffsets, velocityOffsets, instrumentOffsets, percussionPitchOffsets, largeNotes, layerInstr, collectPointers);
                     }
                     break;
                 }
                 else if (cmd == 0xfc)
                 {
-                    _jumpPointerOffsets.Add(pos);
+                    if (collectPointers) _jumpPointerOffsets.Add(pos);
                     int callOffset = (data[pos++] << 8) | data[pos++];
                     if (callOffset > 0 && callOffset < data.Length)
                     {
-                        ParseLayerCommandsForOffsets(data, callOffset, visited, pitchOffsets, velocityOffsets, instrumentOffsets, percussionPitchOffsets, largeNotes, layerInstr);
+                        ParseLayerCommandsForOffsets(data, callOffset, visited, pitchOffsets, velocityOffsets, instrumentOffsets, percussionPitchOffsets, largeNotes, layerInstr, collectPointers);
                     }
                 }
                 else if (cmd == 0xfd)
@@ -3585,9 +3689,10 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     {
                         percussionPitchOffsets.Add(pitchOffset);
                     }
-                    ReadVarIntForOffsets(data, ref pos);
+                    ReadVarIntForOffsets(data, ref pos); // Skip duration (varint)
                     velocityOffsets.Add(pos);
-                    pos += 2; // Skip velocity (1 byte) and gate (1 byte)
+                    pos++; // Skip velocity (1 byte)
+                    pos++; // Skip gate/gateTime (1 byte)
                 }
                 else if (cmd >= 0x40 && cmd <= 0x7f) // Type 1 note (medium)
                 {
@@ -4944,7 +5049,10 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 ChaosLogicJumpWeird.IsChecked = false;
                 ChaosLogicJumpDeath.IsChecked = false;
                 LimboMarioCheck.IsChecked = false;
-                AlienSoundCheatCheck.IsChecked = false;
+                AudioDistortionCheck.IsChecked = false;
+                _activeAudioDistortionModes.Clear();
+                _activeAudioDistortionModes.Add(0);
+                UpdateAudioDistortionSummaryText();
                 GameLogicRandomizerCheck.IsChecked = false;
                 _activeGameLogicModes.Clear();
                 _activeGameLogicModes.AddRange(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 });
@@ -5034,7 +5142,9 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 ChaosLogicJumpDeath = ChaosLogicJumpDeath.IsChecked == true,
                 LimboMario = LimboMarioCheck.IsChecked == true,
                 LimboMarioMode = LimboMarioModeComboBox.SelectedIndex,
-                AlienSoundCheat = AlienSoundCheatCheck.IsChecked == true,
+                AlienSoundCheat = AudioDistortionCheck.IsChecked == true,
+                AudioDistortion = AudioDistortionCheck.IsChecked == true,
+                ActiveAudioDistortionModes = new List<int>(_activeAudioDistortionModes),
                 GameLogicRandomizer = GameLogicRandomizerCheck.IsChecked == true,
                 ActiveGameLogicModes = new List<int>(_activeGameLogicModes),
                 GameLogicSimultaneous = _gameLogicSimultaneous,
@@ -5140,7 +5250,17 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 ChaosLogicJumpDeath.IsChecked = preset.ChaosLogicJumpDeath;
                 LimboMarioCheck.IsChecked = preset.LimboMario;
                 LimboMarioModeComboBox.SelectedIndex = preset.LimboMarioMode;
-                AlienSoundCheatCheck.IsChecked = preset.AlienSoundCheat;
+                AudioDistortionCheck.IsChecked = preset.AudioDistortion || preset.AlienSoundCheat;
+                _activeAudioDistortionModes.Clear();
+                if (preset.ActiveAudioDistortionModes != null)
+                {
+                    _activeAudioDistortionModes.AddRange(preset.ActiveAudioDistortionModes);
+                }
+                else
+                {
+                    _activeAudioDistortionModes.Add(0);
+                }
+                UpdateAudioDistortionSummaryText();
                 GameLogicRandomizerCheck.IsChecked = preset.GameLogicRandomizer;
                 _activeGameLogicModes.Clear();
                 if (preset.ActiveGameLogicModes != null)
@@ -5188,6 +5308,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 LimboMarioCheck_Toggle(null, null);
                 StartLevelChaosCheck_Toggle(null, null);
                 GameLogicRandomizerCheck_Toggle(null, null);
+                AudioDistortionCheck_Toggle(null, null);
             }
         }
 
@@ -5801,46 +5922,118 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 seqStartOffset = (bytes[4] << 8) | bytes[5];
             }
 
-            // Mark structural sequence, channel, and layer commands as forbidden to prevent N64 audio parser crashes
-            bool[] forbidden = new bool[bytes.Length];
-            for (int j = 0; j < Math.Min(bytes.Length, seqStartOffset); j++)
+            _channelPointerOffsets.Clear();
+            _layerPointerOffsets.Clear();
+            _jumpPointerOffsets.Clear();
+            _decayReleaseOffsets.Clear();
+
+            var tempoOffsets = new List<int>();
+            var instrumentOffsets = new List<int>();
+            var volumeOffsets = new List<int>();
+            var pitchOffsets = new List<int>();
+            var velocityOffsets = new List<int>();
+            var panOffsets = new List<int>();
+            var reverbOffsets = new List<int>();
+            var pitchBendOffsets = new List<int>();
+            var percussionPitchOffsets = new HashSet<int>();
+
+            var visited = new HashSet<int>();
+            var channelOffsets = new HashSet<int>();
+            var layerLargeNotes = new Dictionary<int, bool>();
+            var layerInstruments = new Dictionary<int, int>();
+
+            bool isShindou = DetectIsShindou(bytes);
+
+            try
             {
-                forbidden[j] = true;
+                ParseSeqCommandsForOffsets(bytes, seqStartOffset, visited, channelOffsets, tempoOffsets, volumeOffsets);
             }
-            for (int j = seqStartOffset; j < bytes.Length; j++)
+            catch (Exception ex)
             {
-                byte cmd = bytes[j];
-                bool isCmd = (cmd >= 0x90 && cmd <= 0x9F) || (cmd >= 0xC0 && cmd <= 0xFF);
-                if (isCmd)
+                Console.WriteLine($"Error parsing seq headers for alienation of {filePath}: {ex.Message}");
+            }
+
+            try
+            {
+                visited.Clear();
+                foreach (int chanPos in channelOffsets)
                 {
-                    forbidden[j] = true;
-                    // Also forbid parameter bytes of commands to prevent structural damage
-                    if (j + 1 < bytes.Length) forbidden[j + 1] = true;
-                    if (j + 2 < bytes.Length) forbidden[j + 2] = true;
-                    if (j + 3 < bytes.Length) forbidden[j + 3] = true;
+                    ParseChanCommandsForOffsets(bytes, chanPos, visited, layerLargeNotes, layerInstruments, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets, isShindou, -1, false, false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error parsing channels for alienation of {filePath}: {ex.Message}");
+            }
+
+            try
+            {
+                visited.Clear();
+                foreach (var kvp in layerLargeNotes)
+                {
+                    int layerPos = kvp.Key;
+                    bool largeNotes = kvp.Value;
+                    int layerInstr = layerInstruments.ContainsKey(layerPos) ? layerInstruments[layerPos] : -1;
+                    ParseLayerCommandsForOffsets(bytes, layerPos, visited, pitchOffsets, velocityOffsets, instrumentOffsets, percussionPitchOffsets, largeNotes, layerInstr, false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error parsing layers for alienation of {filePath}: {ex.Message}");
+            }
+
+            var safeOffsets = new HashSet<int>();
+            foreach (int offset in tempoOffsets) safeOffsets.Add(offset);
+            foreach (int offset in volumeOffsets) safeOffsets.Add(offset);
+            foreach (int offset in instrumentOffsets) safeOffsets.Add(offset);
+            foreach (int offset in panOffsets) safeOffsets.Add(offset);
+            foreach (int offset in reverbOffsets) safeOffsets.Add(offset);
+            foreach (int offset in pitchBendOffsets) safeOffsets.Add(offset);
+            foreach (int offset in pitchOffsets) safeOffsets.Add(offset);
+            foreach (int offset in velocityOffsets) safeOffsets.Add(offset);
+
+            for (int i = 0; i < pitchOffsets.Count; i++)
+            {
+                int offset = pitchOffsets[i];
+                int velOffset = velocityOffsets[i];
+                if (offset >= 0 && offset < bytes.Length && velOffset >= 0 && velOffset < bytes.Length)
+                {
+                    byte cmd = bytes[offset];
+                    if ((cmd & 0xc0) == 0x80 || (cmd & 0xc0) == 0x00)
+                    {
+                        int durOffset = velOffset + 1;
+                        if (durOffset >= 0 && durOffset < bytes.Length)
+                        {
+                            safeOffsets.Add(durOffset);
+                        }
+                    }
                 }
             }
 
-            // We want to corrupt note parameters (which are < 0x80, like pitches, durations, velocities) completely randomly
+            var safeOffsetsList = safeOffsets.Where(off => off >= 0 && off < bytes.Length).ToList();
+            if (safeOffsetsList.Count == 0) return;
+
+            var pitchOffsetsSet = new HashSet<int>(pitchOffsets);
+
             double rate = (intensity / 100.0) * 0.15; // Higher rate for alienation
             int changesCount = (int)(bytes.Length * rate);
             if (changesCount <= 0) changesCount = 1;
+            changesCount = Math.Min(changesCount, safeOffsetsList.Count);
 
             for (int i = 0; i < changesCount; i++)
             {
-                int pos = _random.Next(seqStartOffset, bytes.Length);
+                int idx = _random.Next(safeOffsetsList.Count);
+                int pos = safeOffsetsList[idx];
 
-                // Find a non-forbidden offset to corrupt
-                int retries = 100;
-                while (forbidden[pos] && retries-- > 0)
+                if (pitchOffsetsSet.Contains(pos))
                 {
-                    pos = _random.Next(seqStartOffset, bytes.Length);
+                    byte cmd = bytes[pos];
+                    int newPitch = _random.Next(0, 64);
+                    bytes[pos] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
                 }
-
-                if (!forbidden[pos])
+                else
                 {
-                    // Corrupt completely randomly with any byte < 0x80 to keep it a valid non-command byte
-                    bytes[pos] = (byte)_random.Next(0, 128);
+                    bytes[pos] = (byte)_random.Next(0, 256);
                 }
             }
 
@@ -5915,6 +6108,8 @@ void apply_chaos_intro_camera(struct Camera *c) {
         public bool LimboMario { get; set; } = false;
         public int LimboMarioMode { get; set; } = 0;
         public bool AlienSoundCheat { get; set; } = false;
+        public bool AudioDistortion { get; set; } = false;
+        public List<int> ActiveAudioDistortionModes { get; set; } = new() { 0 };
         public bool GameLogicRandomizer { get; set; } = false;
         public List<int> ActiveGameLogicModes { get; set; } = new() { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 };
         public bool GameLogicSimultaneous { get; set; } = true;

@@ -9,11 +9,11 @@ public class GeoLayoutParser
 {
     // Regex patterns for GEO commands
     private static readonly Regex TranslatePattern = new(
-        @"GEO_TRANSLATE\s*\(\s*\w+\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\)",
+        @"GEO_TRANSLATE\s*\(\s*\w+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*\)",
         RegexOptions.Compiled);
 
     private static readonly Regex TranslateWithDlPattern = new(
-        @"GEO_TRANSLATE_WITH_DL\s*\(\s*\w+\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(\w+)\s*\)",
+        @"GEO_TRANSLATE_WITH_DL\s*\(\s*\w+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(\w+)\s*\)",
         RegexOptions.Compiled);
 
     private static readonly Regex RotatePattern = new(
@@ -33,11 +33,11 @@ public class GeoLayoutParser
         RegexOptions.Compiled);
 
     private static readonly Regex TranslateRotatePattern = new(
-        @"GEO_TRANSLATE_ROTATE\s*\(\s*\w+\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*\)",
+        @"GEO_TRANSLATE_ROTATE\s*\(\s*\w+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*\)",
         RegexOptions.Compiled);
 
     private static readonly Regex TranslateRotateWithDlPattern = new(
-        @"GEO_TRANSLATE_ROTATE_WITH_DL\s*\(\s*\w+\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(\w+)\s*\)",
+        @"GEO_TRANSLATE_ROTATE_WITH_DL\s*\(\s*\w+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(\w+)\s*\)",
         RegexOptions.Compiled);
 
     private static readonly Regex DisplayListPattern = new(
@@ -198,6 +198,20 @@ public class GeoLayoutParser
         return null;
     }
 
+    private int ParseIntHelper(string valStr)
+    {
+        if (valStr.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            uint val = Convert.ToUInt32(valStr, 16);
+            if (valStr.Length <= 6) // e.g. 0xFFFF or less, fits in s16
+            {
+                return (short)val;
+            }
+            return (int)val;
+        }
+        return int.Parse(valStr);
+    }
+
     private float ConvertAngleToDegrees(string angleStr)
     {
         long angleUnits;
@@ -248,9 +262,9 @@ public class GeoLayoutParser
         var rotY = MathHelper.DegreesToRadians(node.Rotation.Y);
         var rotZ = MathHelper.DegreesToRadians(node.Rotation.Z);
         
-        var rotation = Matrix4.CreateRotationX(rotX) *
-                       Matrix4.CreateRotationY(rotY) *
-                       Matrix4.CreateRotationZ(rotZ);
+        var rotation = Matrix4.CreateRotationZ(rotZ) *
+                       Matrix4.CreateRotationX(rotX) *
+                       Matrix4.CreateRotationY(rotY);
         
         var scale = Matrix4.CreateScale(node.Scale);
 
@@ -290,12 +304,13 @@ public class GeoLayoutParser
             {
                 var translationStack = new Stack<Vector3>();
                 var scaleStack = new Stack<float>();
+                var rotationStack = new Stack<Matrix4>();
                 var jointIndexStack = new Stack<int>();
                 var visitedLayouts = new HashSet<string>();
 
                 int nextJointIndex = 0;
-                TraverseLayout(lastLayoutName, layouts, transforms, Vector3.Zero, 1.0f,
-                               translationStack, scaleStack, jointIndexStack, -1, ref nextJointIndex, visitedLayouts);
+                TraverseLayout(lastLayoutName, layouts, transforms, Vector3.Zero, 1.0f, Matrix4.Identity,
+                               translationStack, scaleStack, rotationStack, jointIndexStack, -1, ref nextJointIndex, visitedLayouts);
                 
                 Console.WriteLine($"Parsed geo layout: {lastLayoutName}. Joint count: {ParsedJoints.Count}. Reference DL transforms: {transforms.Count}");
             }
@@ -314,8 +329,10 @@ public class GeoLayoutParser
         Dictionary<string, Matrix4> transforms,
         Vector3 currentTranslation,
         float currentScale,
+        Matrix4 currentRotation,
         Stack<Vector3> translationStack,
         Stack<float> scaleStack,
+        Stack<Matrix4> rotationStack,
         Stack<int> jointIndexStack,
         int parentJointIndex,
         ref int nextJointIndex,
@@ -329,6 +346,7 @@ public class GeoLayoutParser
         var lines = body.Split('\n');
         Vector3 activeJointTranslation = currentTranslation;
         float activeJointScale = currentScale;
+        Matrix4 activeJointRotation = currentRotation;
         int activeJointIndex = parentJointIndex;
 
         int currentDepth = 0;
@@ -338,8 +356,11 @@ public class GeoLayoutParser
         int savedJointIndex = nextJointIndex;
         int maxNextJointIndex = nextJointIndex;
 
+        var switchStack = new Stack<(int activeDepth, int branchIndex, int savedJointIndex, int maxNextJointIndex)>();
+        int skipDepth = -1;
+
         // Matches: GEO_ANIMATED_PART(layer, x, y, z, displayList)
-        var animatedPartRegex = new Regex(@"GEO_ANIMATED_PART\s*\(\s*\w+\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*([^)]+)\)", RegexOptions.Compiled);
+        var animatedPartRegex = new Regex(@"GEO_ANIMATED_PART\s*\(\s*\w+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*([^)]+)\)", RegexOptions.Compiled);
         
         // Matches: GEO_DISPLAY_LIST(layer, displayList)
         var displayListRegex = new Regex(@"GEO_DISPLAY_LIST\s*\(\s*\w+\s*,\s*([^)]+)\)", RegexOptions.Compiled);
@@ -348,16 +369,25 @@ public class GeoLayoutParser
         var scaleRegex = new Regex(@"GEO_SCALE\s*\(\s*\w+\s*,\s*(0x[0-9a-fA-F]+|\d+)\s*\)", RegexOptions.Compiled);
 
         // Matches: GEO_TRANSLATE_ROTATE(layer, x, y, z, rx, ry, rz)
-        var translateRotateRegex = new Regex(@"GEO_TRANSLATE_ROTATE\s*\(\s*\w+\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*[^,]+\s*,\s*[^,]+\s*,\s*[^)]+\)", RegexOptions.Compiled);
+        var translateRotateRegex = new Regex(@"GEO_TRANSLATE_ROTATE\s*\(\s*\w+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*\)", RegexOptions.Compiled);
 
         // Matches: GEO_TRANSLATE_ROTATE_WITH_DL(layer, x, y, z, rx, ry, rz, displayList)
-        var translateRotateWithDlRegex = new Regex(@"GEO_TRANSLATE_ROTATE_WITH_DL\s*\(\s*\w+\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*[^,]+\s*,\s*[^,]+\s*,\s*[^,]+\s*,\s*([^)]+)\)", RegexOptions.Compiled);
+        var translateRotateWithDlRegex = new Regex(@"GEO_TRANSLATE_ROTATE_WITH_DL\s*\(\s*\w+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*([^)]+)\)", RegexOptions.Compiled);
 
         // Matches: GEO_TRANSLATE_WITH_DL(layer, x, y, z, displayList)
-        var translateWithDlRegex = new Regex(@"GEO_TRANSLATE_WITH_DL\s*\(\s*\w+\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*([^)]+)\)", RegexOptions.Compiled);
+        var translateWithDlRegex = new Regex(@"GEO_TRANSLATE_WITH_DL\s*\(\s*\w+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*([^)]+)\)", RegexOptions.Compiled);
+
+        // Matches: GEO_TRANSLATE(layer, x, y, z)
+        var translateRegex = new Regex(@"GEO_TRANSLATE\s*\(\s*\w+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*\)", RegexOptions.Compiled);
 
         // Matches: GEO_BRANCH(param, layout)
         var branchRegex = new Regex(@"GEO_BRANCH\s*\(\s*\d+\s*,\s*([^)]+)\)", RegexOptions.Compiled);
+
+        // Matches: GEO_HELD_OBJECT(layer, x, y, z, nodeFunc)
+        var heldObjectRegex = new Regex(@"GEO_HELD_OBJECT\s*\(\s*[^,]+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*([^)]+)\)", RegexOptions.Compiled);
+
+        // Matches: GEO_ROTATION_NODE(layer, rx, ry, rz)
+        var rotationNodeRegex = new Regex(@"GEO_ROTATION_NODE\s*\(\s*[^,]+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*\)", RegexOptions.Compiled);
 
         foreach (var line in lines)
         {
@@ -373,19 +403,51 @@ public class GeoLayoutParser
                 currentDepth++;
                 translationStack.Push(currentTranslation);
                 scaleStack.Push(currentScale);
+                rotationStack.Push(currentRotation);
                 jointIndexStack.Push(parentJointIndex);
+
+                if (skipDepth != -1)
+                {
+                    continue;
+                }
 
                 currentTranslation = activeJointTranslation;
                 currentScale = activeJointScale;
+                currentRotation = activeJointRotation;
                 parentJointIndex = activeJointIndex;
+                continue;
             }
             else if (trimmed.Contains("GEO_CLOSE_NODE()"))
             {
                 currentDepth--;
+                if (skipDepth != -1)
+                {
+                    if (currentDepth < skipDepth)
+                    {
+                        skipDepth = -1;
+                    }
+                    if (translationStack.Count > 0) currentTranslation = translationStack.Pop();
+                    if (scaleStack.Count > 0) currentScale = scaleStack.Pop();
+                    if (rotationStack.Count > 0) currentRotation = rotationStack.Pop();
+                    if (jointIndexStack.Count > 0) parentJointIndex = jointIndexStack.Pop();
+                    continue;
+                }
+
                 if (switchCaseActiveDepth != -1 && currentDepth <= switchCaseActiveDepth)
                 {
-                    switchCaseActiveDepth = -1;
-                    nextJointIndex = maxNextJointIndex;
+                    if (switchStack.Count > 0)
+                    {
+                        var parentState = switchStack.Pop();
+                        switchCaseActiveDepth = parentState.activeDepth;
+                        switchCaseBranchIndex = parentState.branchIndex;
+                        savedJointIndex = parentState.savedJointIndex;
+                        maxNextJointIndex = parentState.maxNextJointIndex;
+                    }
+                    else
+                    {
+                        switchCaseActiveDepth = -1;
+                        nextJointIndex = maxNextJointIndex;
+                    }
                 }
 
                 if (translationStack.Count > 0)
@@ -398,21 +460,36 @@ public class GeoLayoutParser
                     currentScale = scaleStack.Pop();
                     activeJointScale = currentScale;
                 }
+                if (rotationStack.Count > 0)
+                {
+                    currentRotation = rotationStack.Pop();
+                    activeJointRotation = currentRotation;
+                }
                 if (jointIndexStack.Count > 0)
                 {
                     parentJointIndex = jointIndexStack.Pop();
                     activeJointIndex = parentJointIndex;
                 }
+                continue;
             }
-            else if (trimmed.StartsWith("GEO_SWITCH_CASE"))
+
+            if (skipDepth != -1)
             {
+                continue;
+            }
+
+            if (trimmed.StartsWith("GEO_SWITCH_CASE"))
+            {
+                if (switchCaseActiveDepth != -1)
+                {
+                    switchStack.Push((switchCaseActiveDepth, switchCaseBranchIndex, savedJointIndex, maxNextJointIndex));
+                }
                 switchCaseActiveDepth = currentDepth;
                 switchCaseBranchIndex = 0;
                 savedJointIndex = nextJointIndex;
                 maxNextJointIndex = nextJointIndex;
             }
 
-            // For each branch of a switch case, reset nextJointIndex to savedJointIndex to overlay joint indices
             if (switchCaseActiveDepth != -1 && currentDepth == switchCaseActiveDepth + 1)
             {
                 if (trimmed.StartsWith("GEO_BRANCH") || 
@@ -420,8 +497,16 @@ public class GeoLayoutParser
                     trimmed.StartsWith("GEO_ANIMATED_PART") || 
                     trimmed.StartsWith("GEO_TRANSLATE") ||
                     trimmed.StartsWith("GEO_NODE_START") ||
-                    trimmed.StartsWith("GEO_SCALE"))
+                    trimmed.StartsWith("GEO_SCALE") ||
+                    trimmed.StartsWith("GEO_SWITCH_CASE"))
                 {
+                    if (switchCaseBranchIndex > 0)
+                    {
+                        skipDepth = currentDepth;
+                        switchCaseBranchIndex++;
+                        continue;
+                    }
+
                     maxNextJointIndex = Math.Max(maxNextJointIndex, nextJointIndex);
                     nextJointIndex = savedJointIndex;
                     switchCaseBranchIndex++;
@@ -447,11 +532,12 @@ public class GeoLayoutParser
                     // Stacks must be cloned to avoid recursion interference
                     var subTranslationStack = new Stack<Vector3>(new Stack<Vector3>(translationStack));
                     var subScaleStack = new Stack<float>(new Stack<float>(scaleStack));
+                    var subRotationStack = new Stack<Matrix4>(new Stack<Matrix4>(rotationStack));
                     var subJointIndexStack = new Stack<int>(new Stack<int>(jointIndexStack));
                     var subVisitedLayouts = new HashSet<string>(visitedLayouts);
 
-                    TraverseLayout(targetLayoutName, layouts, transforms, currentTranslation, currentScale, 
-                                   subTranslationStack, subScaleStack, subJointIndexStack, parentJointIndex, ref nextJointIndex, subVisitedLayouts);
+                    TraverseLayout(targetLayoutName, layouts, transforms, currentTranslation, currentScale, currentRotation, 
+                                   subTranslationStack, subScaleStack, subRotationStack, subJointIndexStack, parentJointIndex, ref nextJointIndex, subVisitedLayouts);
                 }
             }
             else
@@ -460,12 +546,14 @@ public class GeoLayoutParser
                 var match = animatedPartRegex.Match(trimmed);
                 if (match.Success)
                 {
-                    int x = int.Parse(match.Groups[1].Value);
-                    int y = int.Parse(match.Groups[2].Value);
-                    int z = int.Parse(match.Groups[3].Value);
+                    int x = ParseIntHelper(match.Groups[1].Value);
+                    int y = ParseIntHelper(match.Groups[2].Value);
+                    int z = ParseIntHelper(match.Groups[3].Value);
                     string dl = match.Groups[4].Value.Trim();
 
-                    activeJointTranslation = currentTranslation + new Vector3(x, y, z) * currentScale;
+                    var localOffset = new Vector3(x, y, z) * currentScale;
+                    var rotatedOffset = Vector3.TransformVector(localOffset, currentRotation);
+                    activeJointTranslation = currentTranslation + rotatedOffset;
 
                     int thisJointIndex = nextJointIndex++;
                     var jointNode = new GeoNode(GeoNodeType.Other)
@@ -487,7 +575,7 @@ public class GeoLayoutParser
                     {
                         if (!transforms.ContainsKey(dl))
                         {
-                            var mat = Matrix4.CreateScale(activeJointScale) * Matrix4.CreateTranslation(activeJointTranslation);
+                            var mat = Matrix4.CreateScale(activeJointScale) * activeJointRotation * Matrix4.CreateTranslation(activeJointTranslation);
                             transforms[dl] = mat;
                         }
                         if (!DlToJointIndex.ContainsKey(dl))
@@ -507,7 +595,7 @@ public class GeoLayoutParser
                     {
                         if (!transforms.ContainsKey(dl))
                         {
-                            var mat = Matrix4.CreateScale(activeJointScale) * Matrix4.CreateTranslation(activeJointTranslation);
+                            var mat = Matrix4.CreateScale(activeJointScale) * activeJointRotation * Matrix4.CreateTranslation(activeJointTranslation);
                             transforms[dl] = mat;
                         }
                         if (!DlToJointIndex.ContainsKey(dl))
@@ -518,22 +606,74 @@ public class GeoLayoutParser
                     continue;
                 }
 
+                // Check held object
+                match = heldObjectRegex.Match(trimmed);
+                if (match.Success)
+                {
+                    int x = ParseIntHelper(match.Groups[1].Value);
+                    int y = ParseIntHelper(match.Groups[2].Value);
+                    int z = ParseIntHelper(match.Groups[3].Value);
+                    string nodeFunc = match.Groups[4].Value.Trim();
+
+                    var localOffset = new Vector3(x, y, z) * currentScale;
+                    var rotatedOffset = Vector3.TransformVector(localOffset, currentRotation);
+                    activeJointTranslation = currentTranslation + rotatedOffset;
+
+                    int thisJointIndex = nextJointIndex++;
+                    var jointNode = new GeoNode(GeoNodeType.Other)
+                    {
+                        JointIndex = thisJointIndex,
+                        ParentIndex = parentJointIndex,
+                        Translation = new Vector3(x, y, z),
+                        DisplayListName = nodeFunc
+                    };
+                    
+                    while (ParsedJoints.Count <= thisJointIndex)
+                    {
+                        ParsedJoints.Add(null!);
+                    }
+                    ParsedJoints[thisJointIndex] = jointNode;
+                    activeJointIndex = thisJointIndex;
+                    continue;
+                }
+
+                // Check rotation node
+                match = rotationNodeRegex.Match(trimmed);
+                if (match.Success)
+                {
+                    float rx = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[1].Value));
+                    float ry = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[2].Value));
+                    float rz = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[3].Value));
+
+                    var localRot = Matrix4.CreateRotationZ(rz) * Matrix4.CreateRotationX(rx) * Matrix4.CreateRotationY(ry);
+                    activeJointRotation = localRot * currentRotation;
+                    continue;
+                }
+
                 // Check translate rotate with DL
                 match = translateRotateWithDlRegex.Match(trimmed);
                 if (match.Success)
                 {
-                    int x = int.Parse(match.Groups[1].Value);
-                    int y = int.Parse(match.Groups[2].Value);
-                    int z = int.Parse(match.Groups[3].Value);
-                    string dl = match.Groups[4].Value.Trim();
+                    int x = ParseIntHelper(match.Groups[1].Value);
+                    int y = ParseIntHelper(match.Groups[2].Value);
+                    int z = ParseIntHelper(match.Groups[3].Value);
+                    float rx = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[4].Value));
+                    float ry = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[5].Value));
+                    float rz = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[6].Value));
+                    string dl = match.Groups[7].Value.Trim();
 
-                    activeJointTranslation = currentTranslation + new Vector3(x, y, z) * currentScale;
+                    var localOffset = new Vector3(x, y, z) * currentScale;
+                    var rotatedOffset = Vector3.TransformVector(localOffset, currentRotation);
+                    activeJointTranslation = currentTranslation + rotatedOffset;
+
+                    var localRot = Matrix4.CreateRotationZ(rz) * Matrix4.CreateRotationX(rx) * Matrix4.CreateRotationY(ry);
+                    activeJointRotation = localRot * currentRotation;
 
                     if (dl != "NULL" && dl != "0" && !string.IsNullOrEmpty(dl))
                     {
                         if (!transforms.ContainsKey(dl))
                         {
-                            var mat = Matrix4.CreateScale(activeJointScale) * Matrix4.CreateTranslation(activeJointTranslation);
+                            var mat = Matrix4.CreateScale(activeJointScale) * activeJointRotation * Matrix4.CreateTranslation(activeJointTranslation);
                             transforms[dl] = mat;
                         }
                         if (!DlToJointIndex.ContainsKey(dl))
@@ -548,11 +688,19 @@ public class GeoLayoutParser
                 match = translateRotateRegex.Match(trimmed);
                 if (match.Success)
                 {
-                    int x = int.Parse(match.Groups[1].Value);
-                    int y = int.Parse(match.Groups[2].Value);
-                    int z = int.Parse(match.Groups[3].Value);
+                    int x = ParseIntHelper(match.Groups[1].Value);
+                    int y = ParseIntHelper(match.Groups[2].Value);
+                    int z = ParseIntHelper(match.Groups[3].Value);
+                    float rx = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[4].Value));
+                    float ry = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[5].Value));
+                    float rz = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[6].Value));
 
-                    activeJointTranslation = currentTranslation + new Vector3(x, y, z) * currentScale;
+                    var localOffset = new Vector3(x, y, z) * currentScale;
+                    var rotatedOffset = Vector3.TransformVector(localOffset, currentRotation);
+                    activeJointTranslation = currentTranslation + rotatedOffset;
+
+                    var localRot = Matrix4.CreateRotationZ(rz) * Matrix4.CreateRotationX(rx) * Matrix4.CreateRotationY(ry);
+                    activeJointRotation = localRot * currentRotation;
                     continue;
                 }
 
@@ -560,18 +708,20 @@ public class GeoLayoutParser
                 match = translateWithDlRegex.Match(trimmed);
                 if (match.Success)
                 {
-                    int x = int.Parse(match.Groups[1].Value);
-                    int y = int.Parse(match.Groups[2].Value);
-                    int z = int.Parse(match.Groups[3].Value);
+                    int x = ParseIntHelper(match.Groups[1].Value);
+                    int y = ParseIntHelper(match.Groups[2].Value);
+                    int z = ParseIntHelper(match.Groups[3].Value);
                     string dl = match.Groups[4].Value.Trim();
 
-                    activeJointTranslation = currentTranslation + new Vector3(x, y, z) * currentScale;
+                    var localOffset = new Vector3(x, y, z) * currentScale;
+                    var rotatedOffset = Vector3.TransformVector(localOffset, currentRotation);
+                    activeJointTranslation = currentTranslation + rotatedOffset;
 
                     if (dl != "NULL" && dl != "0" && !string.IsNullOrEmpty(dl))
                     {
                         if (!transforms.ContainsKey(dl))
                         {
-                            var mat = Matrix4.CreateScale(activeJointScale) * Matrix4.CreateTranslation(activeJointTranslation);
+                            var mat = Matrix4.CreateScale(activeJointScale) * activeJointRotation * Matrix4.CreateTranslation(activeJointTranslation);
                             transforms[dl] = mat;
                         }
                         if (!DlToJointIndex.ContainsKey(dl))
@@ -579,6 +729,20 @@ public class GeoLayoutParser
                             DlToJointIndex[dl] = activeJointIndex;
                         }
                     }
+                    continue;
+                }
+
+                // Check translate (no DL, updates joint center)
+                match = translateRegex.Match(trimmed);
+                if (match.Success)
+                {
+                    int x = ParseIntHelper(match.Groups[1].Value);
+                    int y = ParseIntHelper(match.Groups[2].Value);
+                    int z = ParseIntHelper(match.Groups[3].Value);
+
+                    var localOffset = new Vector3(x, y, z) * currentScale;
+                    var rotatedOffset = Vector3.TransformVector(localOffset, currentRotation);
+                    activeJointTranslation = currentTranslation + rotatedOffset;
                     continue;
                 }
             }
