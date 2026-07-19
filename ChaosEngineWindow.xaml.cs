@@ -450,12 +450,12 @@ namespace Sm64DecompLevelViewer
                                         trimmed.Contains("CHAOS_LAKITU_CAMERA_MODE") ||
                                         trimmed.Contains("CHAOS_ALIEN_SOUND") ||
                                          trimmed.Contains("CHAOS_LONG_NOTES_DISTORTION") ||
-                                         trimmed.Contains("CHAOS_WACKIER_SOUNDS") ||
-                                         trimmed.Contains("CHAOS_WACKY_INSTRUMENTS") ||
-                                         trimmed.Contains("CHAOS_ADSR_ENVELOPE_SCRAMBLER") ||
-                                         trimmed.Contains("CHAOS_VIBRATO_PITCH_BEND_CHAOS") ||
-                                         trimmed.Contains("CHAOS_DMA_BITCRUSHER") ||
-                                        trimmed.Contains("CHAOS_TITLE_SCRAMBLER_MODE") ||
+                                          trimmed.Contains("CHAOS_WACKIER_SOUNDS") ||
+                                          trimmed.Contains("CHAOS_WACKY_INSTRUMENTS") ||
+                                          trimmed.Contains("CHAOS_ADSR_ENVELOPE_SCRAMBLER") ||
+                                          trimmed.Contains("CHAOS_VIBRATO_PITCH_BEND_CHAOS") ||
+                                          trimmed.Contains("CHAOS_DMA_BITCRUSHER") ||
+                                         trimmed.Contains("CHAOS_TITLE_SCRAMBLER_MODE") ||
                                         trimmed.Contains("CHAOS_CUTSCENE_CAMERA_MODE") ||
                                         trimmed.Contains("CHAOS_START_LEVEL") ||
                                         trimmed.Contains("CHAOS_FACELESS_V2") ||
@@ -2521,6 +2521,13 @@ void apply_chaos_intro_camera(struct Camera *c) {
                 shuffledModes.Add(26);
             }
 
+            // Ensure Sparta Remix Mode is executed at the very end as well so it's not scrambled/transposed
+            if (shuffledModes.Contains(29))
+            {
+                shuffledModes.Remove(29);
+                shuffledModes.Add(29);
+            }
+
             double intensityFactor = intensity / 100.0;
             foreach (int m64Mode in shuffledModes)
             {
@@ -3280,6 +3287,65 @@ void apply_chaos_intro_camera(struct Camera *c) {
                         if (off >= 0 && off < data.Length && _random.NextDouble() < (intensity / 100.0))
                         {
                             data[off] = 255;
+                        }
+                    }
+                }
+                else if (m64Mode == 29) // M64 Sparta Remix Mode
+                {
+                    // For each channel, replace instrument note pitches with the Sparta Remix melody sequence
+                    int[] spartaNotes = { 0, 0, 1, 1, -2, -2, 1, 1, 0, 12, 0, 12, 1, 13, 1, 13, -2, 10, -2, 10, 1, 13, 1, 13 };
+                    foreach (int chanPos in channelOffsets)
+                    {
+                        var chanVisited = new HashSet<int>();
+                        var chanLayerLargeNotes = new Dictionary<int, bool>();
+                        var chanLayerInstruments = new Dictionary<int, int>();
+                        var chanInstrumentOffsets = new List<int>();
+                        var chanVolumeOffsets = new List<int>();
+                        var chanPanOffsets = new List<int>();
+                        var chanReverbOffsets = new List<int>();
+                        var chanPitchBendOffsets = new List<int>();
+
+                        ParseChanCommandsForOffsets(data, chanPos, chanVisited, chanLayerLargeNotes, chanLayerInstruments, chanInstrumentOffsets, chanVolumeOffsets, chanPanOffsets, chanReverbOffsets, chanPitchBendOffsets, isShindou, -1, false);
+
+                        var chanPitchOffsets = new List<int>();
+                        var chanVelocityOffsets = new List<int>();
+                        var chanVisitedLayers = new HashSet<int>();
+                        foreach (var kvp in chanLayerLargeNotes)
+                        {
+                            int layerPos = kvp.Key;
+                            int layerInstr = chanLayerInstruments.ContainsKey(layerPos) ? chanLayerInstruments[layerPos] : -1;
+                            ParseLayerCommandsForOffsets(data, layerPos, chanVisitedLayers, chanPitchOffsets, chanVelocityOffsets, chanInstrumentOffsets, percussionPitchOffsets, kvp.Value, layerInstr);
+                        }
+
+                        if (chanPitchOffsets.Count > 0)
+                        {
+                            int basePitch = 60; // default Middle C
+                            // Find the first valid instrument note pitch to use as the base
+                            foreach (int offset in chanPitchOffsets)
+                            {
+                                if (offset >= 0 && offset < data.Length && !percussionPitchOffsets.Contains(offset))
+                                {
+                                    basePitch = data[offset] & 0x3f;
+                                    basePitch = (basePitch / 12) * 12;
+                                    break;
+                                }
+                            }
+
+                            int noteIndex = 0;
+                            foreach (int offset in chanPitchOffsets)
+                            {
+                                if (offset >= 0 && offset < data.Length)
+                                {
+                                    if (percussionPitchOffsets.Contains(offset)) continue;
+
+                                    byte cmd = data[offset];
+                                    int spartaOffset = spartaNotes[noteIndex % 24];
+                                    int newPitch = Math.Clamp(basePitch + spartaOffset, 0, 63);
+                                    data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
+                                    modifiedPitches.Add(offset);
+                                    noteIndex++;
+                                }
+                            }
                         }
                     }
                 }
