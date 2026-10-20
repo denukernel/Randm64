@@ -23,6 +23,7 @@ public class LevelObject
     public int RZ { get; set; }
     public uint Params { get; set; }
     public string? RawParams { get; set; }
+    public string? RawActs { get; set; }
     public string Behavior { get; set; } = string.Empty;
 
     // Level Editor Metadata

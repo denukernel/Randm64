@@ -8,7 +8,18 @@ namespace Sm64DecompLevelViewer.Services
     {
         private static readonly string _logFilePath;
         private static readonly List<string> _history = new();
-        public static IReadOnlyList<string> History => _history;
+        public static event Action<string>? OnLogAdded;
+
+        public static IReadOnlyList<string> History
+        {
+            get
+            {
+                lock (_history)
+                {
+                    return _history.ToList();
+                }
+            }
+        }
 
         static LogService()
         {
@@ -25,7 +36,10 @@ namespace Sm64DecompLevelViewer.Services
         public static void Log(string message)
         {
             string logEntry = $"[{DateTime.Now:HH:mm:ss}] {message}";
-            _history.Add(logEntry);
+            lock (_history)
+            {
+                _history.Add(logEntry);
+            }
             
             try
             {
@@ -34,6 +48,16 @@ namespace Sm64DecompLevelViewer.Services
             catch { }
             
             Console.WriteLine(logEntry);
+            OnLogAdded?.Invoke(logEntry);
+        }
+
+        public static void Clear()
+        {
+            lock (_history)
+            {
+                _history.Clear();
+            }
+            try { File.WriteAllText(_logFilePath, $"--- Logs Cleared {DateTime.Now} ---\n"); } catch { }
         }
 
         public static string GetLogPath() => _logFilePath;

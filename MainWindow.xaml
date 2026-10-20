@@ -418,6 +418,18 @@
                             </StackPanel>
                         </Button>
 
+                        <Button Click="OpenScanDebugger_Click"
+                                Padding="10,5"
+                                Margin="0,5,0,0"
+                                Background="#3E3E42"
+                                Foreground="White"
+                                BorderThickness="0"
+                                Cursor="Hand">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <TextBlock Text="🔍 Open Scan Debugger" Foreground="White" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
+
                     </StackPanel>
                 </StackPanel>
             </ScrollViewer>

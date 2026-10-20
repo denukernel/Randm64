@@ -17,10 +17,12 @@ namespace Sm64DecompLevelViewer
     public partial class LevelEditorWindow : System.Windows.Window
     {
         private List<LevelObject> _objects;
+        private volatile bool _isClosing;
         private GeometryRenderer _renderer;
         private LevelSaver _levelSaver = new LevelSaver();
         private LevelObject _selectedObject;
         private bool _isUpdatingFromCode = false;
+        private bool _updatingViewSettings;
         private IntPtr _rendererHwnd = IntPtr.Zero;
         private BehaviorService _behaviorService;
         private string _projectRoot;
@@ -32,6 +34,7 @@ namespace Sm64DecompLevelViewer
         private string _collisionFilePath;
 
         public event EventHandler? RequestReload;
+        public event EventHandler? GeometryChanged;
 
         [DllImport("user32.dll")]
         static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
@@ -53,25 +56,36 @@ namespace Sm64DecompLevelViewer
         {
             InitializeComponent();
             _objects = objects;
+            _levelSaver.CaptureSources(objects);
             _areaIndex = areaIndex;
             _supportedModels = supportedModels;
             _settings = settings;
             _collisionMesh = collisionMesh;
+            _visualScene = visualMesh;
             _collisionFilePath = collisionFilePath;
             
             _projectRoot = projectRoot;
+            SceneInfoText.Text = $"Area {areaIndex}  ·  {visualMesh?.TriangleCount ?? 0:N0} triangles  ·  {objects.Count:N0} objects";
+            SkyboxViewCheckBox.IsEnabled = visualMesh?.SkyboxBin != null;
             _behaviorService = new BehaviorService(projectRoot);
             
             PopulateTreeView();
             InitializeMeshEditor();
             
             this.SizeChanged += (s, e) => UpdateRendererPosition();
+            RendererContainer.SizeChanged += (s, e) => UpdateRendererPosition();
 
             // Start the renderer
             StartRenderer(collisionMesh, visualMesh);
 
             // Forward keys to renderer if not typing in a textbox
             this.PreviewKeyDown += (s, e) => {
+                if(e.Key==System.Windows.Input.Key.Escape && _embeddedMeshEditor?.HasPlacementPreview==true)
+                {
+                    _embeddedMeshEditor.ResumePlacement();
+                    e.Handled=true;
+                    return;
+                }
                 // 1. Copy (F1)
                 if (e.Key == System.Windows.Input.Key.F1)
                 {
@@ -237,7 +251,8 @@ namespace Sm64DecompLevelViewer
 
                 var item = new TreeViewItem 
                 { 
-                    Header = $"[{i}] {obj.ModelName}",
+                    Header = $"[{i}] {(obj.ModelName == "MODEL_NONE" ? obj.Behavior.Replace("bhv", "") : obj.ModelName.Replace("MODEL_", ""))}",
+                    ToolTip = $"{obj.ModelName}\n{obj.Behavior}\n({obj.X}, {obj.Y}, {obj.Z})",
                     Tag = obj
                 };
 
@@ -277,42 +292,57 @@ namespace Sm64DecompLevelViewer
             // Using the existing renderer thread strategy to keep WPF responsive
             var rendererThread = new System.Threading.Thread(() =>
             {
-                _renderer = new GeometryRenderer(gameWindowSettings, nativeWindowSettings, _behaviorService.ProjectRoot);
-                _renderer.CameraMoveSpeed = _settings.CameraMoveSpeed;
-                _renderer.CameraRotationSensitivity = _settings.CameraRotationSpeed;
-                _renderer.LoadMesh(colMesh);
+                using var renderer = new GeometryRenderer(gameWindowSettings, nativeWindowSettings, _behaviorService.ProjectRoot);
+                _renderer = renderer;
+                if (_isClosing) { _renderer = null; return; }
+                renderer.CameraMoveSpeed = _settings.CameraMoveSpeed;
+                renderer.CameraRotationSensitivity = _settings.CameraRotationSpeed;
+                renderer.LoadMesh(colMesh);
                 if (visMesh != null) 
                 {
-                    _renderer.SetSkyboxBackground(visMesh.SkyboxBin);
-                    _renderer.LoadVisualMesh(visMesh);
+                    renderer.SetSkyboxBackground(visMesh.SkyboxBin);
+                    renderer.LoadVisualMesh(visMesh);
                 }
-                _renderer.SetObjects(_objects);
+                renderer.SetObjects(_objects);
+                renderer.ShowCollision = false;
+                renderer.ShowObjectMarkers = false;
+                renderer.LevelActorsEnabled = true;
+                renderer.FrameLevel();
+                renderer.ViewSettingsChanged += () => Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    _updatingViewSettings = true;
+                    TerrainViewCheckBox.IsChecked = renderer.ShowVisual;
+                    CollisionViewCheckBox.IsChecked = renderer.ShowCollision;
+                    _updatingViewSettings = false;
+                }));
                 
-                _renderer.ObjectSelected += (index) => {
+                renderer.ObjectSelected += (index) => {
                     Dispatcher.Invoke(() => SelectObjectInUI(index));
                 };
+                renderer.TerrainPointPicked += point => Dispatcher.BeginInvoke(new Action(()=>_embeddedMeshEditor?.PlaceOnTerrain(point)));
+                renderer.TerrainPickCanceled += () => Dispatcher.BeginInvoke(new Action(()=>_embeddedMeshEditor?.ResumePlacement()));
 
-                _renderer.CopyRequested += () => {
+                renderer.CopyRequested += () => {
                     Dispatcher.Invoke(() => PerformCopy());
                 };
 
-                _renderer.PasteRequested += () => {
+                renderer.PasteRequested += () => {
                     Dispatcher.Invoke(() => PerformPaste());
                 };
 
-                _renderer.SplinePointModified += Renderer_SplinePointModified;
+                renderer.SplinePointModified += Renderer_SplinePointModified;
 
-                _renderer.CollisionTriangleSelected += (index) => {
-                    Dispatcher.Invoke(() => SelectCollisionTriangleInUI(index));
+                renderer.CollisionTriangleSelected += (index) => {
+                    Dispatcher.Invoke(() => { SelectCollisionTriangleInUI(index); _embeddedMeshEditor?.SelectCollisionTriangle(index); });
                 };
 
-                _renderer.VisualVertexSelected += (index) => {
+                renderer.VisualVertexSelected += (index) => {
                     Dispatcher.Invoke(() => SelectVisualVertexInUI(index));
                 };
 
                 // Capture HWND and embed
                 unsafe {
-                    _rendererHwnd = GLFW.GetWin32Window(_renderer.WindowPtr);
+                    _rendererHwnd = GLFW.GetWin32Window(renderer.WindowPtr);
                 }
                 
                 Dispatcher.Invoke(() => {
@@ -323,13 +353,35 @@ namespace Sm64DecompLevelViewer
                     SetParent(_rendererHwnd, parentHwnd);
                     SetWindowLong(_rendererHwnd, GWL_STYLE, WS_CHILD | WS_VISIBLE);
                     UpdateRendererPosition();
+                    ViewSettings_Changed(this, new RoutedEventArgs());
                 });
 
-                _renderer.Run();
+                renderer.Run();
+                if (ReferenceEquals(_renderer, renderer)) _renderer = null;
             });
 
             rendererThread.SetApartmentState(System.Threading.ApartmentState.STA);
+            rendererThread.IsBackground = true;
+            rendererThread.Name = "Level viewport";
             rendererThread.Start();
+        }
+
+        private void ViewSettings_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_renderer == null || _updatingViewSettings) return;
+            _renderer.ShowVisual = TerrainViewCheckBox.IsChecked == true;
+            _renderer.SkyboxEnabled = SkyboxViewCheckBox.IsChecked == true;
+            _renderer.WaterEnabled = WaterViewCheckBox.IsChecked == true;
+            _renderer.LevelActorsEnabled = ActorsViewCheckBox.IsChecked == true;
+            _renderer.AnimateLevelActors = AnimateActorsCheckBox.IsChecked == true;
+            _renderer.ShowCollision = CollisionViewCheckBox.IsChecked == true;
+            _renderer.ShowObjectMarkers = MarkersViewCheckBox.IsChecked == true;
+        }
+
+        private void FrameLevel_Click(object sender, RoutedEventArgs e) => _renderer?.FrameLevel();
+        private void FocusSelected_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedObject != null) _renderer?.FocusOnPoint(new Vector3(_selectedObject.X, _selectedObject.Y, _selectedObject.Z));
         }
 
         private void SelectObjectInUI(int index)
@@ -378,9 +430,13 @@ namespace Sm64DecompLevelViewer
                     X = _selectedObject.X,
                     Y = _selectedObject.Y,
                     Z = _selectedObject.Z,
+                    RX = _selectedObject.RX,
+                    RZ = _selectedObject.RZ,
                     RY = _selectedObject.RY,
                     AreaIndex = _selectedObject.AreaIndex,
                     Params = _selectedObject.Params,
+                    RawParams = _selectedObject.RawParams,
+                    RawActs = _selectedObject.RawActs,
                     PresetName = _selectedObject.PresetName,
                     SourceType = _selectedObject.SourceType
                 };
@@ -399,9 +455,13 @@ namespace Sm64DecompLevelViewer
                     X = _clipboard.X + 250, // Slightly larger offset to make it VERY obvious
                     Y = _clipboard.Y,
                     Z = _clipboard.Z + 250,
+                    RX = _clipboard.RX,
+                    RZ = _clipboard.RZ,
                     RY = _clipboard.RY,
                     AreaIndex = _clipboard.AreaIndex,
                     Params = _clipboard.Params,
+                    RawParams = _clipboard.RawParams,
+                    RawActs = _clipboard.RawActs,
                     PresetName = _clipboard.PresetName,
                     SourceType = _clipboard.SourceType,
                     IsNew = true
@@ -770,16 +830,23 @@ namespace Sm64DecompLevelViewer
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_levelSaver.SaveLevel(_objects))
+            if (_levelSaver.SaveLevel(_objects,_collisionFilePath))
             {
                 MessageBox.Show("Level saved successfully!", "Saved", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             else
             {
                 string logPath = LogService.GetLogPath();
-                MessageBox.Show($"Some files failed to save.\n\nDetailed errors have been written to:\n{logPath}\n\nClick 'View Logs' in the editor to open this file.", 
+                MessageBox.Show($"Level was not saved: {_levelSaver.LastError}\n\nDetailed errors:\n{logPath}",
                     "Save Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
+        }
+
+        private void OpenScanDebugger_Click(object sender, RoutedEventArgs e)
+        {
+            var debuggerWindow = new ScanDebuggerWindow();
+            debuggerWindow.Owner = this;
+            debuggerWindow.ShowDialog();
         }
 
         private void LogsButton_Click(object sender, RoutedEventArgs e)
@@ -809,7 +876,11 @@ namespace Sm64DecompLevelViewer
         private void TestButton_Click(object sender, RoutedEventArgs e)
         {
             // 1. Auto-save first
-            _levelSaver.SaveLevel(_objects);
+            if(!_levelSaver.SaveLevel(_objects,_collisionFilePath))
+            {
+                MessageBox.Show($"Build canceled because saving failed:\n{_levelSaver.LastError}","Save failed",MessageBoxButton.OK,MessageBoxImage.Error);
+                return;
+            }
 
             // 2. Launch Build Options Window
             var optionsWindow = new BuildOptionsWindow(_projectRoot);
@@ -859,8 +930,10 @@ namespace Sm64DecompLevelViewer
                 try {
                     // Get position relative to window
                     Point position = RendererContainer.TranslatePoint(new Point(0, 0), this);
-                    MoveWindow(_rendererHwnd, (int)position.X, (int)position.Y, 
-                               (int)RendererContainer.ActualWidth, (int)RendererContainer.ActualHeight, true);
+                    var scale = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformToDevice ?? Matrix.Identity;
+                    Point devicePosition = scale.Transform(position);
+                    MoveWindow(_rendererHwnd, (int)devicePosition.X, (int)devicePosition.Y,
+                               (int)(RendererContainer.ActualWidth * scale.M11), (int)(RendererContainer.ActualHeight * scale.M22), true);
                 } catch { }
             }), System.Windows.Threading.DispatcherPriority.Render);
         }
@@ -923,72 +996,52 @@ namespace Sm64DecompLevelViewer
             musicEditor.Show();
         }
 
+        private LevelMeshEditorWindow? _embeddedMeshEditor;
+        private VisualMesh? _visualScene;
         private void LevelMeshEditorButton_Click(object sender, RoutedEventArgs e)
         {
-            string? macroFile = _objects.FirstOrDefault(o => !string.IsNullOrEmpty(o.SourceFile))?.SourceFile;
-            if (string.IsNullOrEmpty(macroFile))
+            if (_visualScene?.LevelDirectory == null) return;
+            if (_embeddedMeshEditor == null)
             {
-                MessageBox.Show("No active level files found to determine the level path.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-            string levelPath = Path.GetDirectoryName(macroFile)!;
-            string initialArea = $"Area {_areaIndex}";
-
-            var meshEditor = new LevelMeshEditorWindow(
-                levelPath, 
-                initialArea, 
-                _projectRoot, 
-                () => {
-                    RequestReload?.Invoke(this, EventArgs.Empty);
-                },
-                (point, focusCamera) => {
-                    if (_renderer != null)
+                _embeddedMeshEditor = new LevelMeshEditorWindow(_visualScene.LevelDirectory, $"Area {_areaIndex}", _projectRoot,
+                    ReloadEmbeddedGeometry, (point, focus) =>
                     {
+                        if (_renderer == null) return;
                         _renderer.SelectedMeshPoint = point;
-                        if (point.HasValue && focusCamera)
-                        {
-                            _renderer.FocusOnPoint(point.Value);
-                        }
-                    }
-                }
-            );
-
-            Action<int> onCollisionTriangleSelected = (index) => {
-                Application.Current.Dispatcher.Invoke(() => {
-                    if (meshEditor.IsVisible)
-                    {
-                        meshEditor.SelectCollisionTriangle(index);
-                    }
-                });
-            };
-
-            Action<int> onVisualVertexSelected = (index) => {
-                Application.Current.Dispatcher.Invoke(() => {
-                    if (meshEditor.IsVisible)
-                    {
-                        meshEditor.SelectVisualVertex(index);
-                    }
-                });
-            };
-
-            if (_renderer != null)
-            {
-                _renderer.CollisionTriangleSelected += onCollisionTriangleSelected;
-                _renderer.VisualVertexSelected += onVisualVertexSelected;
-            }
-
-            meshEditor.Closed += (s, e) => {
-                if (_renderer != null)
+                        if (point.HasValue && focus) _renderer.FocusOnPoint(point.Value);
+                    }, () => _renderer?.GetCameraTarget() ?? OpenTK.Mathematics.Vector3.Zero);
+                MeshDock.Child = _embeddedMeshEditor.CreateEmbeddedView();
+                _embeddedMeshEditor.PlacementPickingChanged+=(enabled,excluded)=>
                 {
-                    _renderer.CollisionTriangleSelected -= onCollisionTriangleSelected;
-                    _renderer.VisualVertexSelected -= onVisualVertexSelected;
-                }
-            };
-
-            meshEditor.Owner = this;
-            meshEditor.Show();
+                    if(_renderer==null) return;
+                    _renderer.TerrainPlacementExcludedModel=excluded;
+                    _renderer.TerrainPlacementEnabled=enabled;
+                    SceneInfoText.Text=enabled ? "Model placement: Shift-click terrain · Escape returns to preview" :
+                        $"Area {_areaIndex}  ·  {_visualScene.TriangleCount:N0} triangles  ·  {_objects.Count:N0} objects";
+                };
+                _embeddedMeshEditor.EmbeddedCloseRequested += () => { MeshDockRow.Height = new GridLength(0); NavigationControls.Visibility = Visibility.Visible; UpdateRendererPosition(); };
+            }
+            MeshDockRow.Height = new GridLength(1, GridUnitType.Star);
+            NavigationControls.Visibility = Visibility.Collapsed;
+            UpdateRendererPosition();
         }
-
+        private void ReloadEmbeddedGeometry()
+        {
+            if (_visualScene?.LevelDirectory == null) return;
+            string directory = _visualScene.LevelDirectory;
+            string yaml = System.IO.File.ReadAllText(System.IO.Path.Combine(directory,"level.yaml"));
+            string texture = System.Text.RegularExpressions.Regex.Match(yaml,@"texture-bin:\s*(\w+)").Groups[1].Value;
+            var scene = LevelSceneLoader.Load(_projectRoot,directory,_areaIndex,texture);
+            var collision = new CollisionParser().ParseCollisionFile(_collisionFilePath,$"Area {_areaIndex}",scene.LevelName);
+            _visualScene = scene;
+            _collisionMesh = collision;
+            _renderer?.LoadVisualMeshThreadSafe(_visualScene);
+            if (_collisionMesh != null) _renderer?.LoadMeshThreadSafe(_collisionMesh);
+            RefreshMeshList();
+            SceneInfoText.Text = $"Area {_areaIndex}  ·  {_visualScene.TriangleCount:N0} triangles  ·  {_objects.Count:N0} objects";
+            // The embedded editor already refreshed this window. RequestReload closes it in MainWindow.
+            GeometryChanged?.Invoke(this,EventArgs.Empty);
+        }
         private void WarpEditorButton_Click(object sender, RoutedEventArgs e)
         {
             string? macroFile = _objects.FirstOrDefault(o => !string.IsNullOrEmpty(o.SourceFile))?.SourceFile;
@@ -1138,7 +1191,9 @@ namespace Sm64DecompLevelViewer
         {
             foreach (TreeViewItem item in category.Items)
             {
-                bool visible = string.IsNullOrEmpty(query) || item.Header.ToString()!.ToLower().Contains(query);
+                string searchable = item.Header.ToString() ?? "";
+                if (item.Tag is LevelObject obj) searchable += $" {obj.ModelName} {obj.Behavior} {obj.PresetName}";
+                bool visible = string.IsNullOrEmpty(query) || searchable.Contains(query, StringComparison.OrdinalIgnoreCase);
                 item.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
             }
         }
@@ -1327,6 +1382,7 @@ namespace Sm64DecompLevelViewer
 
         private void SplineSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            StopPathPreview_Click(this,new RoutedEventArgs());
             if (SplineSelector.SelectedItem is ComboBoxItem item)
             {
                 _activeSplineName = item.Tag as string;
@@ -1343,6 +1399,7 @@ namespace Sm64DecompLevelViewer
                     if (_renderer != null)
                     {
                         _renderer.EditSplinePoints = _activeSplinePoints;
+                        _renderer.SplinePathName = _activeSplineName;
                         _renderer.SelectedSplinePointIndex = -1;
                         _renderer.UploadSplineData();
                         _renderer.UploadObjectData();
@@ -1482,73 +1539,58 @@ namespace Sm64DecompLevelViewer
             }
         }
 
+        private System.Windows.Threading.DispatcherTimer? _previewTimer;
+        private System.Diagnostics.Stopwatch? _previewClock;
+        private bool _previewPaused;
+        private void StopPathPreview_Click(object sender, RoutedEventArgs e)
+        {
+            _previewTimer?.Stop();
+            _previewTimer = null;
+            _previewClock?.Stop();
+            _previewPaused = false;
+            _renderer?.StopPreview();
+        }
         private void PlayPathPreview_Click(object sender, RoutedEventArgs e)
         {
-            if (_activeSplinePoints == null || _activeSplinePoints.Count < 2) return;
-
-            string baseName = _activeSplineName.Replace("Position", "").Replace("Focus", "");
-            var posSpline = _cutsceneService.LoadSpline(_cameraCPath, baseName + "Position");
-            var focSpline = _cutsceneService.LoadSpline(_cameraCPath, baseName + "Focus");
-
-            if (posSpline.Count < 2 || focSpline.Count < 2) return;
-
-            if (_renderer != null)
+            if (_previewTimer != null)
             {
-                _renderer.IsPlayingPreview = true;
+                _previewPaused = !_previewPaused;
+                if (_previewPaused) { _previewTimer.Stop(); _previewClock?.Stop(); }
+                else { _previewTimer.Start(); _previewClock?.Start(); }
+                return;
             }
-
-            var timer = new System.Windows.Threading.DispatcherTimer();
-            timer.Interval = TimeSpan.FromMilliseconds(33);
-            double progress = 0.0;
-            double step = 0.005;
-
-            timer.Tick += (s, ev) =>
+            if (_activeSplineName == null || _renderer == null) return;
+            string baseName = _activeSplineName.Replace("Position", "").Replace("Focus", "");
+            var positions = _cutsceneService.LoadSpline(_cameraCPath, baseName + "Position");
+            var focuses = _cutsceneService.LoadSpline(_cameraCPath, baseName + "Focus");
+            if (positions.Count < 4 || focuses.Count < 4)
             {
-                progress += step;
-                if (progress >= 1.0)
+                MessageBox.Show("Select a paired Position/Focus path with at least four control points.", "Camera preview");
+                return;
+            }
+            var playback = new CameraSplinePlayback(baseName == "sIntroPipeToDialog" ? 0.1f : 0);
+            _previewClock = System.Diagnostics.Stopwatch.StartNew();
+            long frame = 0;
+            _renderer.IsPlayingPreview = true;
+            _previewTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1.0/30) };
+            _previewTimer.Tick += (_, _) =>
+            {
+                if (_renderer == null) { _previewTimer?.Stop(); return; }
+                // The game evaluates position and focus sequentially using the shared spline cursor.
+                long targetFrame = (long)(_previewClock!.Elapsed.TotalSeconds*30);
+                int budget = 120;
+                while (frame <= targetFrame && budget-- > 0 && !playback.Finished)
                 {
-                    timer.Stop();
-                    if (_renderer != null)
-                    {
-                        _renderer.StopPreview();
-                    }
-                    return;
+                    var position = playback.Advance(positions);
+                    var focus = playback.Advance(focuses);
+                    var pose=CameraSplinePlayback.WorldPose(baseName,position,focus);
+                    _renderer.SetCameraPositionAndTarget(pose.Position,pose.Focus);
+                    frame++;
                 }
-
-                OpenTK.Mathematics.Vector3 pos = InterpolateSpline(posSpline, progress);
-                OpenTK.Mathematics.Vector3 foc = InterpolateSpline(focSpline, progress);
-
-                if (_renderer != null)
-                {
-                    _renderer.SetCameraPositionAndTarget(pos, foc);
-                }
+                if (playback.Finished) StopPathPreview_Click(this, new RoutedEventArgs());
             };
-
-            timer.Start();
+            _previewTimer.Start();
         }
-
-        private OpenTK.Mathematics.Vector3 InterpolateSpline(List<Services.SplinePoint> spline, double t)
-        {
-            int n = spline.Count;
-            double scaledT = t * (n - 1);
-            int idx1 = (int)Math.Floor(scaledT);
-            int idx2 = (int)Math.Ceiling(scaledT);
-            
-            if (idx1 < 0) idx1 = 0;
-            if (idx2 >= n) idx2 = n - 1;
-            if (idx1 == idx2) return new OpenTK.Mathematics.Vector3(spline[idx1].X, spline[idx1].Y, spline[idx1].Z);
-
-            double frac = scaledT - idx1;
-            var p1 = spline[idx1];
-            var p2 = spline[idx2];
-
-            float x = (float)(p1.X + (p2.X - p1.X) * frac);
-            float y = (float)(p1.Y + (p2.Y - p1.Y) * frac);
-            float z = (float)(p1.Z + (p2.Z - p1.Z) * frac);
-
-            return new OpenTK.Mathematics.Vector3(x, y, z);
-        }
-
         public class MeshItemViewModel
         {
             public object Target { get; set; }
@@ -1881,6 +1923,14 @@ namespace Sm64DecompLevelViewer
 
             if (selectedVM.Target is CollisionVertex v)
             {
+                int removed = _collisionMesh.Vertices.IndexOf(v);
+                _collisionMesh.Triangles.RemoveAll(t => t.V1==removed || t.V2==removed || t.V3==removed);
+                foreach (var triangle in _collisionMesh.Triangles)
+                {
+                    if (triangle.V1>removed) triangle.V1--;
+                    if (triangle.V2>removed) triangle.V2--;
+                    if (triangle.V3>removed) triangle.V3--;
+                }
                 _collisionMesh.Vertices.Remove(v);
             }
             else if (selectedVM.Target is CollisionTriangle t)
@@ -1906,6 +1956,7 @@ namespace Sm64DecompLevelViewer
             var meshService = new LevelMeshService();
             if (meshService.SaveCollisionMesh(_collisionFilePath, _collisionMesh))
             {
+                _renderer?.LoadMeshThreadSafe(_collisionMesh);
                 MessageBox.Show("Collision mesh changes saved successfully! The 3D viewport will now reload to apply the updates.", "Mesh Saved", MessageBoxButton.OK, MessageBoxImage.Information);
                 RequestReload?.Invoke(this, EventArgs.Empty);
             }
@@ -1940,6 +1991,16 @@ namespace Sm64DecompLevelViewer
 
         private void SelectVisualVertexInUI(int index)
         {
+            if (_visualScene != null && index >= 0 && index < _visualScene.Vertices.Count)
+            {
+                var source = _visualScene.Vertices[index];
+                if (source.SourceArrayName != null)
+                {
+                    LevelMeshEditorButton_Click(this,new RoutedEventArgs());
+                    _embeddedMeshEditor?.SelectSourceVertex(source.SourceArrayName,source.SourceArrayIndex);
+                    return;
+                }
+            }
             if (_collisionMesh == null || _renderer == null || !_renderer.SelectedMeshPoint.HasValue) return;
 
             var pt = _renderer.SelectedMeshPoint.Value;
@@ -1979,10 +2040,12 @@ namespace Sm64DecompLevelViewer
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
+            _isClosing = true;
+            _previewTimer?.Stop();
+            _embeddedMeshEditor?.Close();
             if (_renderer != null)
             {
-                try { _renderer.Close(); } catch { }
-                try { _renderer.Dispose(); } catch { }
+                try { _renderer.RequestCloseThreadSafe(); } catch { }
                 _renderer = null;
             }
         }

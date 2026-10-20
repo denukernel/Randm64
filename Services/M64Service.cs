@@ -18,6 +18,8 @@ namespace Sm64DecompLevelViewer.Services
         public byte ChannelPan { get; set; } = 64;
         public byte Reverb { get; set; } = 0;
 
+        public M64Note Clone() => (M64Note)MemberwiseClone();
+
         public override string ToString()
         {
             return $"Note {Pitch} at {StartTick} (Duration: {DurationTicks})";
@@ -43,6 +45,8 @@ namespace Sm64DecompLevelViewer.Services
 
     public class M64SaveResult
     {
+        public bool Success { get; set; }
+        public string? Error { get; set; }
         public int FileSize { get; set; }
         public int OriginalSize { get; set; }
         public List<string> SavedChannels { get; set; } = new();
@@ -52,8 +56,11 @@ namespace Sm64DecompLevelViewer.Services
     public class M64Service
     {
         public byte Tempo { get; set; } = 100;
+        public M64TempoMap TempoMap { get; } = new(100);
         public int LoopStartTick { get; set; } = 0;
 
+        private M64SequenceSaver? _sequenceSaver;
+        private bool _loadFailed;
         private byte[] _originalHeader = null;
         private Dictionary<byte, int> _chanPointerLocations = new();
         private Dictionary<string, int> _layerPointerLocations = new();
@@ -193,7 +200,14 @@ namespace Sm64DecompLevelViewer.Services
         public List<M64Track> LoadM64(string filePath)
         {
             var tracks = new List<M64Track>();
-            Tempo = 100;
+            byte[]? loadedData = null;
+            var saveStarts = new List<M64ChannelStart>();
+            int saveEndTick = 0;
+            bool parsedCompletely = false;
+            _sequenceSaver = null;
+            _loadFailed = true;
+            Tempo = 120; // SM64 sequence-player default, before seq_settempo.
+            TempoMap.Reset(Tempo);
 
             LoadWarnings.Clear();
             _originalHeader = null;
@@ -213,6 +227,7 @@ namespace Sm64DecompLevelViewer.Services
                 }
 
                 byte[] data = File.ReadAllBytes(filePath);
+                loadedData = data;
                 if (data.Length < 6) return tracks;
 
                 int seqStartOffset = 0;
@@ -246,6 +261,7 @@ namespace Sm64DecompLevelViewer.Services
                         byte ch = (byte)(cmd & 0x0F);
                         _chanPointerLocations[ch] = pos; // points to the 16-bit offset
                         int chOffset = (data[pos++] << 8) | data[pos++];
+                        saveStarts.Add(new(ch, pos - 2, chOffset, seqTick));
                         channelSegments.Add(new ChannelSegment { ChannelIndex = ch, Offset = chOffset, StartTick = seqTick });
                     }
                     else if (cmd == 0xfd) // seq_delay
@@ -263,14 +279,20 @@ namespace Sm64DecompLevelViewer.Services
                     }
                     else
                     {
-                        if (cmd == 0xdd)
+                        if (cmd == 0xdd || cmd == 0xdc)
                         {
-                            Tempo = data[pos];
+                            // US/EU: settempo is unsigned; addtempo is signed.
+                            // Keep the event's tick instead of applying the final BPM to every section.
+                            double bpm = cmd == 0xdd ? data[pos] : TempoMap.GetTempoAt(seqTick) + (sbyte)data[pos];
+                            TempoMap.SetTempo(seqTick, Math.Max(1.0 / 48, bpm));
                         }
                         int argSize = GetSeqCmdSize(cmd, data, ref pos);
                         pos += argSize;
                     }
                 }
+
+                saveEndTick = seqTick;
+                Tempo = (byte)Math.Clamp(TempoMap.GetTempoAt(0), 1, 255);
 
                 // Parse segments grouped by channel index
                 for (byte ch = 0; ch < 16; ch++)
@@ -356,7 +378,11 @@ namespace Sm64DecompLevelViewer.Services
                             else if (cmd == 0xdf)
                             {
                                 _chanVolumeOffsets[ch] = pos;
-                                track.Volume = Math.Min((byte)127, data[pos++]);
+                                byte volVal = Math.Min((byte)127, data[pos++]);
+                                if (volVal > 0 || track.Volume == 0)
+                                {
+                                    track.Volume = volVal;
+                                }
                             }
                             else if (cmd == 0xc6)
                             {
@@ -408,12 +434,24 @@ namespace Sm64DecompLevelViewer.Services
                     _originalHeader = new byte[minLayerOffset];
                     Array.Copy(data, 0, _originalHeader, 0, minLayerOffset);
                 }
+                parsedCompletely = true;
             }
             catch (Exception ex)
             {
                 System.Windows.MessageBox.Show($"Error parsing M64:\n{ex.Message}\n\n{ex.StackTrace}", "M64 Parser Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             }
 
+            foreach (var track in tracks)
+            {
+                if (track.Volume == 0) track.Volume = 127;
+            }
+
+            if (loadedData != null && saveStarts.Count > 0 && parsedCompletely)
+            {
+                _sequenceSaver = new M64SequenceSaver(loadedData, saveStarts,
+                    tracks.Select(M64SequenceSaver.Snapshot).ToList(), saveEndTick);
+                _loadFailed = false;
+            }
             return tracks;
         }
 
@@ -815,533 +853,11 @@ namespace Sm64DecompLevelViewer.Services
 
         public M64SaveResult SaveM64(string filePath, List<M64Track> tracks, bool isNotesModified = true)
         {
-            var result = new M64SaveResult();
-            try
-            {
-                // Create backup if not exists
-                string backupPath = filePath + ".bak";
-                if (!File.Exists(backupPath) && File.Exists(filePath))
-                {
-                    File.Copy(filePath, backupPath, true);
-                }
-
-                result.OriginalSize = File.Exists(backupPath) ? (int)new FileInfo(backupPath).Length : (File.Exists(filePath) ? (int)new FileInfo(filePath).Length : 0);
-
-                var warnings = new List<string>();
-
-                if (!isNotesModified)
-                {
-                    try
-                    {
-                        string sourcePath = File.Exists(backupPath) ? backupPath : filePath;
-                        byte[] fileBytes = File.ReadAllBytes(sourcePath);
-
-                        foreach (var track in tracks)
-                        {
-                            if (_chanVolumeOffsets.TryGetValue(track.ChannelIndex, out int volOffset) && volOffset < fileBytes.Length)
-                            {
-                                fileBytes[volOffset] = track.Volume;
-                            }
-                            if (_chanInstrumentOffsets.TryGetValue(track.ChannelIndex, out int instOffset) && instOffset < fileBytes.Length)
-                            {
-                                fileBytes[instOffset] = track.Instrument;
-                            }
-                            if (_chanBankOffsets.TryGetValue(track.ChannelIndex, out int bankOffset) && bankOffset < fileBytes.Length)
-                            {
-                                fileBytes[bankOffset] = track.Bank;
-                            }
-                        }
-
-                        File.WriteAllBytes(filePath, fileBytes);
-                        result.FileSize = fileBytes.Length;
-
-                        foreach (var track in tracks)
-                        {
-                            result.SavedChannels.Add($"Channel {track.ChannelIndex} (Volume {track.Volume}, Instrument {track.Instrument})");
-                        }
-
-                        return result;
-                    }
-                    catch (Exception ex)
-                    {
-                        warnings.Add($"Direct patch fallback failed: {ex.Message}. Reconstructing layers instead.");
-                    }
-                }
-
-                // Check active channels limit
-                int activeChannelsCount = 0;
-                foreach (var track in tracks)
-                {
-                    if (track.Notes.Count > 0) activeChannelsCount++;
-                }
-                if (activeChannelsCount > 12)
-                {
-                    warnings.Add($"* Active Channels Overflow: {activeChannelsCount} channels contain notes. The SM64 audio driver allocates at most 16 total note channels across the entire game. Using more than 12 channels for a single sequence will likely cause note clipping or total silence due to voice starvation.");
-                }
-
-                // Check empty sequence
-                int totalNotes = 0;
-                foreach (var track in tracks) totalNotes += track.Notes.Count;
-                if (totalNotes == 0)
-                {
-                    warnings.Add("* Empty Sequence: The sequence contains no note events. It will play silently in-game.");
-                }
-
-                bool hasNewChannels = false;
-                foreach (var track in tracks)
-                {
-                    if (track.Notes.Count > 0 && !_chanPointerLocations.ContainsKey(track.ChannelIndex))
-                    {
-                        hasNewChannels = true;
-                        break;
-                    }
-                }
-
-                if (hasNewChannels)
-                {
-                    _originalHeader = null;
-                }
-
-                if (_originalHeader != null)
-                {
-                    // Patch volume, instrument, and bank in _originalHeader
-                    foreach (var track in tracks)
-                    {
-                        if (_chanVolumeOffsets.TryGetValue(track.ChannelIndex, out int volOffset) && volOffset < _originalHeader.Length)
-                        {
-                            _originalHeader[volOffset] = track.Volume;
-                        }
-                        if (_chanInstrumentOffsets.TryGetValue(track.ChannelIndex, out int instOffset) && instOffset < _originalHeader.Length)
-                        {
-                            _originalHeader[instOffset] = track.Instrument;
-                        }
-                        if (_chanBankOffsets.TryGetValue(track.ChannelIndex, out int bankOffset) && bankOffset < _originalHeader.Length)
-                        {
-                            _originalHeader[bankOffset] = track.Bank;
-                        }
-                    }
-
-                    using (var ms = new MemoryStream())
-                    using (var bw = new BinaryWriter(ms))
-                    {
-                        // Write the preserved original header byte-for-byte
-                        bw.Write(_originalHeader);
-
-                        var layerStartOffsets = new Dictionary<string, int>();
-
-                        // Group track notes into layers dynamically to avoid overlaps, using the available layers of each channel
-                        var trackLayers = new Dictionary<byte, Dictionary<byte, List<M64Note>>>();
-                        foreach (var track in tracks)
-                        {
-                            int numLayers = _chanLayers.ContainsKey(track.ChannelIndex) ? _chanLayers[track.ChannelIndex].Count : 0;
-                            var layers = new Dictionary<byte, List<M64Note>>();
-                            for (byte l = 0; l < numLayers; l++)
-                            {
-                                layers[l] = new List<M64Note>();
-                            }
-
-                            if (numLayers > 0)
-                            {
-                                var sortedNotes = track.Notes.OrderBy(n => n.StartTick).ToList();
-                                var lastPlayPercentages = new Dictionary<byte, int>();
-                                for (byte l = 0; l < numLayers; l++)
-                                {
-                                    lastPlayPercentages[l] = 0;
-                                }
-
-                                foreach (var note in sortedNotes)
-                                {
-                                    bool assigned = false;
-                                    for (byte l = 0; l < numLayers; l++)
-                                    {
-                                        int lastNoteEnd = 0;
-                                        if (layers[l].Count > 0)
-                                        {
-                                            var lastNote = layers[l][layers[l].Count - 1];
-                                            int lastStepSize = lastNote.CommandType == 2 ? lastPlayPercentages[l] : lastNote.DurationTicks;
-                                            lastNoteEnd = lastNote.StartTick + lastStepSize;
-                                        }
-                                        if (note.StartTick >= lastNoteEnd)
-                                        {
-                                            layers[l].Add(note);
-                                            if (note.CommandType != 2)
-                                            {
-                                                lastPlayPercentages[l] = note.DurationTicks;
-                                            }
-                                            assigned = true;
-                                            break;
-                                        }
-                                    }
-                                    if (!assigned)
-                                    {
-                                        // Skip note to prevent timing accumulation and sequence corruption.
-                                        // Since M64 layers are strictly monophonic, overlapping notes must play on different layers.
-                                        // We skip them if the channel has no more free/available layers.
-                                    }
-                                }
-                            }
-                            trackLayers[track.ChannelIndex] = layers;
-                        }
-
-                        // Write layer note events
-                        foreach (var track in tracks)
-                        {
-                            int numLayers = _chanLayers.ContainsKey(track.ChannelIndex) ? _chanLayers[track.ChannelIndex].Count : 0;
-                            for (byte l = 0; l < numLayers; l++)
-                            {
-                                int layerDataStart = (int)ms.Position;
-                                layerStartOffsets[track.ChannelIndex + "_" + l] = layerDataStart;
-
-                                var notes = trackLayers.ContainsKey(track.ChannelIndex) && trackLayers[track.ChannelIndex].ContainsKey(l)
-                                    ? trackLayers[track.ChannelIndex][l]
-                                    : new List<M64Note>();
-
-                                bool layerOverlapWarning = false;
-                                int lastNoteEnd = 0;
-                                int lastTick = 0;
-                                int lastPlayPercentage = 0;
-
-                                for (int idx = 0; idx < notes.Count; idx++)
-                                {
-                                    var note = notes[idx];
-                                    int stepSize = note.DurationTicks;
-                                    if (note.CommandType == 2)
-                                    {
-                                        stepSize = lastPlayPercentage;
-                                    }
-                                    else
-                                    {
-                                        lastPlayPercentage = note.DurationTicks;
-                                    }
-
-                                    if (note.StartTick < lastNoteEnd)
-                                    {
-                                        layerOverlapWarning = true;
-                                    }
-                                    lastNoteEnd = note.StartTick + stepSize;
-
-                                    int delay = note.StartTick - lastTick;
-                                    if (delay > 0)
-                                    {
-                                        bw.Write((byte)0xc0); // delay command
-                                        WriteVarInt(bw, delay);
-                                    }
-
-                                    int t_type = note.CommandType;
-                                    if (t_type == 2)
-                                    {
-                                        bw.Write((byte)(0x80 | (note.Pitch & 0x3f)));
-                                        bw.Write(note.Velocity);
-                                        bw.Write((byte)note.Gate);
-                                    }
-                                    else if (t_type == 1)
-                                    {
-                                        bw.Write((byte)(0x40 | (note.Pitch & 0x3f)));
-                                        WriteVarInt(bw, note.DurationTicks);
-                                        bw.Write(note.Velocity);
-                                    }
-                                    else
-                                    {
-                                        bw.Write((byte)(0x00 | (note.Pitch & 0x3f)));
-                                        WriteVarInt(bw, note.DurationTicks);
-                                        bw.Write(note.Velocity);
-                                        bw.Write(note.Gate);
-                                    }
-
-                                    lastTick = note.StartTick + stepSize;
-                                }
-
-                                if (layerOverlapWarning)
-                                {
-                                    warnings.Add($"* Channel {track.ChannelIndex} Layer {l} Overlap: Notes in this layer overlap, which will cause them to cut each other off or play out-of-order in-game.");
-                                }
-
-                                // Layer end
-                                bw.Write((byte)0xff);
-                            }
-                        }
-
-                        // Patch layer pointers in the headers
-                        long currentPos = ms.Position;
-                        foreach (var track in tracks)
-                        {
-                            int numLayers = _chanLayers.ContainsKey(track.ChannelIndex) ? _chanLayers[track.ChannelIndex].Count : 0;
-                            for (byte l = 0; l < numLayers; l++)
-                            {
-                                string key = track.ChannelIndex + "_" + l;
-                                if (_layerPointerLocations.ContainsKey(key))
-                                {
-                                    int start = layerStartOffsets[key];
-                                    int placeholder = _layerPointerLocations[key];
-                                    ms.Position = placeholder;
-                                    bw.Write((byte)((start >> 8) & 0xff));
-                                    bw.Write((byte)(start & 0xff));
-                                }
-                            }
-                        }
-                        ms.Position = currentPos;
-
-                        byte[] savedBytes = ms.ToArray();
-                        File.WriteAllBytes(filePath, savedBytes);
-                        Console.WriteLine($"Successfully patched and compiled M64: {filePath}");
-
-                        result.FileSize = savedBytes.Length;
-                        result.Warnings = warnings;
-                        foreach (var track in tracks)
-                        {
-                            if (track.Notes.Count > 0)
-                            {
-                                result.SavedChannels.Add($"Channel {track.ChannelIndex}: {track.Notes.Count} notes (Instrument {track.Instrument}, Volume {track.Volume})");
-                            }
-                        }
-                        return result;
-                    }
-                }
-
-                // Fallback compilation if original header is not present
-                using (var ms = new MemoryStream())
-                using (var bw = new BinaryWriter(ms))
-                {
-                    // Sequence commands
-                    ushort channelMask = 0;
-                    foreach (var track in tracks)
-                    {
-                        channelMask |= (ushort)(1 << track.ChannelIndex);
-                    }
-
-                    bw.Write((byte)0xd3); // seq_setmutebhv
-                    bw.Write((byte)0x80);
-
-                    bw.Write((byte)0xdd); // seq_settempo
-                    bw.Write(Tempo);
-
-                    bw.Write((byte)0xd7); // init channels
-                    bw.Write((byte)((channelMask >> 8) & 0xff));
-                    bw.Write((byte)(channelMask & 0xff));
-
-                    // Write channel pointers placeholder
-                    var chanOffsetPlaceholders = new Dictionary<byte, int>();
-                    foreach (var track in tracks)
-                    {
-                        bw.Write((byte)(0x90 | track.ChannelIndex)); // seq_startchannel
-                        chanOffsetPlaceholders[track.ChannelIndex] = (int)ms.Position;
-                        bw.Write((byte)0x00); // offset placeholder
-                        bw.Write((byte)0x00);
-                    }
-
-                    // Set master volume and end sequence commands
-                    bw.Write((byte)0xdb); // seq_setvol
-                    bw.Write((byte)127);
-
-                    // Write seq_delay of maxSongTick to keep the sequence alive
-                    int maxSongTick = 0;
-                    foreach (var track in tracks)
-                    {
-                        if (track.Notes.Count > 0)
-                        {
-                            int trackEnd = track.Notes.Max(n => n.StartTick + n.DurationTicks);
-                            if (trackEnd > maxSongTick) maxSongTick = trackEnd;
-                        }
-                    }
-                    if (maxSongTick == 0) maxSongTick = 480;
-
-                    bw.Write((byte)0xfd); // seq_delay
-                    WriteVarInt(bw, maxSongTick);
-
-                    bw.Write((byte)0xd6); // seq_disablechannels
-                    bw.Write((byte)((channelMask >> 8) & 0xff));
-                    bw.Write((byte)(channelMask & 0xff));
-
-                    bw.Write((byte)0xff); // seq_end
-
-                    // Write channel headers and layer blocks
-                    var chanOffsets = new Dictionary<byte, int>();
-                    var layerOffsetsPlaceholders = new Dictionary<string, int>();
-                    var layersGroupedCache = new Dictionary<byte, List<List<M64Note>>>();
-
-                    foreach (var track in tracks)
-                    {
-                        chanOffsets[track.ChannelIndex] = (int)ms.Position;
-
-                        // Group track notes into layers dynamically to avoid overlaps
-                        var layers = new List<List<M64Note>>();
-                        var sortedNotes = track.Notes.OrderBy(n => n.StartTick).ToList();
-                        var lastPlayPercentages = new List<int>();
-                        bool polyphonyWarning = false;
-                        
-                        foreach (var note in sortedNotes)
-                        {
-                            bool assigned = false;
-                            for (int i = 0; i < layers.Count; i++)
-                            {
-                                int lastNoteEnd = 0;
-                                if (layers[i].Count > 0)
-                                {
-                                    var lastNote = layers[i][layers[i].Count - 1];
-                                    int lastStepSize = lastNote.CommandType == 2 ? lastPlayPercentages[i] : lastNote.DurationTicks;
-                                    lastNoteEnd = lastNote.StartTick + lastStepSize;
-                                }
-                                if (note.StartTick >= lastNoteEnd)
-                                {
-                                    layers[i].Add(note);
-                                    if (note.CommandType != 2)
-                                    {
-                                        lastPlayPercentages[i] = note.DurationTicks;
-                                    }
-                                    assigned = true;
-                                    break;
-                                }
-                            }
-                            if (!assigned)
-                            {
-                                if (layers.Count < 4)
-                                {
-                                    layers.Add(new List<M64Note> { note });
-                                    lastPlayPercentages.Add(note.CommandType != 2 ? note.DurationTicks : 0);
-                                    assigned = true;
-                                }
-                                else
-                                {
-                                    polyphonyWarning = true;
-                                    // Skip to avoid timing corruption
-                                }
-                            }
-                        }
-                        if (layers.Count == 0)
-                        {
-                            layers.Add(new List<M64Note>());
-                        }
-                        layersGroupedCache[track.ChannelIndex] = layers;
-
-                        if (polyphonyWarning)
-                        {
-                            warnings.Add($"* Polyphony limit exceeded on Channel {track.ChannelIndex}. A single M64 channel can play at most 4 notes simultaneously. Extra notes were skipped to prevent timing corruption.");
-                        }
-
-                        // Write channel header commands
-                        bw.Write((byte)0xc4); // chan_largenoteson
-                        bw.Write((byte)0xc1); // chan_setinstr
-                        bw.Write(track.Instrument);
-                        bw.Write((byte)0xdf); // chan_setvol
-                        bw.Write(track.Volume);
-                        bw.Write((byte)0xc6); // chan_setbank
-                        bw.Write(track.Bank);
-
-                        // Set layers placeholders
-                        for (int i = 0; i < layers.Count; i++)
-                        {
-                            bw.Write((byte)(0x90 | i)); // chan_setlayer
-                            string key = track.ChannelIndex + "_" + i;
-                            layerOffsetsPlaceholders[key] = (int)ms.Position;
-                            bw.Write((byte)0x00); // 16-bit offset placeholder
-                            bw.Write((byte)0x00);
-                        }
-                        bw.Write((byte)0xff); // end channel
-                    }
-
-                    // Write notes for each layer
-                    var layerStartOffsets = new Dictionary<string, int>();
-                    foreach (var track in tracks)
-                    {
-                        var layers = layersGroupedCache[track.ChannelIndex];
-                        for (int i = 0; i < layers.Count; i++)
-                        {
-                            string key = track.ChannelIndex + "_" + i;
-                            layerStartOffsets[key] = (int)ms.Position;
-
-                            var notes = layers[i];
-                            int lastTick = 0;
-                            int lastPlayPercentage = 0;
-                            for (int idx = 0; idx < notes.Count; idx++)
-                            {
-                                var note = notes[idx];
-                                int stepSize = note.DurationTicks;
-                                if (note.CommandType == 2)
-                                {
-                                    stepSize = lastPlayPercentage;
-                                }
-                                else
-                                {
-                                    lastPlayPercentage = note.DurationTicks;
-                                }
-
-                                int delay = note.StartTick - lastTick;
-                                if (delay > 0)
-                                {
-                                    bw.Write((byte)0xc0); // delay
-                                    WriteVarInt(bw, delay);
-                                }
-
-                                int t_type = note.CommandType;
-                                if (t_type == 2)
-                                {
-                                    bw.Write((byte)(0x80 | (note.Pitch & 0x3f)));
-                                    bw.Write(note.Velocity);
-                                    bw.Write((byte)note.Gate);
-                                }
-                                else if (t_type == 1)
-                                {
-                                    bw.Write((byte)(0x40 | (note.Pitch & 0x3f)));
-                                    WriteVarInt(bw, note.DurationTicks);
-                                    bw.Write(note.Velocity);
-                                }
-                                else
-                                {
-                                    bw.Write((byte)(0x00 | (note.Pitch & 0x3f)));
-                                    WriteVarInt(bw, note.DurationTicks);
-                                    bw.Write(note.Velocity);
-                                    bw.Write(note.Gate);
-                                }
-
-                                lastTick = note.StartTick + stepSize;
-                            }
-                            bw.Write((byte)0xff); // end layer
-                        }
-                    }
-
-                    // Patch placeholders
-                    foreach (var track in tracks)
-                    {
-                        var layers = layersGroupedCache[track.ChannelIndex];
-                        for (int i = 0; i < layers.Count; i++)
-                        {
-                            string key = track.ChannelIndex + "_" + i;
-                            int start = layerStartOffsets[key];
-                            int placeholder = layerOffsetsPlaceholders[key];
-
-                            ms.Position = placeholder;
-                            bw.Write((byte)((start >> 8) & 0xff));
-                            bw.Write((byte)(start & 0xff));
-                        }
-
-                        int chOff = chanOffsets[track.ChannelIndex];
-                        ms.Position = chanOffsetPlaceholders[track.ChannelIndex];
-                        bw.Write((byte)((chOff >> 8) & 0xff));
-                        bw.Write((byte)(chOff & 0xff));
-                    }
-
-                    byte[] savedBytes = ms.ToArray();
-                    File.WriteAllBytes(filePath, savedBytes);
-                    Console.WriteLine($"Successfully compiled M64: {filePath}");
-
-                    result.FileSize = savedBytes.Length;
-                    result.Warnings = warnings;
-                    foreach (var track in tracks)
-                    {
-                        if (track.Notes.Count > 0)
-                        {
-                            result.SavedChannels.Add($"Channel {track.ChannelIndex}: {track.Notes.Count} notes (Instrument {track.Instrument}, Volume {track.Volume})");
-                        }
-                    }
-                    return result;
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error compiling M64: {ex.Message}");
-                result.Warnings.Add($"Compilation Error: {ex.Message}");
-            }
-            return result;
+            if (_loadFailed) return new M64SaveResult { Error = "Reload a valid M64 before saving; the loaded sequence could not be parsed completely." };
+            // Derive changes from the loaded snapshot, not an unreliable UI dirty
+            // flag, and never restore stale .bak bytes over subsequent edits.
+            _sequenceSaver ??= new M64SequenceSaver(null, [], [], 0);
+            return _sequenceSaver.Save(filePath, tracks, Tempo, TempoMap);
         }
 
         private int ReadVarInt(byte[] data, ref int pos)
@@ -1556,7 +1072,7 @@ namespace Sm64DecompLevelViewer.Services
                             Velocity = vel, 
                             Instrument = currentInstrument, 
                             LayerIndex = (byte)layerIndex,
-                            Gate = 250,
+                            Gate = 0,
                             CommandType = 1,
                             ChannelVolume = noteVol,
                             ChannelPan = notePan,
@@ -1610,6 +1126,11 @@ namespace Sm64DecompLevelViewer.Services
 
         public List<M64Track> ImportMidi(string filePath)
         {
+            // Imported MIDI currently uses a constant preview tempo; do not
+            // inherit tempo changes from the previously opened M64 sequence.
+            TempoMap.Reset(Tempo);
+            _sequenceSaver = null;
+            _loadFailed = false;
             return MidiParser.ParseMidi(filePath, 48);
         }
     }

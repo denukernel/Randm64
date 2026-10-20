@@ -83,71 +83,26 @@ namespace Sm64DecompLevelViewer.Services
             try
             {
                 string content = File.ReadAllText(filePath);
-                var matchedRanges = new List<(int Start, int End)>();
-
-                // 1. Parse Valid Macros with Behavior Parameters
-                var paramMatches = MacroObjectWithParamPattern.Matches(content);
-                foreach (Match match in paramMatches)
+                foreach(var call in CSourceCalls.Read(content,n=>n is "MACRO_OBJECT" or "MACRO_OBJECT_WITH_BHV_PARAM"))
                 {
-                    string presetName = match.Groups[1].Value.Trim();
-                    if (presets.TryGetValue(presetName, out var preset))
+                    if(call.Arguments.Count!=(call.Name=="MACRO_OBJECT" ? 5 : 6)) continue;
+                    string Arg(int i)=>call.Argument(content,i);
+                    if(!presets.TryGetValue(Arg(0),out var preset)) continue;
+                    string? raw=call.Arguments.Count>5 ? Arg(5) : null;
+                    uint value=0;
+                    if(raw!=null) uint.TryParse(raw.StartsWith("0x",StringComparison.OrdinalIgnoreCase) ? raw[2..] : raw,
+                        raw.StartsWith("0x",StringComparison.OrdinalIgnoreCase) ? System.Globalization.NumberStyles.HexNumber : System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture,out value);
+                    objects.Add(new LevelObject
                     {
-                        string paramStr = match.Groups[6].Value.Trim();
-                        uint paramValue = 0;
-                        if (paramStr.StartsWith("0x")) paramValue = Convert.ToUInt32(paramStr, 16);
-                        else uint.TryParse(paramStr, out paramValue);
-
-                        objects.Add(new LevelObject
-                        {
-                            ModelName = preset.Model,
-                            PresetName = presetName,
-                            Behavior = preset.Behavior,
-                            X = int.Parse(match.Groups[3].Value),
-                            Y = int.Parse(match.Groups[4].Value),
-                            Z = int.Parse(match.Groups[5].Value),
-                            RY = int.Parse(match.Groups[2].Value),
-                            Params = paramValue | (uint)preset.Param,
-                            RawParams = paramStr,
-                            SourceFile = filePath,
-                            SourceIndex = match.Index,
-                            SourceLength = match.Length,
-                            SourceType = ObjectSourceType.Macro
-                        });
-                        matchedRanges.Add((match.Index, match.Index + match.Length));
-                    }
-                }
-
-                // 2. Parse Valid Standard Macros (ensuring they don't overlap with above)
-                var macroMatches = MacroObjectPattern.Matches(content);
-                foreach (Match match in macroMatches)
-                {
-                    if (IsOverlapping(match, matchedRanges)) continue;
-
-                    string presetName = match.Groups[1].Value.Trim();
-                    if (presets.TryGetValue(presetName, out var preset))
-                    {
-                        objects.Add(new LevelObject
-                        {
-                            ModelName = preset.Model,
-                            PresetName = presetName,
-                            Behavior = preset.Behavior,
-                            X = int.Parse(match.Groups[3].Value),
-                            Y = int.Parse(match.Groups[4].Value),
-                            Z = int.Parse(match.Groups[5].Value),
-                            RY = int.Parse(match.Groups[2].Value),
-                            Params = (uint)preset.Param,
-                            SourceFile = filePath,
-                            SourceIndex = match.Index,
-                            SourceLength = match.Length,
-                            SourceType = ObjectSourceType.Macro
-                        });
-                    }
+                        ModelName=preset.Model,PresetName=Arg(0),Behavior=preset.Behavior,
+                        X=int.Parse(Arg(2)),Y=int.Parse(Arg(3)),Z=int.Parse(Arg(4)),RY=int.Parse(Arg(1)),
+                        Params=value|(uint)preset.Param,RawParams=raw,SourceFile=filePath,
+                        SourceIndex=call.Start,SourceLength=call.End-call.Start,SourceType=ObjectSourceType.Macro
+                    });
                 }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error parsing macro file {filePath}: {ex.Message}");
-            }
+            catch(Exception ex) { Console.WriteLine("Error parsing macro objects: "+ex.Message); }
 
             return objects;
         }

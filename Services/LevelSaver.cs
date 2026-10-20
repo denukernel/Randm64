@@ -1,287 +1,151 @@
+using System.Globalization;
 using System.IO;
-using System.Text.RegularExpressions;
+using System.Text;
 using Sm64DecompLevelViewer.Models;
 
 namespace Sm64DecompLevelViewer.Services;
 
 public class LevelSaver
 {
-    public bool SaveLevel(List<LevelObject> objects)
+    internal sealed record State(string Model,string Preset,int X,int Y,int Z,int RX,int RY,int RZ,uint Params,string? Raw,string Behavior,int Area,string? Acts);
+    private sealed record Anchor(string Text,int Ordinal,int Count,State State,bool Deleted=false);
+    private sealed record Edit(LevelObject? Object,int Start,int End,string Text);
+    private readonly Dictionary<LevelObject,Anchor> anchors=new();
+    public string? LastError { get; private set; }
+    internal static State Current(LevelObject o)=>new(o.ModelName,o.PresetName,o.X,o.Y,o.Z,o.RX,o.RY,o.RZ,o.Params,o.RawParams,o.Behavior,o.AreaIndex,o.RawActs);
+    internal static bool ObjectCall(string n)=>n is "OBJECT" or "OBJECT_WITH_ACTS" or "MARIO_POS" or "MACRO_OBJECT" or "MACRO_OBJECT_WITH_BHV_PARAM" or "SPECIAL_OBJECT" or "SPECIAL_OBJECT_WITH_YAW" or "SPECIAL_OBJECT_WITH_YAW_AND_PARAM";
+    internal static bool Kind(CSourceCall c,LevelObject o)=>o.SourceType switch
     {
-        bool allSaved = true;
-
-        // 1. Group existing objects by their source file (exclude NEW objects for now)
-        var objectsByFile = objects
-            .Where(o => !string.IsNullOrEmpty(o.SourceFile) && !o.IsNew)
-            .GroupBy(o => o.SourceFile)
-            .ToList();
-
-        foreach (var group in objectsByFile)
+        ObjectSourceType.Normal=>c.Name is "OBJECT" or "OBJECT_WITH_ACTS",
+        ObjectSourceType.Macro=>c.Name.StartsWith("MACRO_OBJECT",StringComparison.Ordinal),
+        ObjectSourceType.Special=>c.Name.StartsWith("SPECIAL_OBJECT",StringComparison.Ordinal),
+        ObjectSourceType.Mario=>c.Name=="MARIO_POS", _=>false
+    };
+    public void CaptureSources(IEnumerable<LevelObject> objects)
+    {
+        foreach(var group in objects.Where(o=>!o.IsNew && !o.IsDeleted && o.SourceFile!=null).GroupBy(o=>o.SourceFile!))
         {
-            string filePath = group.Key!;
-            var fileObjects = group.OrderByDescending(o => o.SourceIndex).ToList();
-
-            if (!File.Exists(filePath))
+            string source=File.ReadAllText(group.Key); var calls=CSourceCalls.Read(source,ObjectCall);
+            foreach(var o in group)
             {
-                LogService.Log($"File not found: {filePath}");
-                allSaved = false;
-                continue;
+                var call=calls.FirstOrDefault(c=>c.Start==o.SourceIndex && Kind(c,o));
+                if(call==null) continue;
+                var identical=calls.Where(c=>c.Text(source)==call.Text(source)).ToList();
+                anchors[o]=new Anchor(call.Text(source),identical.FindIndex(c=>c.Start==call.Start),identical.Count,Current(o));
             }
-
-            try
+        }
+    }
+    public bool SaveLevel(List<LevelObject> objects,string? collisionPath=null)
+    {
+        LastError=null;
+        try
+        {
+            if(!string.IsNullOrWhiteSpace(collisionPath))
             {
-                string content = File.ReadAllText(filePath);
-                var allFileObjects = objects.Where(o => o.SourceFile == filePath).ToList();
-                
-                // Track insertions/deletions to update other objects in the same file if needed
-                // But since we order descending, deletions/updates of higher indices don't affect lower ones.
-                
-                foreach (var obj in fileObjects)
+                var collision=new CollisionParser().ParseCollisionFile(collisionPath,"","nonpersistent") ?? throw new InvalidDataException("Area collision could not be parsed.");
+                _=CollisionSourceWriter.Stage(collisionPath,collision);
+            }
+            if(objects.Any(o=>!o.IsDeleted && string.IsNullOrWhiteSpace(o.SourceFile))) throw new InvalidDataException("An object has no destination source file.");
+            var writes=new Dictionary<string,byte[]>(StringComparer.OrdinalIgnoreCase);
+            var expected=new Dictionary<string,byte[]?>(StringComparer.OrdinalIgnoreCase);
+            var updates=new List<(LevelObject Object,int Index,int Length,string Text,bool Deleted)>();
+            foreach(var group in objects.Where(o=>o.SourceFile!=null).GroupBy(o=>Path.GetFullPath(o.SourceFile!),StringComparer.OrdinalIgnoreCase))
+            {
+                string path=group.Key;
+                byte[] bytes=File.ReadAllBytes(path); string source=File.ReadAllText(path);
+                var calls=CSourceCalls.Read(source,ObjectCall); var edits=new List<Edit>();
+                var locations=new Dictionary<LevelObject,(int Start,int End)>();
+                foreach(var o in group)
                 {
-                    if (obj.IsDeleted)
+                    if(o.IsNew)
                     {
-                        content = content.Remove(obj.SourceIndex, obj.SourceLength);
-                        foreach (var otherObj in allFileObjects)
+                        if(!o.IsDeleted)
                         {
-                            if (otherObj != obj && otherObj.SourceIndex > obj.SourceIndex)
-                            {
-                                otherObj.SourceIndex -= obj.SourceLength;
-                            }
+                            int insertion=ObjectMacroWriter.InsertionPoint(source,calls,o);
+                            edits.Add(new Edit(o,insertion,insertion,"\n    "+ObjectMacroWriter.NewMacro(source,path,o)+","));
                         }
                         continue;
                     }
-
-                    string oldMacro = content.Substring(obj.SourceIndex, obj.SourceLength);
-                    string newMacro = UpdateMacro(oldMacro, obj);
-                    
-                    if (oldMacro != newMacro)
+                    if(anchors.TryGetValue(o,out var old) && old.Deleted) continue;
+                    if(old==null)
                     {
-                        int diff = newMacro.Length - oldMacro.Length;
-                        content = content.Remove(obj.SourceIndex, obj.SourceLength)
-                                         .Insert(obj.SourceIndex, newMacro);
-                        
-                        obj.SourceLength = newMacro.Length;
-                        foreach (var otherObj in allFileObjects)
-                        {
-                            if (otherObj != obj && otherObj.SourceIndex > obj.SourceIndex)
-                            {
-                                otherObj.SourceIndex += diff;
-                            }
-                        }
+                        var at=calls.FirstOrDefault(c=>c.Start==o.SourceIndex && Kind(c,o));
+                        if(at==null) throw new InvalidDataException("Object source offsets are stale. Reopen the level before saving: "+path);
+                        var same=calls.Where(c=>c.Text(source)==at.Text(source)).ToList();
+                        old=new Anchor(at.Text(source),same.FindIndex(c=>c.Start==at.Start),same.Count,ObjectMacroWriter.Baseline(source,at,o));
+                    }
+                    var matches=calls.Where(c=>Kind(c,o) && c.Text(source)==old.Text).ToList();
+                    if(matches.Count==0 || matches.Count!=1 && matches.Count!=old.Count)
+                        throw new InvalidDataException("An object's source changed or became ambiguous. Reopen the level before saving: "+path);
+                    var call=matches.Count==1 ? matches[0] : matches[old.Ordinal]; locations[o]=(call.Start,call.End);
+                    if(o.IsDeleted)
+                    {
+                        int end=call.End; string mask=CSourceCalls.MaskComments(source);
+                        while(end<mask.Length && char.IsWhiteSpace(mask[end])) end++;
+                        end=end<mask.Length && mask[end]==',' ? end+1 : call.End;
+                        edits.Add(new Edit(o,call.Start,end,""));
+                    }
+                    else
+                    {
+                        string replacement=ObjectMacroWriter.Rewrite(source,path,call,o,old.State);
+                        if(replacement!=call.Text(source)) edits.Add(new Edit(o,call.Start,call.End,replacement));
                     }
                 }
-
-                File.WriteAllText(filePath, content);
-                
-                if (filePath.Contains("collision.inc.c")) UpdateSpecialObjectCount(filePath, objects);
-            }
-            catch (Exception ex)
-            {
-                LogService.Log($"Failed to save to {filePath}: {ex.Message}");
-                allSaved = false;
-            }
-        }
-
-        // 2. Handle new objects by grouping by file to avoid multiple reads/writes
-        var newObjectsByFile = objects.Where(o => o.IsNew && !o.IsDeleted)
-            .GroupBy(o => o.SourceFile)
-            .ToList();
-
-        foreach (var group in newObjectsByFile)
-        {
-            string filePath = group.Key!;
-            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) continue;
-
-            try
-            {
-                string content = File.ReadAllText(filePath);
-                var fileNewObjects = group.ToList();
-                var allFileObjects = objects.Where(o => o.SourceFile == filePath).ToList();
-
-                foreach (var obj in fileNewObjects)
+                string result=Apply(source,edits);
+                var stagedCalls=CSourceCalls.Read(result,n=>ObjectCall(n)||n=="COL_SPECIAL_INIT"||n=="COL_END");
+                var counts=new List<Edit>();
+                foreach(var init in stagedCalls.Where(c=>c.Name=="COL_SPECIAL_INIT"))
                 {
-                    string insertion = "";
-                    int index = -1;
-
-                    if (obj.SourceType == ObjectSourceType.Normal)
-                    {
-                        insertion = $"\n    OBJECT({obj.ModelName}, {obj.X}, {obj.Y}, {obj.Z}, {obj.RX}, {obj.RY}, {obj.RZ}, {obj.Params}, {obj.Behavior}),";
-                        
-                        int areaStart = -1;
-                        var areaMatches = Regex.Matches(content, @"AREA\s*\(\s*(\d+)");
-                        foreach (Match areaMatch in areaMatches)
-                        {
-                            if (int.Parse(areaMatch.Groups[1].Value) == obj.AreaIndex)
-                            {
-                                areaStart = areaMatch.Index;
-                                break;
-                            }
-                        }
-
-                        if (areaStart != -1)
-                        {
-                            var m = Regex.Match(content.Substring(areaStart), @"END_AREA\s*\(\s*\)");
-                            if (m.Success) index = areaStart + m.Index;
-                        }
-
-                        if (index == -1) index = content.LastIndexOf("END_AREA");
-                        if (index == -1) index = content.LastIndexOf("};");
-                    }
-                    else if (obj.SourceType == ObjectSourceType.Macro)
-                    {
-                        string macroName = string.IsNullOrEmpty(obj.PresetName) ? obj.ModelName : obj.PresetName;
-                        insertion = $"\n    MACRO_OBJECT({macroName}, {obj.RY}, {obj.X}, {obj.Y}, {obj.Z}),";
-                        index = content.LastIndexOf("MACRO_OBJECT_END");
-                        if (index == -1) index = content.LastIndexOf("};");
-                    }
-                    else if (obj.SourceType == ObjectSourceType.Special)
-                    {
-                        string presetName = string.IsNullOrEmpty(obj.PresetName) ? obj.ModelName : obj.PresetName;
-                        insertion = $"\n    SPECIAL_OBJECT({presetName}, {obj.X}, {obj.Y}, {obj.Z}),";
-                        var specialMatches = Regex.Matches(content, @"SPECIAL_OBJECT(?:_WITH_YAW(?:_AND_PARAM)?)?\s*\([^)]*\)[\s,]*");
-                        if (specialMatches.Count > 0)
-                        {
-                            var lastMatch = specialMatches[specialMatches.Count - 1];
-                            index = lastMatch.Index + lastMatch.Length;
-                        }
-                        else
-                        {
-                            var initMatch = Regex.Match(content, @"COL_SPECIAL_INIT\s*\(\s*(\d+)\s*\)");
-                            if (initMatch.Success)
-                            {
-                                index = content.IndexOf(",", initMatch.Index);
-                                if (index != -1) index++;
-                            }
-                        }
-                        
-                        if (index == -1) index = content.LastIndexOf("COL_END");
-                        if (index == -1) index = content.LastIndexOf("};");
-                    }
-
-                    if (index != -1)
-                    {
-                        content = content.Insert(index, insertion);
-                        obj.SourceIndex = index;
-                        obj.SourceLength = insertion.Length;
-                        obj.IsNew = false;
-
-                        foreach (var otherObj in allFileObjects)
-                        {
-                            if (otherObj != obj && otherObj.SourceIndex >= index)
-                            {
-                                otherObj.SourceIndex += insertion.Length;
-                            }
-                        }
-                    }
+                    int next=stagedCalls.Where(c=>c.Start>init.Start && c.Name is "COL_SPECIAL_INIT" or "COL_END").Select(c=>c.Start).DefaultIfEmpty(result.Length).Min();
+                    int count=stagedCalls.Count(c=>c.Start>init.End && c.Start<next && c.Name.StartsWith("SPECIAL_OBJECT",StringComparison.Ordinal));
+                    string text=CSourceCalls.ReplaceArguments(result,init,new(){[0]=count.ToString(CultureInfo.InvariantCulture)});
+                    if(text!=init.Text(result)) counts.Add(new Edit(null,init.Start,init.End,text));
                 }
-
-                File.WriteAllText(filePath, content);
-                if (filePath.Contains("collision.inc.c")) UpdateSpecialObjectCount(filePath, objects);
-            }
-            catch (Exception ex)
-            {
-                LogService.Log($"Failed to save new objects to {filePath}: {ex.Message}");
-                allSaved = false;
-            }
-        }
-
-        return allSaved;
-    }
-
-    private void UpdateSpecialObjectCount(string filePath, List<LevelObject> objects)
-    {
-        try
-        {
-            string content = File.ReadAllText(filePath);
-            int count = Regex.Matches(content, @"SPECIAL_OBJECT(?:_WITH_YAW(?:_AND_PARAM)?)?\s*\(").Count;
-            var match = Regex.Match(content, @"COL_SPECIAL_INIT\s*\(\s*(\d+)\s*\)");
-            if (match.Success)
-            {
-                string newValue = $"COL_SPECIAL_INIT({count})";
-                if (match.Value != newValue)
+                result=Apply(result,counts);
+                if(result!=source)
                 {
-                    int diff = newValue.Length - match.Value.Length;
-                    content = content.Replace(match.Value, newValue);
-                    File.WriteAllText(filePath, content);
-                    
-                    var allFileObjects = objects.Where(o => o.SourceFile == filePath).ToList();
-                    foreach (var otherObj in allFileObjects)
-                    {
-                        if (otherObj.SourceIndex > match.Index)
-                        {
-                            otherObj.SourceIndex += diff;
-                        }
-                    }
+                    if(CSourceCalls.Read(result,n=>n=="COL_INIT").Count>0) CollisionSourceValidation.Validate(result,path);
+                    writes[path]=EncodeLike(bytes,result); expected[path]=bytes;
+                }
+                var finalCalls=CSourceCalls.Read(result,ObjectCall);
+                foreach(var o in group)
+                {
+                    if(o.IsDeleted) { updates.Add((o,-1,0,"",true)); continue; }
+                    int projected; var own=edits.FirstOrDefault(e=>ReferenceEquals(e.Object,o));
+                    if(own!=null && o.IsNew) projected=MappedIndex(own.Start,edits,own)+own.Text.IndexOf(ObjectMacroWriter.NewMacro(source,path,o),StringComparison.Ordinal);
+                    else projected=MappedIndex(locations[o].Start,edits,own);
+                    projected=MappedIndex(projected,counts,null);
+                    var final=finalCalls.FirstOrDefault(c=>c.Start==projected && Kind(c,o)) ?? throw new InvalidDataException("Unable to validate staged object source: "+path);
+                    updates.Add((o,final.Start,final.End-final.Start,final.Text(result),false));
                 }
             }
+            SourceFileTransaction.Commit(writes,expected);
+            foreach(var update in updates)
+            {
+                var o=update.Object; o.SourceIndex=update.Index; o.SourceLength=update.Length; o.IsNew=false;
+                anchors[o]=new Anchor(update.Text,0,1,Current(o),update.Deleted);
+            }
+            CaptureSources(objects.Where(o=>!o.IsDeleted));
+            return true;
         }
-        catch { }
+        catch(Exception ex) { LastError=ex.Message; LogService.Log("Level save aborted: "+ex.Message); return false; }
     }
-
-    private string UpdateMacro(string macro, LevelObject obj)
+    private static byte[] EncodeLike(byte[] original,string source)
     {
-        if (obj.ModelName.Contains("ERROR") || string.IsNullOrEmpty(obj.ModelName)) return macro;
-
-        string ws = @"(?:\s|/\*.*?\*/)*";
-
-        // General Pattern: Identifier(Args)Tail
-        // Identifier is group 1
-        // Args is group 2
-        // Tail (comma, whitespace, etc) is group 3
-        var genericPattern = $@"^({ws})(\w+){ws}\({ws}(.*?){ws}\)({ws}[,;]?{ws})$";
-        var genericMatch = Regex.Match(macro, genericPattern, RegexOptions.Singleline);
-        if (!genericMatch.Success) return macro;
-
-        string prefix = genericMatch.Groups[1].Value;
-        string identifier = genericMatch.Groups[2].Value;
-        string tail = genericMatch.Groups[4].Value;
-
-        if (identifier == "MARIO_POS")
-        {
-            return $"{prefix}MARIO_POS(0x01, {obj.RY}, {obj.X}, {obj.Y}, {obj.Z}){tail}";
-        }
-
-        if (identifier.Contains("MACRO_OBJECT"))
-        {
-            string macroName = string.IsNullOrEmpty(obj.PresetName) ? obj.ModelName : obj.PresetName;
-            if (identifier.Contains("WITH_BHV_PARAM"))
-            {
-                string param = !string.IsNullOrEmpty(obj.RawParams) ? obj.RawParams : $"0x{obj.Params:X2}";
-                return $"{prefix}MACRO_OBJECT_WITH_BHV_PARAM({macroName}, {obj.RY}, {obj.X}, {obj.Y}, {obj.Z}, {param}){tail}";
-            }
-            return $"{prefix}MACRO_OBJECT({macroName}, {obj.RY}, {obj.X}, {obj.Y}, {obj.Z}){tail}";
-        }
-
-        if (identifier.Contains("SPECIAL_OBJECT"))
-        {
-            int byteYaw = (int)Math.Round(((obj.RY % 360 + 360) % 360) * 256.0 / 360.0) % 256;
-            string presetName = string.IsNullOrEmpty(obj.PresetName) ? obj.ModelName : obj.PresetName;
-            
-            if (identifier.Contains("WITH_YAW_AND_PARAM"))
-            {
-                string param = !string.IsNullOrEmpty(obj.RawParams) ? obj.RawParams : $"0x{obj.Params:X2}";
-                return $"{prefix}SPECIAL_OBJECT_WITH_YAW_AND_PARAM({presetName}, {obj.X}, {obj.Y}, {obj.Z}, {byteYaw}, {param}){tail}";
-            }
-            if (identifier.Contains("WITH_YAW"))
-            {
-                return $"{prefix}SPECIAL_OBJECT_WITH_YAW({presetName}, {obj.X}, {obj.Y}, {obj.Z}, {byteYaw}){tail}";
-            }
-            return $"{prefix}SPECIAL_OBJECT({presetName}, {obj.X}, {obj.Y}, {obj.Z}){tail}";
-        }
-
-        if (identifier.Contains("OBJECT"))
-        {
-            var pattern = $@"OBJECT(?:_WITH_ACTS)?{ws}\({ws}([^,]+?){ws},{ws}(-?\d+?|[^,]+?){ws},{ws}(-?\d+?|[^,]+?){ws},{ws}(-?\d+?|[^,]+?){ws},{ws}(-?\d+?|[^,]+?){ws},{ws}(-?\d+?|[^,]+?){ws},{ws}(-?\d+?|[^,]+?){ws},{ws}([^,]+?){ws},{ws}([^,)]+?){ws}(?:,{ws}([^)]+?){ws})?\)";
-            var match = Regex.Match(macro, pattern);
-            if (match.Success)
-            {
-                string acts = match.Groups[10].Success ? $", {match.Groups[10].Value}" : "";
-                string bhvParam = !string.IsNullOrEmpty(obj.RawParams) ? obj.RawParams : $"0x{obj.Params:X8}";
-                string newId = identifier.Contains("WITH_ACTS") ? "OBJECT_WITH_ACTS" : "OBJECT";
-                return $"{prefix}{newId}({obj.ModelName}, {obj.X}, {obj.Y}, {obj.Z}, {obj.RX}, {obj.RY}, {obj.RZ}, {bhvParam}, {obj.Behavior}{acts}){tail}";
-            }
-        }
-
-        return macro;
+        Encoding encoding=original.Length>=2 && original[0]==255 && original[1]==254 ? Encoding.Unicode : original.Length>=2 && original[0]==254 && original[1]==255 ? Encoding.BigEndianUnicode : new UTF8Encoding(original.Length>=3 && original[0]==239 && original[1]==187 && original[2]==191);
+        return encoding.GetPreamble().Concat(encoding.GetBytes(source)).ToArray();
+    }
+    private static int MappedIndex(int index,List<Edit> edits,Edit? own)
+    {
+        int ownIndex=own==null ? int.MaxValue : edits.IndexOf(own);
+        return index+edits.Where((e,i)=>!ReferenceEquals(e,own) && (e.Start<index || e.Start==index && e.Start==e.End && i<ownIndex)).Sum(e=>e.Text.Length-(e.End-e.Start));
+    }
+    private static string Apply(string source,List<Edit> edits)
+    {
+        var ordered=edits.OrderBy(e=>e.Start).ToList();
+        for(int i=1;i<ordered.Count;i++) if(ordered[i-1].End>ordered[i].Start) throw new InvalidDataException("Overlapping source edits were rejected.");
+        var output=new StringBuilder(source);
+        foreach(var e in ordered.AsEnumerable().Reverse()) output.Remove(e.Start,e.End-e.Start).Insert(e.Start,e.Text);
+        return output.ToString();
     }
 }

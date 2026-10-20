@@ -17,6 +17,7 @@ public class GeoNode
     // Fields for skeletal animation support
     public int JointIndex { get; set; } = -1;
     public int ParentIndex { get; set; } = -1;
+    public Matrix4 RestWorldMatrix { get; set; } = Matrix4.Identity;
 
     public GeoNode(GeoNodeType type)
     {

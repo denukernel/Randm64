@@ -274,480 +274,180 @@ public class GeoLayoutParser
 
     public List<GeoNode> ParsedJoints { get; } = new();
     public Dictionary<string, int> DlToJointIndex { get; } = new();
+    public List<GeoDisplayListInstance> DisplayListInstances { get; } = new();
+    public float RootScale { get; set; } = 1.0f;
 
-    public Dictionary<string, Matrix4> ParseActorGeoLayout(string filePath)
+    private sealed class ActorNode(string command, string[] args)
+    {
+        public string Command = command;
+        public string[] Args = args;
+        public List<ActorNode> Children = new();
+    }
+
+    public Dictionary<string, Matrix4> ParseActorGeoLayout(string filePath, string? rootLayout = null, IEnumerable<string>? additionalFiles = null)
     {
         var transforms = new Dictionary<string, Matrix4>();
         ParsedJoints.Clear();
         DlToJointIndex.Clear();
-
+        DisplayListInstances.Clear();
+        RootScale = 1;
         if (!File.Exists(filePath)) return transforms;
 
-        try
+        string content = ActorSourceReader.Read(filePath);
+        if (additionalFiles != null)
+            content += "\n" + string.Join("\n", additionalFiles.Where(path => path != filePath).Select(path => ActorSourceReader.Read(path)));
+        content = Regex.Replace(content, @"/\*[\s\S]*?\*/|//[^\r\n]*", "");
+        var layouts = new Dictionary<string, List<ActorNode>>();
+        foreach (Match array in Regex.Matches(content, @"(?:const\s+)?GeoLayout\s+(\w+)\s*\[\s*\]\s*=\s*\{([\s\S]*?)\};"))
         {
-            string content = File.ReadAllText(filePath);
-            var arrayRegex = new Regex(@"const\s+GeoLayout\s+(\w+)\[\]\s*=\s*\{([\s\S]*?)\};", RegexOptions.Compiled);
-            var matches = arrayRegex.Matches(content);
-            if (matches.Count == 0) return transforms;
-
-            var layouts = new Dictionary<string, string>();
-            string lastLayoutName = "";
-            foreach (Match match in matches)
+            var nodes = new List<ActorNode>();
+            var stack = new Stack<List<ActorNode>>();
+            layouts[array.Groups[1].Value] = nodes;
+            foreach (Match command in Regex.Matches(array.Groups[2].Value, @"GEO_(\w+)\s*\(([^)]*)\)"))
             {
-                string name = match.Groups[1].Value;
-                string body = match.Groups[2].Value;
-                layouts[name] = body;
-                lastLayoutName = name;
+                string name = command.Groups[1].Value;
+                if (name == "OPEN_NODE")
+                {
+                    // The original interpreter permits grouping opens with no intervening node.
+                    if (nodes.Count == 0) nodes.Add(new ActorNode("NODE_START", Array.Empty<string>()));
+                    stack.Push(nodes);
+                    nodes = nodes[^1].Children;
+                }
+                else if (name == "CLOSE_NODE")
+                {
+                    // Some original layouts (including Boo) contain a redundant final close.
+                    if (stack.Count == 0) continue;
+                    nodes = stack.Pop();
+                }
+                else if (name is not "RETURN" and not "END")
+                    nodes.Add(new ActorNode(name, command.Groups[2].Value.Split(',').Select(a => a.Trim()).ToArray()));
             }
-
-            if (!string.IsNullOrEmpty(lastLayoutName))
-            {
-                var translationStack = new Stack<Vector3>();
-                var scaleStack = new Stack<float>();
-                var rotationStack = new Stack<Matrix4>();
-                var jointIndexStack = new Stack<int>();
-                var visitedLayouts = new HashSet<string>();
-
-                int nextJointIndex = 0;
-                TraverseLayout(lastLayoutName, layouts, transforms, Vector3.Zero, 1.0f, Matrix4.Identity,
-                               translationStack, scaleStack, rotationStack, jointIndexStack, -1, ref nextJointIndex, visitedLayouts);
-                
-                Console.WriteLine($"Parsed geo layout: {lastLayoutName}. Joint count: {ParsedJoints.Count}. Reference DL transforms: {transforms.Count}");
-            }
+            // Several original scripts terminate with an open grouping node. The
+            // array boundary ends that traversal; the tree is already attached.
         }
-        catch (Exception ex)
+        string preferred = Path.GetFileName(Path.GetDirectoryName(filePath)) + "_geo";
+        string shell = Path.GetFileName(Path.GetDirectoryName(filePath)) + "_with_shell_geo";
+        var referenced = layouts.Values.SelectMany(FlattenNodes).Where(node => node.Command is "BRANCH" or "BRANCH_AND_LINK")
+            .Select(node => node.Args[^1]).ToHashSet();
+        string? root = rootLayout != null && layouts.ContainsKey(rootLayout) ? rootLayout : layouts.ContainsKey(preferred) ? preferred : layouts.ContainsKey(shell) ? shell :
+            layouts.Keys.FirstOrDefault(name => !referenced.Contains(name) && !name.Contains("shadow") && name.EndsWith("_geo"))
+                ?? layouts.Keys.LastOrDefault();
+        bool HasJoints(string name, HashSet<string> seen)
         {
-            Console.WriteLine($"Error parsing actor geo layout hierarchy: {ex.Message}");
+            if (!seen.Add(name) || !layouts.TryGetValue(name, out var nodes)) return false;
+            return nodes.SelectMany(Flatten).Any(node => node.Command == "ANIMATED_PART" ||
+                (node.Command is "BRANCH" or "BRANCH_AND_LINK" && HasJoints(node.Args[^1], seen)));
         }
-
+        if (rootLayout == null && root != null && !HasJoints(root, new()) && Directory.Exists(Path.Combine(Path.GetDirectoryName(filePath)!, "anims")))
+            root = layouts.Keys.FirstOrDefault(name => !referenced.Contains(name) && HasJoints(name, new())) ?? root;
+        if (root != null) VisitLayout(root, Matrix4.Identity, -1, new HashSet<string>());
         return transforms;
-    }
 
-    private void TraverseLayout(
-        string layoutName,
-        Dictionary<string, string> layouts,
-        Dictionary<string, Matrix4> transforms,
-        Vector3 currentTranslation,
-        float currentScale,
-        Matrix4 currentRotation,
-        Stack<Vector3> translationStack,
-        Stack<float> scaleStack,
-        Stack<Matrix4> rotationStack,
-        Stack<int> jointIndexStack,
-        int parentJointIndex,
-        ref int nextJointIndex,
-        HashSet<string> visitedLayouts)
-    {
-        if (visitedLayouts.Contains(layoutName)) return;
-        visitedLayouts.Add(layoutName);
-
-        if (!layouts.TryGetValue(layoutName, out string? body)) return;
-
-        var lines = body.Split('\n');
-        Vector3 activeJointTranslation = currentTranslation;
-        float activeJointScale = currentScale;
-        Matrix4 activeJointRotation = currentRotation;
-        int activeJointIndex = parentJointIndex;
-
-        int currentDepth = 0;
-        int switchCaseActiveDepth = -1;
-        int switchCaseBranchIndex = 0;
-
-        int savedJointIndex = nextJointIndex;
-        int maxNextJointIndex = nextJointIndex;
-
-        var switchStack = new Stack<(int activeDepth, int branchIndex, int savedJointIndex, int maxNextJointIndex)>();
-        int skipDepth = -1;
-
-        // Matches: GEO_ANIMATED_PART(layer, x, y, z, displayList)
-        var animatedPartRegex = new Regex(@"GEO_ANIMATED_PART\s*\(\s*\w+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*([^)]+)\)", RegexOptions.Compiled);
-        
-        // Matches: GEO_DISPLAY_LIST(layer, displayList)
-        var displayListRegex = new Regex(@"GEO_DISPLAY_LIST\s*\(\s*\w+\s*,\s*([^)]+)\)", RegexOptions.Compiled);
-        
-        // Matches: GEO_SCALE(param, scaleVal)
-        var scaleRegex = new Regex(@"GEO_SCALE\s*\(\s*\w+\s*,\s*(0x[0-9a-fA-F]+|\d+)\s*\)", RegexOptions.Compiled);
-
-        // Matches: GEO_TRANSLATE_ROTATE(layer, x, y, z, rx, ry, rz)
-        var translateRotateRegex = new Regex(@"GEO_TRANSLATE_ROTATE\s*\(\s*\w+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*\)", RegexOptions.Compiled);
-
-        // Matches: GEO_TRANSLATE_ROTATE_WITH_DL(layer, x, y, z, rx, ry, rz, displayList)
-        var translateRotateWithDlRegex = new Regex(@"GEO_TRANSLATE_ROTATE_WITH_DL\s*\(\s*\w+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*([^)]+)\)", RegexOptions.Compiled);
-
-        // Matches: GEO_TRANSLATE_WITH_DL(layer, x, y, z, displayList)
-        var translateWithDlRegex = new Regex(@"GEO_TRANSLATE_WITH_DL\s*\(\s*\w+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*([^)]+)\)", RegexOptions.Compiled);
-
-        // Matches: GEO_TRANSLATE(layer, x, y, z)
-        var translateRegex = new Regex(@"GEO_TRANSLATE\s*\(\s*\w+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*\)", RegexOptions.Compiled);
-
-        // Matches: GEO_BRANCH(param, layout)
-        var branchRegex = new Regex(@"GEO_BRANCH\s*\(\s*\d+\s*,\s*([^)]+)\)", RegexOptions.Compiled);
-
-        // Matches: GEO_HELD_OBJECT(layer, x, y, z, nodeFunc)
-        var heldObjectRegex = new Regex(@"GEO_HELD_OBJECT\s*\(\s*[^,]+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*([^)]+)\)", RegexOptions.Compiled);
-
-        // Matches: GEO_ROTATION_NODE(layer, rx, ry, rz)
-        var rotationNodeRegex = new Regex(@"GEO_ROTATION_NODE\s*\(\s*[^,]+\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*,\s*(-?(?:0x[0-9a-fA-F]+|\d+))\s*\)", RegexOptions.Compiled);
-
-        foreach (var line in lines)
+        void VisitLayout(string name, Matrix4 parent, int parentJoint, HashSet<string> calls, GeoBillboard? billboard = null)
         {
-            var trimmed = line.Trim();
+            if (!layouts.TryGetValue(name, out var nodes) || !calls.Add(name)) return;
+            VisitNodes(nodes, parent, parentJoint, calls, billboard);
+            calls.Remove(name);
+        }
 
-            if (trimmed.Contains("GEO_RETURN()"))
+        static IEnumerable<ActorNode> Flatten(ActorNode node) => new[] { node }.Concat(node.Children.SelectMany(Flatten));
+        static IEnumerable<ActorNode> FlattenNodes(List<ActorNode> nodes) => nodes.SelectMany(Flatten);
+
+        void VisitNodes(IEnumerable<ActorNode> nodes, Matrix4 parent, int parentJoint, HashSet<string> calls, GeoBillboard? billboard = null)
+        {
+            bool dynamicBodyScale = false;
+            foreach (var node in nodes)
             {
-                break;
-            }
-
-            if (trimmed.Contains("GEO_OPEN_NODE()"))
-            {
-                currentDepth++;
-                translationStack.Push(currentTranslation);
-                scaleStack.Push(currentScale);
-                rotationStack.Push(currentRotation);
-                jointIndexStack.Push(parentJointIndex);
-
-                if (skipDepth != -1)
+                // Every sibling starts with its parent's transform and joint.
+                Matrix4 world = parent;
+                var nodeBillboard = billboard;
+                int joint = parentJoint;
+                var a = node.Args;
+                float Number(int i) => ParseIntHelper(a[i]);
+                Vector3 Position(int i) => new(Number(i), Number(i + 1), Number(i + 2));
+                Matrix4 Rotation(int i) => Matrix4.CreateRotationX(MathHelper.DegreesToRadians(Number(i))) *
+                    Matrix4.CreateRotationY(MathHelper.DegreesToRadians(Number(i + 1))) *
+                    Matrix4.CreateRotationZ(MathHelper.DegreesToRadians(Number(i + 2)));
+                string? dl = null;
+                switch (node.Command)
                 {
-                    continue;
-                }
-
-                currentTranslation = activeJointTranslation;
-                currentScale = activeJointScale;
-                currentRotation = activeJointRotation;
-                parentJointIndex = activeJointIndex;
-                continue;
-            }
-            else if (trimmed.Contains("GEO_CLOSE_NODE()"))
-            {
-                currentDepth--;
-                if (skipDepth != -1)
-                {
-                    if (currentDepth < skipDepth)
-                    {
-                        skipDepth = -1;
-                    }
-                    if (translationStack.Count > 0) currentTranslation = translationStack.Pop();
-                    if (scaleStack.Count > 0) currentScale = scaleStack.Pop();
-                    if (rotationStack.Count > 0) currentRotation = rotationStack.Pop();
-                    if (jointIndexStack.Count > 0) parentJointIndex = jointIndexStack.Pop();
-                    continue;
-                }
-
-                if (switchCaseActiveDepth != -1 && currentDepth <= switchCaseActiveDepth)
-                {
-                    if (switchStack.Count > 0)
-                    {
-                        var parentState = switchStack.Pop();
-                        switchCaseActiveDepth = parentState.activeDepth;
-                        switchCaseBranchIndex = parentState.branchIndex;
-                        savedJointIndex = parentState.savedJointIndex;
-                        maxNextJointIndex = parentState.maxNextJointIndex;
-                    }
-                    else
-                    {
-                        switchCaseActiveDepth = -1;
-                        nextJointIndex = maxNextJointIndex;
-                    }
-                }
-
-                if (translationStack.Count > 0)
-                {
-                    currentTranslation = translationStack.Pop();
-                    activeJointTranslation = currentTranslation;
-                }
-                if (scaleStack.Count > 0)
-                {
-                    currentScale = scaleStack.Pop();
-                    activeJointScale = currentScale;
-                }
-                if (rotationStack.Count > 0)
-                {
-                    currentRotation = rotationStack.Pop();
-                    activeJointRotation = currentRotation;
-                }
-                if (jointIndexStack.Count > 0)
-                {
-                    parentJointIndex = jointIndexStack.Pop();
-                    activeJointIndex = parentJointIndex;
-                }
-                continue;
-            }
-
-            if (skipDepth != -1)
-            {
-                continue;
-            }
-
-            if (trimmed.StartsWith("GEO_SWITCH_CASE"))
-            {
-                if (switchCaseActiveDepth != -1)
-                {
-                    switchStack.Push((switchCaseActiveDepth, switchCaseBranchIndex, savedJointIndex, maxNextJointIndex));
-                }
-                switchCaseActiveDepth = currentDepth;
-                switchCaseBranchIndex = 0;
-                savedJointIndex = nextJointIndex;
-                maxNextJointIndex = nextJointIndex;
-            }
-
-            if (switchCaseActiveDepth != -1 && currentDepth == switchCaseActiveDepth + 1)
-            {
-                if (trimmed.StartsWith("GEO_BRANCH") || 
-                    trimmed.StartsWith("GEO_DISPLAY_LIST") || 
-                    trimmed.StartsWith("GEO_ANIMATED_PART") || 
-                    trimmed.StartsWith("GEO_TRANSLATE") ||
-                    trimmed.StartsWith("GEO_NODE_START") ||
-                    trimmed.StartsWith("GEO_SCALE") ||
-                    trimmed.StartsWith("GEO_SWITCH_CASE"))
-                {
-                    if (switchCaseBranchIndex > 0)
-                    {
-                        skipDepth = currentDepth;
-                        switchCaseBranchIndex++;
+                    case "ASM":
+                        dynamicBodyScale = a[^1] == "geo_snufit_scale_body";
+                        break;
+                    case "BRANCH":
+                    case "BRANCH_AND_LINK":
+                        VisitLayout(a[^1], parent, parentJoint, calls, billboard);
+                        break;
+                    case "SWITCH_CASE":
+                        // Preview the ordinary actor state: cap on, open eyes, closed hands.
+                        VisitNodes(node.Children.Take(1), parent, parentJoint, calls, billboard);
                         continue;
-                    }
-
-                    maxNextJointIndex = Math.Max(maxNextJointIndex, nextJointIndex);
-                    nextJointIndex = savedJointIndex;
-                    switchCaseBranchIndex++;
-                }
-            }
-
-            if (trimmed.StartsWith("GEO_SCALE"))
-            {
-                var match = scaleRegex.Match(trimmed);
-                if (match.Success)
-                {
-                    float scaleVal = ConvertScale(match.Groups[1].Value);
-                    activeJointScale = currentScale * scaleVal;
-                }
-            }
-            else if (trimmed.StartsWith("GEO_BRANCH"))
-            {
-                var match = branchRegex.Match(trimmed);
-                if (match.Success)
-                {
-                    string targetLayoutName = match.Groups[1].Value.Trim();
-                    
-                    // Stacks must be cloned to avoid recursion interference
-                    var subTranslationStack = new Stack<Vector3>(new Stack<Vector3>(translationStack));
-                    var subScaleStack = new Stack<float>(new Stack<float>(scaleStack));
-                    var subRotationStack = new Stack<Matrix4>(new Stack<Matrix4>(rotationStack));
-                    var subJointIndexStack = new Stack<int>(new Stack<int>(jointIndexStack));
-                    var subVisitedLayouts = new HashSet<string>(visitedLayouts);
-
-                    TraverseLayout(targetLayoutName, layouts, transforms, currentTranslation, currentScale, currentRotation, 
-                                   subTranslationStack, subScaleStack, subRotationStack, subJointIndexStack, parentJointIndex, ref nextJointIndex, subVisitedLayouts);
-                }
-            }
-            else
-            {
-                // Check animated part
-                var match = animatedPartRegex.Match(trimmed);
-                if (match.Success)
-                {
-                    int x = ParseIntHelper(match.Groups[1].Value);
-                    int y = ParseIntHelper(match.Groups[2].Value);
-                    int z = ParseIntHelper(match.Groups[3].Value);
-                    string dl = match.Groups[4].Value.Trim();
-
-                    var localOffset = new Vector3(x, y, z) * currentScale;
-                    var rotatedOffset = Vector3.TransformVector(localOffset, currentRotation);
-                    activeJointTranslation = currentTranslation + rotatedOffset;
-
-                    int thisJointIndex = nextJointIndex++;
-                    var jointNode = new GeoNode(GeoNodeType.Other)
-                    {
-                        JointIndex = thisJointIndex,
-                        ParentIndex = parentJointIndex,
-                        Translation = new Vector3(x, y, z),
-                        DisplayListName = dl
-                    };
-                    
-                    while (ParsedJoints.Count <= thisJointIndex)
-                    {
-                        ParsedJoints.Add(null!);
-                    }
-                    ParsedJoints[thisJointIndex] = jointNode;
-                    activeJointIndex = thisJointIndex;
-
-                    if (dl != "NULL" && dl != "0" && !string.IsNullOrEmpty(dl))
-                    {
-                        if (!transforms.ContainsKey(dl))
+                    case "RENDER_RANGE":
+                        if (Number(0) > 0) continue; // Select the near/high-detail LOD once.
+                        break;
+                    case "SCALE":
+                    case "SCALE_WITH_DL":
+                        float scale = ConvertScale(a[1]);
+                        if (scale == 0 && dynamicBodyScale) scale = 1; // Snufit's idle body scale is supplied at runtime.
+                        if (scale == 0) continue;
+                        world = Matrix4.CreateScale(scale) * parent;
+                        if (parentJoint < 0) RootScale *= scale;
+                        if (node.Command.EndsWith("WITH_DL")) dl = a[^1];
+                        break;
+                    case "ANIMATED_PART":
+                        world = Matrix4.CreateTranslation(Position(1)) * parent;
+                        joint = ParsedJoints.Count;
+                        ParsedJoints.Add(new GeoNode(GeoNodeType.Other)
                         {
-                            var mat = Matrix4.CreateScale(activeJointScale) * activeJointRotation * Matrix4.CreateTranslation(activeJointTranslation);
-                            transforms[dl] = mat;
-                        }
-                        if (!DlToJointIndex.ContainsKey(dl))
-                        {
-                            DlToJointIndex[dl] = thisJointIndex;
-                        }
-                    }
-                    continue;
+                            JointIndex = joint, ParentIndex = parentJoint, Translation = Position(1),
+                            RestWorldMatrix = world, DisplayListName = a[4]
+                        });
+                        dl = a[4];
+                        break;
+                    case "DISPLAY_LIST": dl = a[1]; break;
+                    case "BILLBOARD":
+                    case "BILLBOARD_WITH_PARAMS":
+                    case "BILLBOARD_WITH_PARAMS_AND_DL":
+                        if (a.Length >= 4) world = Matrix4.CreateTranslation(Position(1)) * parent;
+                        nodeBillboard = new GeoBillboard { ParentJointIndex = parentJoint, RestWorldMatrix = world };
+                        if (node.Command.EndsWith("AND_DL")) dl = a[^1];
+                        break;
+                    case "TRANSLATE":
+                    case "TRANSLATE_NODE":
+                    case "TRANSLATE_WITH_DL":
+                    case "TRANSLATE_NODE_WITH_DL":
+                        world = Matrix4.CreateTranslation(Position(1)) * parent;
+                        if (node.Command.EndsWith("WITH_DL")) dl = a[^1];
+                        break;
+                    case "ROTATE":
+                    case "ROTATION_NODE":
+                    case "ROTATE_WITH_DL":
+                    case "ROTATION_NODE_WITH_DL":
+                        world = Rotation(1) * parent;
+                        if (node.Command.EndsWith("WITH_DL")) dl = a[^1];
+                        break;
+                    case "TRANSLATE_ROTATE":
+                    case "TRANSLATE_ROTATE_WITH_DL":
+                        world = Rotation(4) * Matrix4.CreateTranslation(Position(1)) * parent;
+                        if (node.Command.EndsWith("WITH_DL")) dl = a[^1];
+                        break;
                 }
-
-                // Check display list
-                match = displayListRegex.Match(trimmed);
-                if (match.Success)
+                // Wing-cap callbacks hide these nodes for normal Mario in the game.
+                if (dl is not null and not "NULL" and not "0" &&
+                    dl != "mario_cap_wings" && dl != "mario_right_hand_cap_wings")
                 {
-                    string dl = match.Groups[1].Value.Trim();
-                    if (dl != "NULL" && dl != "0" && !string.IsNullOrEmpty(dl))
+                    DisplayListInstances.Add(new GeoDisplayListInstance
                     {
-                        if (!transforms.ContainsKey(dl))
-                        {
-                            var mat = Matrix4.CreateScale(activeJointScale) * activeJointRotation * Matrix4.CreateTranslation(activeJointTranslation);
-                            transforms[dl] = mat;
-                        }
-                        if (!DlToJointIndex.ContainsKey(dl))
-                        {
-                            DlToJointIndex[dl] = activeJointIndex;
-                        }
-                    }
-                    continue;
+                        DisplayListName = dl, Transform = world, JointIndex = joint,
+                        JointWorldMatrix = joint >= 0 ? ParsedJoints[joint].RestWorldMatrix : Matrix4.Identity,
+                        Billboard = nodeBillboard
+                    });
+                    transforms.TryAdd(dl, world);
+                    DlToJointIndex.TryAdd(dl, joint);
                 }
-
-                // Check held object
-                match = heldObjectRegex.Match(trimmed);
-                if (match.Success)
-                {
-                    int x = ParseIntHelper(match.Groups[1].Value);
-                    int y = ParseIntHelper(match.Groups[2].Value);
-                    int z = ParseIntHelper(match.Groups[3].Value);
-                    string nodeFunc = match.Groups[4].Value.Trim();
-
-                    var localOffset = new Vector3(x, y, z) * currentScale;
-                    var rotatedOffset = Vector3.TransformVector(localOffset, currentRotation);
-                    activeJointTranslation = currentTranslation + rotatedOffset;
-
-                    int thisJointIndex = nextJointIndex++;
-                    var jointNode = new GeoNode(GeoNodeType.Other)
-                    {
-                        JointIndex = thisJointIndex,
-                        ParentIndex = parentJointIndex,
-                        Translation = new Vector3(x, y, z),
-                        DisplayListName = nodeFunc
-                    };
-                    
-                    while (ParsedJoints.Count <= thisJointIndex)
-                    {
-                        ParsedJoints.Add(null!);
-                    }
-                    ParsedJoints[thisJointIndex] = jointNode;
-                    activeJointIndex = thisJointIndex;
-                    continue;
-                }
-
-                // Check rotation node
-                match = rotationNodeRegex.Match(trimmed);
-                if (match.Success)
-                {
-                    float rx = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[1].Value));
-                    float ry = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[2].Value));
-                    float rz = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[3].Value));
-
-                    var localRot = Matrix4.CreateRotationZ(rz) * Matrix4.CreateRotationX(rx) * Matrix4.CreateRotationY(ry);
-                    activeJointRotation = localRot * currentRotation;
-                    continue;
-                }
-
-                // Check translate rotate with DL
-                match = translateRotateWithDlRegex.Match(trimmed);
-                if (match.Success)
-                {
-                    int x = ParseIntHelper(match.Groups[1].Value);
-                    int y = ParseIntHelper(match.Groups[2].Value);
-                    int z = ParseIntHelper(match.Groups[3].Value);
-                    float rx = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[4].Value));
-                    float ry = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[5].Value));
-                    float rz = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[6].Value));
-                    string dl = match.Groups[7].Value.Trim();
-
-                    var localOffset = new Vector3(x, y, z) * currentScale;
-                    var rotatedOffset = Vector3.TransformVector(localOffset, currentRotation);
-                    activeJointTranslation = currentTranslation + rotatedOffset;
-
-                    var localRot = Matrix4.CreateRotationZ(rz) * Matrix4.CreateRotationX(rx) * Matrix4.CreateRotationY(ry);
-                    activeJointRotation = localRot * currentRotation;
-
-                    if (dl != "NULL" && dl != "0" && !string.IsNullOrEmpty(dl))
-                    {
-                        if (!transforms.ContainsKey(dl))
-                        {
-                            var mat = Matrix4.CreateScale(activeJointScale) * activeJointRotation * Matrix4.CreateTranslation(activeJointTranslation);
-                            transforms[dl] = mat;
-                        }
-                        if (!DlToJointIndex.ContainsKey(dl))
-                        {
-                            DlToJointIndex[dl] = activeJointIndex;
-                        }
-                    }
-                    continue;
-                }
-
-                // Check translate rotate (no DL, updates joint center)
-                match = translateRotateRegex.Match(trimmed);
-                if (match.Success)
-                {
-                    int x = ParseIntHelper(match.Groups[1].Value);
-                    int y = ParseIntHelper(match.Groups[2].Value);
-                    int z = ParseIntHelper(match.Groups[3].Value);
-                    float rx = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[4].Value));
-                    float ry = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[5].Value));
-                    float rz = MathHelper.DegreesToRadians(ParseIntHelper(match.Groups[6].Value));
-
-                    var localOffset = new Vector3(x, y, z) * currentScale;
-                    var rotatedOffset = Vector3.TransformVector(localOffset, currentRotation);
-                    activeJointTranslation = currentTranslation + rotatedOffset;
-
-                    var localRot = Matrix4.CreateRotationZ(rz) * Matrix4.CreateRotationX(rx) * Matrix4.CreateRotationY(ry);
-                    activeJointRotation = localRot * currentRotation;
-                    continue;
-                }
-
-                // Check translate with DL
-                match = translateWithDlRegex.Match(trimmed);
-                if (match.Success)
-                {
-                    int x = ParseIntHelper(match.Groups[1].Value);
-                    int y = ParseIntHelper(match.Groups[2].Value);
-                    int z = ParseIntHelper(match.Groups[3].Value);
-                    string dl = match.Groups[4].Value.Trim();
-
-                    var localOffset = new Vector3(x, y, z) * currentScale;
-                    var rotatedOffset = Vector3.TransformVector(localOffset, currentRotation);
-                    activeJointTranslation = currentTranslation + rotatedOffset;
-
-                    if (dl != "NULL" && dl != "0" && !string.IsNullOrEmpty(dl))
-                    {
-                        if (!transforms.ContainsKey(dl))
-                        {
-                            var mat = Matrix4.CreateScale(activeJointScale) * activeJointRotation * Matrix4.CreateTranslation(activeJointTranslation);
-                            transforms[dl] = mat;
-                        }
-                        if (!DlToJointIndex.ContainsKey(dl))
-                        {
-                            DlToJointIndex[dl] = activeJointIndex;
-                        }
-                    }
-                    continue;
-                }
-
-                // Check translate (no DL, updates joint center)
-                match = translateRegex.Match(trimmed);
-                if (match.Success)
-                {
-                    int x = ParseIntHelper(match.Groups[1].Value);
-                    int y = ParseIntHelper(match.Groups[2].Value);
-                    int z = ParseIntHelper(match.Groups[3].Value);
-
-                    var localOffset = new Vector3(x, y, z) * currentScale;
-                    var rotatedOffset = Vector3.TransformVector(localOffset, currentRotation);
-                    activeJointTranslation = currentTranslation + rotatedOffset;
-                    continue;
-                }
+                VisitNodes(node.Children, world, joint, calls, nodeBillboard);
+                if (node.Command != "ASM") dynamicBodyScale = false;
             }
         }
-        
-        visitedLayouts.Remove(layoutName);
     }
 }

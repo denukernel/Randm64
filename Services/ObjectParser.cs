@@ -63,7 +63,7 @@ public class ObjectParser
                 return objects;
             }
 
-            string content = File.ReadAllText(filePath);
+            string content = ActorSourceReader.Read(filePath,preserveOffsets:true);
             
             // Map all script blocks for jumping
             var scriptBlocks = new Dictionary<string, string>();
@@ -107,45 +107,24 @@ public class ObjectParser
             // Function to recursively or iteratively parse content and its jumps
             void ParseContent(string currentContent, int baseOffset, int areaIndex, HashSet<string> visitedScripts)
             {
-                // Parse direct objects
-                var matches = ObjectPattern.Matches(currentContent);
-                foreach (Match match in matches)
+                // Parse balanced calls so BPARAM expressions and act masks survive round trips.
+                foreach(var call in CSourceCalls.Read(currentContent,n=>n is "OBJECT" or "OBJECT_WITH_ACTS"))
                 {
-                    try
+                    if(call.Arguments.Count!=(call.Name=="OBJECT" ? 9 : 10)) continue;
+                    string Arg(int i)=>call.Argument(currentContent,i);
+                    int Number(int i)=>int.TryParse(Arg(i),out int value) ? value : 0;
+                    string parameters=Arg(7);
+                    uint.TryParse(parameters.StartsWith("0x",StringComparison.OrdinalIgnoreCase) ? parameters[2..] : parameters,
+                        parameters.StartsWith("0x",StringComparison.OrdinalIgnoreCase) ? System.Globalization.NumberStyles.HexNumber : System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture,out uint parameterValue);
+                    objects.Add(new LevelObject
                     {
-                        var obj = new LevelObject
-                        {
-                            ModelName = match.Groups[1].Value.Trim(),
-                            X = int.TryParse(match.Groups[2].Value, out int x) ? x : 0,
-                            Y = int.TryParse(match.Groups[3].Value, out int y) ? y : 0,
-                            Z = int.TryParse(match.Groups[4].Value, out int z) ? z : 0,
-                            RX = int.TryParse(match.Groups[5].Value, out int rx) ? rx : 0,
-                            RY = int.TryParse(match.Groups[6].Value, out int ry) ? ry : 0,
-                            RZ = int.TryParse(match.Groups[7].Value, out int rz) ? rz : 0,
-                            Behavior = match.Groups[9].Value.Trim(),
-                            SourceFile = filePath,
-                            SourceIndex = baseOffset + match.Index,
-                            SourceLength = match.Length,
-                            SourceType = ObjectSourceType.Normal,
-                            AreaIndex = areaIndex
-                        };
-
-                        string paramsStr = match.Groups[8].Value.Trim();
-                        obj.RawParams = paramsStr;
-                        if (paramsStr.StartsWith("0x"))
-                        {
-                            obj.Params = Convert.ToUInt32(paramsStr, 16);
-                        }
-                        else if (uint.TryParse(paramsStr, out uint paramValue))
-                        {
-                            obj.Params = paramValue;
-                        }
-
-                        objects.Add(obj);
-                    }
-                    catch { }
+                        ModelName=Arg(0), X=Number(1),Y=Number(2),Z=Number(3),RX=Number(4),RY=Number(5),RZ=Number(6),
+                        RawParams=parameters,Params=parameterValue,Behavior=Arg(8),RawActs=call.Arguments.Count>9 ? Arg(9) : null,
+                        SourceFile=filePath,SourceIndex=baseOffset+call.Start,SourceLength=call.End-call.Start,
+                        SourceType=ObjectSourceType.Normal,AreaIndex=areaIndex
+                    });
                 }
-
                 // Follow JUMP_LINKs
                 var jumpMatches = JumpLinkPattern.Matches(currentContent);
                 foreach (Match jump in jumpMatches)
@@ -267,7 +246,7 @@ public class ObjectParser
 
         try
         {
-            string content = File.ReadAllText(filePath);
+            string content = ActorSourceReader.Read(filePath);
             var matches = LoadModelPattern.Matches(content);
             foreach (Match match in matches)
             {
@@ -289,7 +268,7 @@ public class ObjectParser
 
         try
         {
-            string content = File.ReadAllText(filePath);
+            string content = ActorSourceReader.Read(filePath,preserveOffsets:true,keepDefines:true);
             var matches = ModelIdPattern.Matches(content);
             
             // First pass: direct values

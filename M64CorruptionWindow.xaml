@@ -50,7 +50,7 @@
         <!-- Header -->
         <StackPanel Grid.Row="0" Margin="0,0,0,12">
             <TextBlock Text="M64 Corruption Modes Configuration" FontSize="18" FontWeight="Bold" Foreground="#E57373"/>
-            <TextBlock Text="Select which corruption modes are active. When sequences are randomized/corrupted, the engine will randomly pick from your enabled modes." FontSize="11" Foreground="#999999" TextWrapping="Wrap" Margin="0,4,0,0"/>
+            <TextBlock Text="Select which corruption modes are active. When sequences are randomized/corrupted, the engine applies your enabled modes in a stable order. Unsupported scripts are left unchanged." FontSize="11" Foreground="#999999" TextWrapping="Wrap" Margin="0,4,0,0"/>
         </StackPanel>
 
         <!-- Main Workspace -->
@@ -65,7 +65,7 @@
                 <ListBox x:Name="ModesListBox" Background="#1E1E1E" BorderBrush="{StaticResource BorderBrush}" SelectionChanged="ModesListBox_SelectionChanged">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <CheckBox IsChecked="{Binding IsEnabled}" Content="{Binding Name}" Foreground="White" Margin="3" VerticalAlignment="Center"/>
+                            <CheckBox IsChecked="{Binding IsEnabled}" IsEnabled="{Binding IsAvailable}" Content="{Binding Name}" Foreground="White" Margin="3" VerticalAlignment="Center"/>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>

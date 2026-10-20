@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace Sm64DecompLevelViewer.Services
 {
@@ -65,10 +64,17 @@ namespace Sm64DecompLevelViewer.Services
             public double PitchRatio;
             public double VolumeLeft;
             public double VolumeRight;
-            public bool ShouldLoop;
+            public double ChannelGain;
+            public double TargetChannelGain;
+            public double ReverbSend;
             public bool IsFinished;
             public bool IsStopping;
-            public float FadeVolume = 1.0f;
+            public int Layer = -1;
+            public AiffLoop? Loop;
+            public int LoopsRemaining;
+            public bool Backwards;
+            public long FramesUntilRelease = long.MaxValue;
+            public Sm64Envelope Envelope = null!;
         }
 
         private class CachedSample
@@ -76,7 +82,7 @@ namespace Sm64DecompLevelViewer.Services
             public float[] Samples;
             public int SampleRate;
             public int Channels;
-            public bool IsLooped;
+            public AiffLoop? Loop;
         }
 
         private class AudioBuffer
@@ -98,20 +104,20 @@ namespace Sm64DecompLevelViewer.Services
 
         private readonly object _lock = new();
         private readonly List<Voice> _activeVoices = new();
+        private readonly Dictionary<byte, byte> _channelVolumeOverrides = new();
+        private readonly Sm64Reverb _reverb = new(SAMPLE_RATE);
 
         private AudioBuffer[] _buffers;
         private IntPtr _hWaveOut = IntPtr.Zero;
         private readonly AutoResetEvent _bufferEvent = new(false);
         private Thread? _mixerThread;
         private volatile bool _running;
-        public bool EnableReleaseFade { get; set; } = true;
-        
-        private float[] _reverbBufferL = new float[2646];
-        private float[] _reverbBufferR = new float[2646];
-        private int _reverbWritePos = 0;
 
-        public SampleSynthPlayer(string conversationId)
+        public SampleSynthPlayer(string conversationId) : this(true) { }
+
+        internal SampleSynthPlayer(bool openAudioDevice)
         {
+            if (!openAudioDevice) return;
             try
             {
                 Start();
@@ -176,6 +182,13 @@ namespace Sm64DecompLevelViewer.Services
                 _buffers[i] = buf;
             }
 
+            // Queue initial silence
+            for (int i = 0; i < NUM_BUFFERS; i++)
+            {
+                Array.Clear(_buffers[i].Bytes, 0, _buffers[i].Bytes.Length);
+                waveOutWrite(_hWaveOut, _buffers[i].hHeader, headerSize);
+            }
+
             _running = true;
             _mixerThread = new Thread(MixerLoop)
             {
@@ -184,13 +197,6 @@ namespace Sm64DecompLevelViewer.Services
                 Priority = ThreadPriority.Highest
             };
             _mixerThread.Start();
-
-            // Queue initial silence
-            for (int i = 0; i < NUM_BUFFERS; i++)
-            {
-                Array.Clear(_buffers[i].Bytes, 0, _buffers[i].Bytes.Length);
-                waveOutWrite(_hWaveOut, _buffers[i].hHeader, headerSize);
-            }
         }
 
         private void MixerLoop()
@@ -227,226 +233,138 @@ namespace Sm64DecompLevelViewer.Services
             }
         }
 
-        private void MixAudio(short[] outBuffer, int framesToMix)
+        internal void MixAudio(short[] outBuffer, int framesToMix)
         {
-            Array.Clear(outBuffer, 0, outBuffer.Length);
-
-            List<Voice> voices;
+            Array.Clear(outBuffer);
             lock (_lock)
             {
-                voices = _activeVoices.Where(v => !v.IsFinished).ToList();
-            }
-
-            if (voices.Count == 0) return;
-
-            for (int f = 0; f < framesToMix; f++)
-            {
-                float mixedL = 0f;
-                float mixedR = 0f;
-
-                foreach (var voice in voices)
+                for (int f = 0; f < framesToMix; f++)
                 {
-                    if (voice.IsFinished) continue;
-
-                    int frameLen = voice.Samples.Length / voice.Channels;
-                    int idx1 = (int)voice.Position;
-
-                    if (idx1 >= frameLen)
+                    double mixedL = 0, mixedR = 0, sendL = 0, sendR = 0;
+                    foreach (var voice in _activeVoices)
                     {
-                        if (voice.ShouldLoop)
+                        if (voice.IsFinished) continue;
+                        if (voice.FramesUntilRelease <= 0) voice.IsStopping = true;
+                        else if (voice.FramesUntilRelease != long.MaxValue) voice.FramesUntilRelease--;
+                        int frameCount = voice.Samples.Length / voice.Channels;
+                        if (voice.Loop is AiffLoop loop && voice.LoopsRemaining != 0)
                         {
-                            voice.Position = voice.Position % frameLen;
-                            idx1 = (int)voice.Position;
+                            if (loop.PingPong)
+                            {
+                                // Reflect at sample centers; process even large resampling steps.
+                                int reflections = 0;
+                                while ((voice.Position > loop.End - 1 || (voice.Backwards && voice.Position < loop.Start)) && reflections++ < 1024)
+                                {
+                                    if (voice.Position > loop.End - 1)
+                                    {
+                                        voice.Position = 2 * (loop.End - 1) - voice.Position;
+                                        voice.Backwards = true;
+                                    }
+                                    else
+                                    {
+                                        voice.Position = 2 * loop.Start - voice.Position;
+                                        voice.Backwards = false;
+                                    }
+                                }
+                            }
+                            else if (voice.Position >= loop.End)
+                            {
+                                int wraps = (int)((voice.Position - loop.Start) / (loop.End - loop.Start));
+                                if (voice.LoopsRemaining > 0) wraps = Math.Min(wraps, voice.LoopsRemaining);
+                                voice.Position -= wraps * (loop.End - loop.Start);
+                                if (voice.LoopsRemaining > 0) voice.LoopsRemaining -= wraps;
+                            }
                         }
-                        else
+                        if (voice.Position < 0 || voice.Position >= frameCount)
                         {
                             voice.IsFinished = true;
                             continue;
                         }
+                        int first = (int)voice.Position;
+                        int second = Math.Min(first + 1, frameCount - 1);
+                        if (voice.Loop is AiffLoop boundary && !boundary.PingPong && voice.LoopsRemaining != 0 && second >= boundary.End)
+                            second = boundary.Start;
+                        double fraction = voice.Position - first;
+                        double envelope = voice.Envelope.Next(voice.IsStopping);
+                        if (voice.Envelope.Finished) { voice.IsFinished = true; continue; }
+                        // Smooth live slider changes over 10 ms without restarting
+                        // the sample, changing its pan, or dividing by an old zero gain.
+                        const double gainStep = 1.0 / (SAMPLE_RATE * 0.01);
+                        voice.ChannelGain += Math.Clamp(voice.TargetChannelGain - voice.ChannelGain, -gainStep, gainStep);
+                        envelope *= voice.ChannelGain;
+                        double left = voice.Samples[first * voice.Channels] * (1 - fraction) + voice.Samples[second * voice.Channels] * fraction;
+                        int rightChannel = voice.Channels == 2 ? 1 : 0;
+                        double right = voice.Samples[first * voice.Channels + rightChannel] * (1 - fraction) + voice.Samples[second * voice.Channels + rightChannel] * fraction;
+                        mixedL += left * voice.VolumeLeft * envelope;
+                        mixedR += right * voice.VolumeRight * envelope;
+                        sendL += left * voice.VolumeLeft * envelope * voice.ReverbSend;
+                        sendR += right * voice.VolumeRight * envelope * voice.ReverbSend;
+                        voice.Position += voice.Backwards ? -voice.PitchRatio : voice.PitchRatio;
                     }
-
-                    int idx2 = idx1 + 1;
-                    if (idx2 >= frameLen)
-                    {
-                        if (voice.ShouldLoop)
-                        {
-                            idx2 = 0;
-                        }
-                        else
-                        {
-                            idx2 = idx1;
-                        }
-                    }
-
-                    double t = voice.Position - idx1;
-                    
-                    if (voice.Channels == 2)
-                    {
-                        int left1 = idx1 * 2;
-                        int right1 = idx1 * 2 + 1;
-                        int left2 = idx2 * 2;
-                        int right2 = idx2 * 2 + 1;
-
-                        float sampleL = (float)(voice.Samples[left1] * (1.0 - t) + voice.Samples[left2] * t);
-                        float sampleR = (float)(voice.Samples[right1] * (1.0 - t) + voice.Samples[right2] * t);
-
-                        if (voice.IsStopping)
-                        {
-                            if (EnableReleaseFade)
-                            {
-                                voice.FadeVolume -= 1.0f / 6615f;
-                                if (voice.FadeVolume <= 0f)
-                                {
-                                    voice.FadeVolume = 0f;
-                                    voice.IsFinished = true;
-                                }
-                            }
-                            else
-                            {
-                                voice.FadeVolume = 0f;
-                                voice.IsFinished = true;
-                            }
-                        }
-
-                        sampleL *= voice.FadeVolume;
-                        sampleR *= voice.FadeVolume;
-
-                        mixedL += sampleL * (float)voice.VolumeLeft;
-                        mixedR += sampleR * (float)voice.VolumeRight;
-                    }
-                    else
-                    {
-                        float sampleVal = (float)(voice.Samples[idx1] * (1.0 - t) + voice.Samples[idx2] * t);
-
-                        if (voice.IsStopping)
-                        {
-                            if (EnableReleaseFade)
-                            {
-                                voice.FadeVolume -= 1.0f / 6615f;
-                                if (voice.FadeVolume <= 0f)
-                                {
-                                    voice.FadeVolume = 0f;
-                                    voice.IsFinished = true;
-                                }
-                            }
-                            else
-                            {
-                                voice.FadeVolume = 0f;
-                                voice.IsFinished = true;
-                            }
-                        }
-
-                        sampleVal *= voice.FadeVolume;
-
-                        mixedL += sampleVal * (float)voice.VolumeLeft;
-                        mixedR += sampleVal * (float)voice.VolumeRight;
-                    }
-
-                    voice.Position += voice.PitchRatio;
+                    var wet = _reverb.Process(sendL * 0.25, sendR * 0.25);
+                    // Fixed headroom preserves dynamics as polyphony changes.
+                    outBuffer[f * 2] = (short)(Math.Clamp(mixedL * 0.25 + wet.Left, -1, 1) * 32767);
+                    outBuffer[f * 2 + 1] = (short)(Math.Clamp(mixedR * 0.25 + wet.Right, -1, 1) * 32767);
                 }
-
-                // Apply simple, beautiful stereo hall reverb
-                float delaySampleL = _reverbBufferL[_reverbWritePos];
-                float delaySampleR = _reverbBufferR[_reverbWritePos];
-
-                float wetL = mixedL + delaySampleL * 0.45f;
-                float wetR = mixedR + delaySampleR * 0.45f;
-
-                _reverbBufferL[_reverbWritePos] = wetL;
-                _reverbBufferR[_reverbWritePos] = wetR;
-
-                _reverbWritePos = (_reverbWritePos + 1) % 2646;
-
-                // Combine dry and wet signals
-                mixedL = mixedL * 0.70f + delaySampleL * 0.30f;
-                mixedR = mixedR * 0.70f + delaySampleR * 0.30f;
-
-                if (mixedL > 1.0f) mixedL = 1.0f;
-                else if (mixedL < -1.0f) mixedL = -1.0f;
-
-                if (mixedR > 1.0f) mixedR = 1.0f;
-                else if (mixedR < -1.0f) mixedR = -1.0f;
-
-                outBuffer[f * 2] = (short)(mixedL * 32767f);
-                outBuffer[f * 2 + 1] = (short)(mixedR * 32767f);
-            }
-
-            lock (_lock)
-            {
                 _activeVoices.RemoveAll(v => v.IsFinished);
             }
         }
 
-        public void PlayNote(byte channel, byte pitch, string samplePath, byte velocity, byte channelVolume, byte channelPan, double tuning = 0.0)
+        public static void Preload(string samplePath) => GetOrLoadSample(samplePath);
+
+        public void PlayNote(byte channel, byte pitch, string samplePath, byte velocity, byte channelVolume,
+            byte channelPan, double tuning = 0, Sm64Instrument? instrument = null, int layer = -1,
+            double? durationSeconds = null, byte reverb = 0)
         {
-            Task.Run(() =>
+            // Start in caller order. Per-note Task.Run allowed note-offs to overtake
+            // note-ons and produced stuck notes and inconsistent chord attacks.
+            var sample = GetOrLoadSample(samplePath);
+            if (sample == null || sample.Samples.Length == 0) return;
+            double baseRate = tuning > 0 ? 32000 * tuning : sample.SampleRate;
+            double frequency = instrument?.IsPercussion == true ? 1 : Math.Pow(2, (pitch - 39) / 12.0);
+            if (pitch >= 117 && instrument?.IsPercussion != true) frequency *= 0.5;
+            double volume = Math.Pow(Math.Min((int)velocity, 127) / 127.0, 2);
+            double pan = Math.Clamp((int)(instrument?.Pan ?? channelPan), 0, 127) / 127.0;
+            var voice = new Voice
             {
-                try
-                {
-                    var sample = GetOrLoadSample(samplePath);
-                    if (sample == null || sample.Samples == null || sample.Samples.Length == 0) return;
+                Channel = channel, Pitch = pitch, Layer = layer,
+                Samples = sample.Samples, Channels = sample.Channels,
+                PitchRatio = Math.Min(baseRate * frequency, 32000 * 3.99992) / SAMPLE_RATE,
+                VolumeLeft = volume * Math.Cos(pan * Math.PI / 2),
+                VolumeRight = volume * Math.Sin(pan * Math.PI / 2),
+                ChannelGain = Math.Min((int)channelVolume, 127) / 127.0,
+                TargetChannelGain = Math.Min((int)channelVolume, 127) / 127.0,
+                ReverbSend = Math.Min((int)reverb, 127) / 127.0,
+                Loop = sample.Loop, LoopsRemaining = sample.Loop?.Count ?? 0,
+                FramesUntilRelease = durationSeconds.HasValue ? Math.Max(1, (long)Math.Round(durationSeconds.Value * SAMPLE_RATE)) : long.MaxValue,
+                Envelope = new Sm64Envelope(instrument?.Envelope ?? Array.Empty<Sm64EnvelopePoint>(), instrument?.ReleaseRate ?? 32, SAMPLE_RATE)
+            };
+            lock (_lock)
+            {
+                if (_channelVolumeOverrides.TryGetValue(channel, out byte overrideVolume))
+                    voice.ChannelGain = voice.TargetChannelGain = overrideVolume / 127.0;
+                foreach (var previous in _activeVoices)
+                    if (previous.Channel == channel && (layer >= 0 ? previous.Layer == layer : previous.Layer == -1 && previous.Pitch == pitch))
+                        previous.IsStopping = true;
+                _activeVoices.Add(voice);
+            }
+        }
 
-                    bool shouldLoop = sample.IsLooped;
-                    string sampleName = Path.GetFileName(samplePath).ToLower();
-                    if (sampleName.Contains("piano") ||
-                        sampleName.Contains("harpsichord") ||
-                        sampleName.Contains("music_box") ||
-                        sampleName.Contains("banjo") ||
-                        sampleName.Contains("guitar") ||
-                        sampleName.Contains("timpani") ||
-                        sampleName.Contains("orchestra_hit") ||
-                        sampleName.Contains("pizzicato"))
-                    {
-                        shouldLoop = false;
-                    }
-                    double vol = (velocity / 127.0) * (channelVolume / 127.0) * 0.30;
+        public void SetChannelVolume(byte channel, byte volume)
+        {
+            volume = (byte)Math.Min((int)volume, 127);
+            lock (_lock)
+            {
+                _channelVolumeOverrides[channel] = volume;
+                foreach (var voice in _activeVoices)
+                    if (voice.Channel == channel) voice.TargetChannelGain = volume / 127.0;
+            }
+        }
 
-                    double leftPan = 1.0;
-                    double rightPan = 1.0;
-                    if (channelPan < 64)
-                    {
-                        rightPan = channelPan / 64.0;
-                    }
-                    else if (channelPan > 64)
-                    {
-                        leftPan = (127 - channelPan) / 63.0;
-                    }
-
-                    // N64 Audio Engine Pitch Math:
-                    // reference pitch is D#2 (note 39)
-                    double baseRate = tuning > 0.0 ? 32000.0 * tuning : sample.SampleRate;
-                    double playbackRate = baseRate * Math.Pow(2.0, (pitch - 39) / 12.0);
-                    double pitchRatio = playbackRate / SAMPLE_RATE;
-
-                    // Instantly fade out existing voice on same channel and pitch
-                    StopNote(channel, pitch);
-
-                    var voice = new Voice
-                    {
-                        Channel = channel,
-                        Pitch = pitch,
-                        Samples = sample.Samples,
-                        Channels = sample.Channels,
-                        Position = 0.0,
-                        PitchRatio = pitchRatio,
-                        VolumeLeft = vol * leftPan,
-                        VolumeRight = vol * rightPan,
-                        ShouldLoop = shouldLoop,
-                        IsFinished = false,
-                        IsStopping = false,
-                        FadeVolume = 1.0f
-                    };
-
-                    lock (_lock)
-                    {
-                        _activeVoices.Add(voice);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error playing note: {ex.Message}");
-                }
-            });
+        // Transport stop/seek retains edits; loading another sequence clears them.
+        public void ClearChannelVolumeOverrides()
+        {
+            lock (_lock) _channelVolumeOverrides.Clear();
         }
 
         public void StopNote(byte channel, byte pitch)
@@ -463,14 +381,26 @@ namespace Sm64DecompLevelViewer.Services
             }
         }
 
-        public void StopAll()
+        public void StopChannel(byte channel)
         {
             lock (_lock)
             {
                 foreach (var voice in _activeVoices)
                 {
-                    voice.IsStopping = true;
+                    if (voice.Channel == channel)
+                    {
+                        voice.IsStopping = true;
+                    }
                 }
+            }
+        }
+
+        public void StopAll()
+        {
+            lock (_lock)
+            {
+                _activeVoices.Clear();
+                _reverb.Clear();
             }
         }
 
@@ -495,7 +425,7 @@ namespace Sm64DecompLevelViewer.Services
                 var sample = ParseWavBytes(wavBytes);
                 if (sample != null)
                 {
-                    sample.IsLooped = CheckAiffLooped(aiffBytes);
+                    sample.Loop = AiffLoopReader.Read(aiffBytes, sample.Samples.Length / sample.Channels);
                     lock (_sampleCache)
                     {
                         _sampleCache[samplePath] = sample;
@@ -508,36 +438,6 @@ namespace Sm64DecompLevelViewer.Services
                 Console.WriteLine($"Error loading sample {samplePath}: {ex.Message}");
                 return null;
             }
-        }
-
-        private static bool CheckAiffLooped(byte[] aiffData)
-        {
-            try
-            {
-                if (aiffData.Length < 12) return false;
-                int pos = 12;
-                while (pos + 8 <= aiffData.Length)
-                {
-                    string chunkName = System.Text.Encoding.ASCII.GetString(aiffData, pos, 4);
-                    pos += 4;
-                    int chunkSize = (aiffData[pos] << 24) | (aiffData[pos + 1] << 16) | (aiffData[pos + 2] << 8) | aiffData[pos + 3];
-                    pos += 4;
-
-                    if (chunkName == "INST")
-                    {
-                        if (chunkSize >= 14 && pos + 14 <= aiffData.Length)
-                        {
-                            int playMode = (aiffData[pos + 8] << 8) | aiffData[pos + 9];
-                            return (playMode == 1 || playMode == 2);
-                        }
-                    }
-                    pos += (chunkSize + 1) & ~1;
-                }
-            }
-            catch
-            {
-            }
-            return false;
         }
 
         private static byte[] SafeReadAllBytes(string filePath)

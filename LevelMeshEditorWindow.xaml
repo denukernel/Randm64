@@ -30,6 +30,33 @@
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="BorderBrush" Value="#3F3F46"/>
             <Setter Property="Padding" Value="4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton Background="#333337" Foreground="White" BorderBrush="#555" BorderThickness="1"
+                                          IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}" Focusable="False">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Padding="4">
+                                            <ContentPresenter/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Right" Text="▾" Margin="8,0,0,0"/>
+                                    <ContentPresenter Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"/>
+                                </DockPanel>
+                            </ToggleButton>
+                            <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True" Focusable="False">
+                                <Border Background="#2D2D30" BorderBrush="#555" BorderThickness="1" MinWidth="{Binding ActualWidth,RelativeSource={RelativeSource TemplatedParent}}">
+                                    <ScrollViewer MaxHeight="260"><ItemsPresenter/></ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
             <Style.Resources>
                 <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#2D2D30" />
                 <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="White" />
@@ -63,6 +90,7 @@
         </Style>
 
         <Style TargetType="DataGrid">
+            <Setter Property="MinColumnWidth" Value="70"/>
             <Setter Property="Background" Value="#1E1E1E"/>
             <Setter Property="RowBackground" Value="#252526"/>
             <Setter Property="AlternatingRowBackground" Value="#2D2D30"/>
@@ -91,7 +119,8 @@
 
         <!-- 1. SELECTORS -->
         <Border Grid.Row="0" Background="{StaticResource PanelBackground}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="10" Margin="0,0,0,10">
-            <StackPanel Orientation="Horizontal">
+            <StackPanel>
+              <WrapPanel>
                 <TextBlock Text="Area:" Margin="0,0,8,0" FontWeight="Bold"/>
                 <ComboBox x:Name="AreaComboBox" Width="120" SelectionChanged="AreaComboBox_SelectionChanged" Margin="0,0,20,0"/>
 
@@ -100,6 +129,26 @@
 
                 <TextBlock x:Name="VisualArrayLabel" Text="Vertex Array:" Margin="0,0,8,0" FontWeight="Bold" Visibility="Collapsed"/>
                 <ComboBox x:Name="VisualArrayComboBox" Width="240" SelectionChanged="VisualArrayComboBox_SelectionChanged" Visibility="Collapsed"/>
+              </WrapPanel>
+              <WrapPanel Margin="0,8,0,0">
+                <TextBlock Text="Add at X/Y/Z:" Margin="0,0,5,0"/>
+                <TextBox x:Name="CreateX" Text="0" Width="55" Margin="2"/>
+                <TextBox x:Name="CreateY" Text="0" Width="55" Margin="2"/>
+                <TextBox x:Name="CreateZ" Text="0" Width="55" Margin="2"/>
+                <TextBlock Text="Size:" Margin="6,0,3,0"/>
+                <TextBox x:Name="CreateSize" Text="500" Width="55" Margin="2"/>
+                <CheckBox x:Name="CreateCollision" Content="Collision" IsChecked="True" Foreground="White" VerticalAlignment="Center" Margin="6,0"/>
+                <Button Content="Add plane" Tag="plane" Click="AddPrimitive_Click" Padding="6,4" Margin="2"/>
+                <Button Content="Add box" Tag="box" Click="AddPrimitive_Click" Padding="6,4" Margin="2"/>
+                <Button Content="Import 3D model" Tag="model" Click="AddPrimitive_Click" Padding="6,4" Margin="2" ToolTip="OBJ + MTL, GLB/glTF, FBX, DAE, 3DS, PLY, STL. Imports static geometry, UVs and base-color textures; textures are converted to N64 RGBA16."/>
+                <TextBlock Text="Import scale:" Margin="6,0,3,0"/>
+                <TextBox x:Name="ImportScale" Text="100" Width="55" Margin="2" ToolTip="Game units per model unit; this scales imported models only"/>
+              </WrapPanel>
+              <WrapPanel Margin="0,6,0,0">
+                <TextBlock Text="Imported models:" Margin="0,0,6,0"/>
+                <ComboBox x:Name="ImportedModelsCombo" Width="265" Margin="0,0,6,0"/>
+                <Button Content="Move / assemble model…" Click="AssembleImported_Click" Padding="8,4" ToolTip="Move, rotate, scale, change textures or drop an existing imported model to ground. Moves matching collision with the visual mesh."/>
+              </WrapPanel>
             </StackPanel>
         </Border>
 
@@ -201,6 +250,7 @@
 
             <!-- Bulk Utilities Panel -->
             <Border Grid.Column="1" Background="{StaticResource PanelBackground}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="10">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel>
                     <TextBlock Text="BULK OPERATIONS" FontSize="12" FontWeight="Bold" Foreground="{StaticResource HeaderBrush}" Margin="0,0,0,10"/>
                     
@@ -259,6 +309,7 @@
                         </StackPanel>
                     </Border>
                 </StackPanel>
+                </ScrollViewer>
             </Border>
         </Grid>
 

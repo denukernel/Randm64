@@ -16,6 +16,9 @@ namespace Sm64DecompLevelViewer
         private readonly string _projectRoot;
         private readonly MidiPlayer _midiPlayer = new();
         private SampleSynthPlayer? _samplePlayer;
+        private readonly Dictionary<byte, byte> _previewChannelVolumes = new();
+        private readonly Sm64SoundBank _soundBank;
+        private readonly Dictionary<string, string> _sequenceBankCache = new();
         private readonly M64Service _m64Service = new();
         private List<M64Track> _sequenceTracks = new();
         private M64Track? _currentTrack;
@@ -26,14 +29,27 @@ namespace Sm64DecompLevelViewer
             public byte Channel { get; set; }
             public byte Pitch { get; set; }
             public double EndTick { get; set; }
+            public bool UsesSamples { get; set; }
         }
         private readonly List<ActivePlayingNote> _activePlayingNotesList = new();
-        private readonly Dictionary<M64Track, int> _trackPlayIndices = new();
+        private bool _resumeSustainedNotes;
+        private readonly Dictionary<M64Note, int> _previewVoiceIds = new();
+
+        private int GetPreviewVoiceId(M64Note note)
+        {
+            // Live notes may share the default layer until the next save/replan.
+            // Give each preview note its own voice so it cannot cut another layer.
+            if (!_previewVoiceIds.TryGetValue(note, out int id))
+            {
+                id = _previewVoiceIds.Count;
+                _previewVoiceIds.Add(note, id);
+            }
+            return id;
+        }
         
         private readonly System.Windows.Threading.DispatcherTimer _playbackTimer = new();
         private double _playheadTick = 0;
-        private DateTime _lastTickTime;
-        private double _tempoBpm = 100;
+        private readonly System.Diagnostics.Stopwatch _playbackClock = new();
         private readonly double _ticksPerBeat = 48; // Quarter note division
         private bool _isPlaying = false;
         private bool _isUpdatingUi = false;
@@ -76,6 +92,7 @@ namespace Sm64DecompLevelViewer
         {
             InitializeComponent();
             _projectRoot = projectRoot;
+            _soundBank = new Sm64SoundBank(projectRoot);
 
             _playbackTimer.Interval = TimeSpan.FromMilliseconds(20);
             _playbackTimer.Tick += PlaybackTimer_Tick;
@@ -243,13 +260,10 @@ namespace Sm64DecompLevelViewer
         private void OnSequenceLoaded()
         {
             StopPlayback();
+            _previewChannelVolumes.Clear();
+            _samplePlayer?.ClearChannelVolumeOverrides();
 
-            _tempoBpm = _m64Service.Tempo;
-            string fileName = System.IO.Path.GetFileName(_activeM64Path).ToLower();
-            if (_samplePlayer != null)
-            {
-                _samplePlayer.EnableReleaseFade = !fileName.Contains("1e");
-            }
+
 
             _maxSongTick = 0;
             if (_sequenceTracks != null)
@@ -356,6 +370,7 @@ namespace Sm64DecompLevelViewer
                         defaultSeq = _scannedSequences.FirstOrDefault(s => s.DisplayName.Contains("22_cutscene_lakitu")) ?? _scannedSequences[0];
                     }
                     
+                    _sequenceBankCache.Clear();
                     _activeM64Path = defaultSeq.FilePath;
                     if (SequenceSelectButton != null)
                     {
@@ -579,12 +594,13 @@ namespace Sm64DecompLevelViewer
                     string samplePath = forceMidi ? null : GetSamplePathForInstrument(_activeM64Path, patch, p, out tuning);
                     if (!string.IsNullOrEmpty(samplePath))
                     {
-                        _samplePlayer?.PlayNote(ch, p, samplePath, 100, _currentTrack?.Volume ?? 127, 64, tuning);
+                        _samplePlayer?.PlayNote(ch, p, samplePath, 100, _currentTrack?.Volume ?? 127, 64, tuning, ResolveInstrument(patch, p));
                     }
                     else
                     {
                         patch = MapSm64InstrumentToGm(_activeM64Path, ch, patch);
                         _midiPlayer.ProgramChange(ch, patch);
+                        _midiPlayer.ControlChange(ch, 7, GetPreviewChannelVolume(ch, _currentTrack?.Volume ?? 127));
                         _midiPlayer.NoteOn(ch, p, 100);
                     }
                 };
@@ -643,6 +659,7 @@ namespace Sm64DecompLevelViewer
             if (selectWindow.ShowDialog() == true && selectWindow.SelectedItem != null)
             {
                 var selected = selectWindow.SelectedItem;
+                _sequenceBankCache.Clear();
                 _activeM64Path = selected.FilePath;
                 
                 if (SequenceSelectButton != null)
@@ -830,6 +847,7 @@ namespace Sm64DecompLevelViewer
                     }
                 }
             }
+            if (_currentTrack.Volume == 0) _currentTrack.Volume = 127;
             if (VolumeSlider != null)
                 VolumeSlider.Value = _currentTrack.Volume;
             if (VolumeLabel != null)
@@ -909,7 +927,7 @@ namespace Sm64DecompLevelViewer
             PianoRollCanvas.Children.Add(rect);
         }
 
-        private void RefreshPlaybackIndices()
+        private void ResetPreviewVoices()
         {
             _activePlayingNotesList.Clear();
             
@@ -921,19 +939,10 @@ namespace Sm64DecompLevelViewer
             }
             _activeMidiNotes.Clear();
             _samplePlayer?.StopAll();
+            _previewVoiceIds.Clear();
 
-            if (_sequenceTracks != null)
-            {
-                foreach (var track in _sequenceTracks)
-                {
-                    int idx = 0;
-                    while (idx < track.Notes.Count && track.Notes[idx].StartTick < _playheadTick)
-                    {
-                        idx++;
-                    }
-                    _trackPlayIndices[track] = idx;
-                }
-            }
+            _resumeSustainedNotes = true;
+            _playbackClock.Restart();
         }
 
         private void PianoRollCanvas_MouseDown(object sender, MouseButtonEventArgs e)
@@ -949,7 +958,7 @@ namespace Sm64DecompLevelViewer
                     _playheadTick = mousePos.X / (BEAT_WIDTH / _ticksPerBeat);
                     Canvas.SetLeft(TimelineCursor, mousePos.X);
                     TimelineCursor.Visibility = Visibility.Visible;
-                    RefreshPlaybackIndices();
+                    ResetPreviewVoices();
                     PianoRollCanvas.CaptureMouse();
                     e.Handled = true;
                     return;
@@ -960,7 +969,7 @@ namespace Sm64DecompLevelViewer
                     _playheadTick = mousePos.X / (BEAT_WIDTH / _ticksPerBeat);
                     Canvas.SetLeft(TimelineCursor, mousePos.X);
                     TimelineCursor.Visibility = Visibility.Visible;
-                    RefreshPlaybackIndices();
+                    ResetPreviewVoices();
                     PianoRollCanvas.CaptureMouse();
                     e.Handled = true;
                     return;
@@ -987,7 +996,7 @@ namespace Sm64DecompLevelViewer
                     _playheadTick = mousePos.X / (BEAT_WIDTH / _ticksPerBeat);
                     Canvas.SetLeft(TimelineCursor, mousePos.X);
                     TimelineCursor.Visibility = Visibility.Visible;
-                    RefreshPlaybackIndices();
+                    ResetPreviewVoices();
                     PianoRollCanvas.CaptureMouse();
                 }
                 e.Handled = true;
@@ -1003,7 +1012,7 @@ namespace Sm64DecompLevelViewer
                     _playheadTick = mousePos.X / (BEAT_WIDTH / _ticksPerBeat);
                     Canvas.SetLeft(TimelineCursor, mousePos.X);
                     TimelineCursor.Visibility = Visibility.Visible;
-                    RefreshPlaybackIndices();
+                    ResetPreviewVoices();
                     PianoRollCanvas.CaptureMouse();
                     e.Handled = true;
                     return;
@@ -1055,12 +1064,13 @@ namespace Sm64DecompLevelViewer
                         string samplePath = forceMidi ? null : GetSamplePathForInstrument(_activeM64Path, patch, noteData.Pitch, out tuning);
                         if (!string.IsNullOrEmpty(samplePath))
                         {
-                            _samplePlayer?.PlayNote(ch, noteData.Pitch, samplePath, 100, _currentTrack?.Volume ?? 127, 64, tuning);
+                            _samplePlayer?.PlayNote(ch, noteData.Pitch, samplePath, 100, _currentTrack?.Volume ?? 127, 64, tuning, ResolveInstrument(patch, noteData.Pitch));
                         }
                         else
                         {
                             patch = MapSm64InstrumentToGm(_activeM64Path, ch, patch);
                             _midiPlayer.ProgramChange(ch, patch);
+                            _midiPlayer.ControlChange(ch, 7, GetPreviewChannelVolume(ch, _currentTrack?.Volume ?? 127));
                             _midiPlayer.NoteOn(ch, noteData.Pitch, 100);
                         }
                     }
@@ -1094,7 +1104,7 @@ namespace Sm64DecompLevelViewer
                 _playheadTick = newX / (BEAT_WIDTH / _ticksPerBeat);
                 Canvas.SetLeft(TimelineCursor, newX);
                 TimelineCursor.Visibility = Visibility.Visible;
-                RefreshPlaybackIndices();
+                ResetPreviewVoices();
                 return;
             }
 
@@ -1157,7 +1167,7 @@ namespace Sm64DecompLevelViewer
             if (_isDraggingPlayhead)
             {
                 _isDraggingPlayhead = false;
-                RefreshPlaybackIndices();
+                ResetPreviewVoices();
                 return;
             }
 
@@ -1193,7 +1203,11 @@ namespace Sm64DecompLevelViewer
                             DurationTicks = (int)(_ticksPerBeat / 2),
                             Pitch = pitch,
                             Velocity = 100,
-                            Instrument = _currentTrack?.Instrument ?? 0
+                            Instrument = _currentTrack?.Instrument ?? 0,
+                            ChannelVolume = _currentTrack?.Volume ?? 127,
+                            ChannelPan = _currentTrack?.Notes.FirstOrDefault()?.ChannelPan ?? 64,
+                            Reverb = _currentTrack?.Notes.FirstOrDefault()?.Reverb ?? 0,
+                            Gate = 0
                         };
 
                         _currentTrack?.Notes.Add(newNote);
@@ -1213,12 +1227,13 @@ namespace Sm64DecompLevelViewer
                         string samplePath = forceMidi ? null : GetSamplePathForInstrument(_activeM64Path, patch, pitch, out tuning);
                         if (!string.IsNullOrEmpty(samplePath))
                         {
-                            _samplePlayer?.PlayNote(ch, pitch, samplePath, 100, _currentTrack?.Volume ?? 127, 64, tuning);
+                            _samplePlayer?.PlayNote(ch, pitch, samplePath, 100, _currentTrack?.Volume ?? 127, 64, tuning, ResolveInstrument(patch, pitch), durationSeconds: 0.15);
                         }
                         else
                         {
                             patch = MapSm64InstrumentToGm(_activeM64Path, ch, patch);
                             _midiPlayer.ProgramChange(ch, patch);
+                            _midiPlayer.ControlChange(ch, 7, GetPreviewChannelVolume(ch, _currentTrack?.Volume ?? 127));
                             _midiPlayer.NoteOn(ch, pitch, 100);
                             var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
                             timer.Tick += (s, ev) => {
@@ -1321,7 +1336,7 @@ namespace Sm64DecompLevelViewer
                     _copiedNotes.Clear();
                     foreach (var note in _selectedNotes)
                     {
-                        _copiedNotes.Add(note);
+                        _copiedNotes.Add(note.Clone());
                     }
                     _copiedNotesMinTick = _copiedNotes.Min(n => n.StartTick);
                     e.Handled = true;
@@ -1341,17 +1356,9 @@ namespace Sm64DecompLevelViewer
                     foreach (var note in _copiedNotes)
                     {
                         int offset = note.StartTick - _copiedNotesMinTick;
-                        var newNote = new M64Note
-                        {
-                            StartTick = pasteTickStart + offset,
-                            DurationTicks = note.DurationTicks,
-                            Pitch = note.Pitch,
-                            Velocity = note.Velocity,
-                            Instrument = _currentTrack.Instrument,
-                            LayerIndex = note.LayerIndex,
-                            Gate = note.Gate,
-                            CommandType = note.CommandType
-                        };
+                        var newNote = note.Clone();
+                        newNote.StartTick = pasteTickStart + offset;
+                        newNote.Instrument = _currentTrack.Instrument;
                         _currentTrack.Notes.Add(newNote);
                         _selectedNotes.Add(newNote);
                     }
@@ -1368,17 +1375,7 @@ namespace Sm64DecompLevelViewer
                     var duplicatedList = new List<M64Note>();
                     foreach (var note in _selectedNotes)
                     {
-                        var newNote = new M64Note
-                        {
-                            StartTick = note.StartTick,
-                            DurationTicks = note.DurationTicks,
-                            Pitch = note.Pitch,
-                            Velocity = note.Velocity,
-                            Instrument = note.Instrument,
-                            LayerIndex = note.LayerIndex,
-                            Gate = note.Gate,
-                            CommandType = note.CommandType
-                        };
+                        var newNote = note.Clone();
                         _currentTrack.Notes.Add(newNote);
                         duplicatedList.Add(newNote);
                     }
@@ -1534,32 +1531,65 @@ namespace Sm64DecompLevelViewer
         {
             if (_isPlaying) return;
 
-            _isPlaying = true;
-            _playheadTick = 0;
-            _lastTickTime = DateTime.UtcNow;
-            _tempoBpm = _m64Service.Tempo;
-
-            _trackPlayIndices.Clear();
-            _activePlayingNotesList.Clear();
-            
-            _maxSongTick = 0;
-            if (_sequenceTracks != null)
+            try
             {
-                foreach (var track in _sequenceTracks)
-                {
-                    track.Notes = track.Notes.OrderBy(n => n.StartTick).ToList();
-                    _trackPlayIndices[track] = 0;
-                    foreach (var note in track.Notes)
+                if (_isNotesModified)
+                    foreach (var track in _sequenceTracks)
                     {
-                        int end = note.StartTick + note.DurationTicks;
-                        if (end > _maxSongTick) _maxSongTick = end;
+                        var layers = M64LayerPlanner.Split(track.Notes);
+                        for (int layer = 0; layer < layers.Count; layer++)
+                            foreach (var note in layers[layer]) note.LayerIndex = (byte)layer;
                     }
-                }
             }
-            if (_maxSongTick <= 0) _maxSongTick = 480;
+            catch (InvalidOperationException ex)
+            {
+                MessageBox.Show(ex.Message, "M64 Note Layers", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // Resolve banks and decode samples before starting the playback clock.
+            if (UseMidiSynthCheckBox?.IsChecked != true)
+                foreach (var track in _sequenceTracks)
+                    foreach (var key in track.Notes.Select(n => (n.Instrument, n.Pitch)).Distinct())
+                    {
+                        var instrument = ResolveInstrument(key.Instrument, key.Pitch);
+                        if (instrument != null) SampleSynthPlayer.Preload(instrument.SamplePath);
+                    }
+            _isPlaying = true;
+            _resumeSustainedNotes = true;
+            _activePlayingNotesList.Clear();
+            _maxSongTick = M64PreviewSchedule.GetEndTick(_sequenceTracks);
+            _playbackClock.Restart();
+            PlayPauseButton.Content = "⏸ Pause";
 
             TimelineCursor.Visibility = Visibility.Visible;
             _playbackTimer.Start();
+        }
+
+        private void PlayPauseButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_isPlaying)
+            {
+                PlayButton_Click(sender, e);
+                return;
+            }
+
+            _isPlaying = false;
+            _playbackTimer.Stop();
+            ResetPreviewVoices();
+            _playbackClock.Stop();
+            PlayPauseButton.Content = "▶ Play";
+        }
+
+        private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Space || Keyboard.Modifiers != ModifierKeys.None ||
+                Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase ||
+                Keyboard.FocusedElement is PasswordBox)
+                return;
+
+            e.Handled = true;
+            if (!e.IsRepeat) PlayPauseButton_Click(sender, e);
         }
 
         private void StopButton_Click(object sender, RoutedEventArgs e)
@@ -1573,6 +1603,9 @@ namespace Sm64DecompLevelViewer
             _playbackTimer.Stop();
             TimelineCursor.Visibility = Visibility.Hidden;
             _playheadTick = 0;
+            Canvas.SetLeft(TimelineCursor, 0);
+            PlayPauseButton.Content = "▶ Play";
+            _playbackClock.Reset();
 
             // Clear all active MIDI notes
             foreach (var noteKey in _activeMidiNotes.ToList())
@@ -1583,48 +1616,40 @@ namespace Sm64DecompLevelViewer
             }
             _activeMidiNotes.Clear();
             _activePlayingNotesList.Clear();
-            _trackPlayIndices.Clear();
             _samplePlayer?.StopAll();
+            _previewVoiceIds.Clear();
         }
 
         private void PlaybackTimer_Tick(object? sender, EventArgs e)
         {
             if (!_isPlaying || _sequenceTracks == null || _isDraggingPlayhead) return;
 
-            DateTime now = DateTime.UtcNow;
-            double dt = (now - _lastTickTime).TotalSeconds;
-            _lastTickTime = now;
-
-            // Clamp dt to a reasonable range to prevent jumps if the app freezes/lags
-            if (dt < 0.0) dt = 0.02;
-            if (dt > 0.3) dt = 0.3;
-            double beatsPassed = dt * (_tempoBpm / 60.0);
-            double ticksPassed = beatsPassed * _ticksPerBeat;
-
-            double nextTick = _playheadTick + ticksPassed;
+            double dt = _playbackClock.Elapsed.TotalSeconds;
+            _playbackClock.Restart();
+            // Resume after UI stalls without fast-forwarding a whole phrase.
+            dt = Math.Clamp(dt, 0, 0.05);
+            _maxSongTick = M64PreviewSchedule.GetEndTick(_sequenceTracks);
+            double nextTick = Math.Min(_maxSongTick, _m64Service.TempoMap.Advance(_playheadTick, dt));
 
             // 1. Process active notes for note-offs
             for (int i = _activePlayingNotesList.Count - 1; i >= 0; i--)
             {
                 var note = _activePlayingNotesList[i];
-                if (note.EndTick < nextTick)
+                if (note.EndTick <= nextTick)
                 {
-                    _midiPlayer.NoteOff(note.Channel, note.Pitch);
-                    _samplePlayer?.StopNote(note.Channel, note.Pitch);
-                    _activeMidiNotes.Remove((note.Channel << 8) | note.Pitch);
                     _activePlayingNotesList.RemoveAt(i);
+                    if (!note.UsesSamples && !_activePlayingNotesList.Any(other =>
+                        !other.UsesSamples && other.Channel == note.Channel && other.Pitch == note.Pitch))
+                    {
+                        _midiPlayer.NoteOff(note.Channel, note.Pitch);
+                        _activeMidiNotes.Remove((note.Channel << 8) | note.Pitch);
+                    }
                 }
             }
 
-            // 2. Process note-ons for each track using sorted play index
+            // 2. Read the current model so live inserts, deletes and moves take effect.
             foreach (var track in _sequenceTracks)
             {
-                if (!_trackPlayIndices.TryGetValue(track, out int idx))
-                {
-                    idx = 0;
-                    _trackPlayIndices[track] = 0;
-                }
-
                 byte targetChannel = track.ChannelIndex;
 
                 bool shouldPlay = true;
@@ -1649,62 +1674,58 @@ namespace Sm64DecompLevelViewer
                     if (!_audibleSelectedChannels.Contains(targetChannel)) shouldPlay = false;
                 }
 
-                while (idx < track.Notes.Count)
+                foreach (var note in M64PreviewSchedule.GetNotes(track.Notes, _playheadTick, nextTick, _resumeSustainedNotes))
                 {
-                    var note = track.Notes[idx];
-                    
-                    if (note.StartTick >= nextTick) break;
-
-                    if (note.StartTick >= _playheadTick)
+                    if (shouldPlay && note.Velocity > 0)
                     {
-                        if (shouldPlay)
+                        bool forceMidi = UseMidiSynthCheckBox != null && UseMidiSynthCheckBox.IsChecked == true;
+                        double tuning = 0.0;
+                        string samplePath = forceMidi ? null : GetSamplePathForInstrument(_activeM64Path, note.Instrument, note.Pitch, out tuning);
+                        byte previewVolume = GetPreviewChannelVolume(targetChannel, note.ChannelVolume);
+                        if (!string.IsNullOrEmpty(samplePath))
                         {
-                            bool forceMidi = UseMidiSynthCheckBox != null && UseMidiSynthCheckBox.IsChecked == true;
-                            double tuning = 0.0;
-                            string samplePath = forceMidi ? null : GetSamplePathForInstrument(_activeM64Path, note.Instrument, note.Pitch, out tuning);
-                            if (!string.IsNullOrEmpty(samplePath))
-                            {
-                                _samplePlayer?.PlayNote(targetChannel, note.Pitch, samplePath, note.Velocity, note.ChannelVolume, note.ChannelPan, tuning);
-                            }
-                            else
-                            {
-                                byte gmPatch = MapSm64InstrumentToGm(_activeM64Path, targetChannel, note.Instrument);
-                                _midiPlayer.ProgramChange(targetChannel, gmPatch);
-                                _midiPlayer.ControlChange(targetChannel, 7, note.ChannelVolume);
-                                _midiPlayer.ControlChange(targetChannel, 10, note.ChannelPan);
-                                _midiPlayer.ControlChange(targetChannel, 91, note.Reverb);
-                                _midiPlayer.NoteOn(targetChannel, note.Pitch, note.Velocity);
-                            }
-                            
-                            _activeMidiNotes.Add((targetChannel << 8) | note.Pitch);
-                            
-                            double gateFactor = note.Gate / 256.0;
-                            if (gateFactor <= 0.0 || gateFactor > 1.0) gateFactor = 0.8;
-                            int playTicks = (int)Math.Max(1, Math.Round(note.DurationTicks * gateFactor));
-
-                            _activePlayingNotesList.Add(new ActivePlayingNote
-                            {
-                                Channel = targetChannel,
-                                Pitch = note.Pitch,
-                                EndTick = note.StartTick + playTicks
-                            });
+                            _samplePlayer?.PlayNote(targetChannel, note.Pitch, samplePath, note.Velocity, previewVolume, note.ChannelPan, tuning,
+                                ResolveInstrument(note.Instrument, note.Pitch), GetPreviewVoiceId(note),
+                                _m64Service.TempoMap.GetDurationSeconds(Math.Max(note.StartTick, _playheadTick),
+                                    note.StartTick + Sm64NoteTiming.GetDurationTicks(note.DurationTicks, note.Gate, note.CommandType)
+                                        - Math.Max(note.StartTick, _playheadTick)), note.Reverb);
                         }
+                        else
+                        {
+                            byte gmPatch = MapSm64InstrumentToGm(_activeM64Path, targetChannel, note.Instrument);
+                            _midiPlayer.ProgramChange(targetChannel, gmPatch);
+                            _midiPlayer.ControlChange(targetChannel, 7, previewVolume);
+                            _midiPlayer.ControlChange(targetChannel, 10, note.ChannelPan);
+                            _midiPlayer.ControlChange(targetChannel, 91, note.Reverb);
+                            _midiPlayer.NoteOn(targetChannel, note.Pitch, note.Velocity);
+                        }
+                        
+                        if (string.IsNullOrEmpty(samplePath))
+                            _activeMidiNotes.Add((targetChannel << 8) | note.Pitch);
+                        
+                        int playTicks = Sm64NoteTiming.GetDurationTicks(note.DurationTicks, note.Gate, note.CommandType);
+
+                        _activePlayingNotesList.Add(new ActivePlayingNote
+                        {
+                            Channel = targetChannel,
+                            Pitch = note.Pitch,
+                            EndTick = note.StartTick + playTicks,
+                            UsesSamples = !string.IsNullOrEmpty(samplePath)
+                        });
                     }
-
-                    idx++;
                 }
-
-                _trackPlayIndices[track] = idx;
             }
 
+            _resumeSustainedNotes = false;
             _playheadTick = nextTick;
             Canvas.SetLeft(TimelineCursor, _playheadTick * (BEAT_WIDTH / _ticksPerBeat));
 
             // Auto loop back at the end of the music
             if (_playheadTick >= _maxSongTick)
             {
-                _playheadTick = _loopStartTick;
-                RefreshPlaybackIndices();
+                _playheadTick = _loopStartTick < _maxSongTick ? _loopStartTick : 0;
+                ResetPreviewVoices();
+                Canvas.SetLeft(TimelineCursor, _playheadTick * (BEAT_WIDTH / _ticksPerBeat));
             }
         }
 
@@ -1714,6 +1735,13 @@ namespace Sm64DecompLevelViewer
 
             var result = _m64Service.SaveM64(_activeM64Path, _sequenceTracks, _isNotesModified);
 
+            if (!result.Success)
+            {
+                StatusBarText.Text = "M64 save failed; the existing file was preserved.";
+                MessageBox.Show(result.Error ?? "The sequence could not be saved safely.", "M64 Save Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
             _lastSavedDetails = $"M64 SAVED DETAILS:\n\n" +
                                 $"File Path: {_activeM64Path}\n" +
                                 $"Original Size: {result.OriginalSize} bytes\n" +
@@ -1721,7 +1749,7 @@ namespace Sm64DecompLevelViewer
                                 $"Saved Channels:\n" +
                                 (result.SavedChannels.Count > 0 ? string.Join("\n", result.SavedChannels) : "None (empty sequence)") + "\n\n" +
                                 $"Warnings / Optimization Hints:\n" +
-                                (result.Warnings.Count > 0 ? string.Join("\n", result.Warnings) : "None (Perfect compile!)");
+                                (result.Warnings.Count > 0 ? string.Join("\n", result.Warnings) : "None");
 
             StatusBarText.Text = $"Saved successfully ({result.FileSize} bytes)";
             SavedDetailsButton.Visibility = Visibility.Visible;
@@ -1773,17 +1801,7 @@ namespace Sm64DecompLevelViewer
         {
             _isNotesModified = true;
             if (_currentTrack == null) return;
-            var state = _currentTrack.Notes.Select(n => new M64Note
-            {
-                StartTick = n.StartTick,
-                DurationTicks = n.DurationTicks,
-                Pitch = n.Pitch,
-                Velocity = n.Velocity,
-                Instrument = n.Instrument,
-                LayerIndex = n.LayerIndex,
-                Gate = n.Gate,
-                CommandType = n.CommandType
-            }).ToList();
+            var state = _currentTrack.Notes.Select(n => n.Clone()).ToList();
             _undoStack.Push(state);
         }
 
@@ -1808,11 +1826,18 @@ namespace Sm64DecompLevelViewer
             if (_isUpdatingUi || _currentTrack == null) return;
             byte vol = (byte)Math.Clamp(VolumeSlider.Value, 0.0, 127.0);
             _currentTrack.Volume = vol;
+            byte channel = _currentTrack.ChannelIndex;
+            _previewChannelVolumes[channel] = vol;
+            _samplePlayer?.SetChannelVolume(channel, vol);
+            _midiPlayer.ControlChange(channel, 7, vol);
             if (VolumeLabel != null)
             {
                 VolumeLabel.Text = vol.ToString();
             }
         }
+
+        private byte GetPreviewChannelVolume(byte channel, byte originalVolume) =>
+            _previewChannelVolumes.TryGetValue(channel, out byte editedVolume) ? editedVolume : originalVolume;
 
         // Keep scroll positions aligned between keyboard sidebar and note grid
         private void GridScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
@@ -1886,6 +1911,8 @@ namespace Sm64DecompLevelViewer
 
         private string GetBankIdForSequence(string m64Path)
         {
+            if (_sequenceBankCache.TryGetValue(m64Path, out string? cachedBank)) return cachedBank;
+            string Remember(string bank) { _sequenceBankCache[m64Path] = bank; return bank; }
             string fileName = System.IO.Path.GetFileNameWithoutExtension(m64Path).ToLower();
             string sequencesJsonPath = System.IO.Path.Combine(_projectRoot, "sound", "sequences.json");
 
@@ -1905,13 +1932,13 @@ namespace Sm64DecompLevelViewer
                                 var val = prop.Value;
                                 if (val.ValueKind == System.Text.Json.JsonValueKind.Array && val.GetArrayLength() > 0)
                                 {
-                                    return val[0].GetString() ?? "22";
+                                    return Remember(val[0].GetString() ?? "22");
                                 }
                                 else if (val.ValueKind == System.Text.Json.JsonValueKind.Object)
                                 {
                                     if (val.TryGetProperty("banks", out var banksProp) && banksProp.ValueKind == System.Text.Json.JsonValueKind.Array && banksProp.GetArrayLength() > 0)
                                     {
-                                        return banksProp[0].GetString() ?? "22";
+                                        return Remember(banksProp[0].GetString() ?? "22");
                                     }
                                 }
                             }
@@ -1925,177 +1952,47 @@ namespace Sm64DecompLevelViewer
             }
 
             // Expanded fallback heuristics if sequences.json is unavailable
-            if (fileName.Contains("grass") || fileName.Contains("bob_omb") || fileName.Contains("field")) return "22";
-            if (fileName.Contains("castle") || fileName.Contains("inside")) return "0E";
-            if (fileName.Contains("water") || fileName.Contains("ocean") || fileName.Contains("docks")) return "13";
-            if (fileName.Contains("slide") || fileName.Contains("slider") || fileName.Contains("snow")) return "0D";
-            if (fileName.Contains("boss") || fileName.Contains("road")) return "12";
-            if (fileName.Contains("organ") || fileName.Contains("final") || fileName.Contains("battle")) return "1D_bowser_organ";
-            if (fileName.Contains("lakitu") || fileName.Contains("cutscene")) return "1B";
-            if (fileName.Contains("piranha") || fileName.Contains("lullaby")) return "14_piranha_music_box";
-            if (fileName.Contains("stairs")) return "1C_endless_stairs";
-            if (fileName.Contains("race")) return "1A";
-            if (fileName.Contains("powerup")) return "17";
-            if (fileName.Contains("metal")) return "18";
-            if (fileName.Contains("credits")) return "25";
-            if (fileName.Contains("ending")) return "23";
-            if (fileName.Contains("file")) return "24";
-            if (fileName.Contains("spooky")) return "10";
+            if (fileName.Contains("grass") || fileName.Contains("bob_omb") || fileName.Contains("field")) return Remember("22");
+            if (fileName.Contains("castle") || fileName.Contains("inside")) return Remember("0E");
+            if (fileName.Contains("water") || fileName.Contains("ocean") || fileName.Contains("docks")) return Remember("13");
+            if (fileName.Contains("slide") || fileName.Contains("slider") || fileName.Contains("snow")) return Remember("0D");
+            if (fileName.Contains("boss") || fileName.Contains("road")) return Remember("12");
+            if (fileName.Contains("organ") || fileName.Contains("final") || fileName.Contains("battle")) return Remember("1D_bowser_organ");
+            if (fileName.Contains("lakitu") || fileName.Contains("cutscene")) return Remember("1B");
+            if (fileName.Contains("piranha") || fileName.Contains("lullaby")) return Remember("14_piranha_music_box");
+            if (fileName.Contains("stairs")) return Remember("1C_endless_stairs");
+            if (fileName.Contains("race")) return Remember("1A");
+            if (fileName.Contains("powerup")) return Remember("17");
+            if (fileName.Contains("metal")) return Remember("18");
+            if (fileName.Contains("credits")) return Remember("25");
+            if (fileName.Contains("ending")) return Remember("23");
+            if (fileName.Contains("file")) return Remember("24");
+            if (fileName.Contains("spooky")) return Remember("10");
 
-            return "22";
+            return Remember("22");
         }
 
-        private string ParseSoundProperty(System.Text.Json.JsonElement prop, out double tuning)
+        private Sm64Instrument? ResolveInstrument(byte instrument, byte pitch)
         {
-            tuning = 0.0;
-            if (prop.ValueKind == System.Text.Json.JsonValueKind.String)
+            try
             {
-                return prop.GetString() ?? "";
+                return _soundBank.Resolve(GetBankIdForSequence(_activeM64Path), instrument, pitch,
+                    Sm64SoundBank.GetVersionForSequence(_activeM64Path));
             }
-            else if (prop.ValueKind == System.Text.Json.JsonValueKind.Object)
+            catch (Exception ex)
             {
-                string sample = "";
-                if (prop.TryGetProperty("sample", out var sampleProp))
-                {
-                    sample = sampleProp.GetString() ?? "";
-                }
-                if (prop.TryGetProperty("tuning", out var tuningProp))
-                {
-                    if (tuningProp.ValueKind == System.Text.Json.JsonValueKind.Number)
-                    {
-                        tuning = tuningProp.GetDouble();
-                    }
-                }
-                return sample;
+                Console.WriteLine($"Error resolving SM64 instrument: {ex.Message}");
+                return null;
             }
-            return "";
         }
 
         private string GetSamplePathForInstrument(string m64Path, byte sm64Inst, byte pitch, out double tuning)
         {
-            tuning = 0.0;
-            string bankId = GetBankIdForSequence(m64Path);
-            string bankPath = System.IO.Path.Combine(_projectRoot, "sound", "sound_banks", bankId + ".json");
-
-            if (!System.IO.File.Exists(bankPath)) return string.Empty;
-
-            try
-            {
-                string jsonText = System.IO.File.ReadAllText(bankPath);
-                using (var doc = System.Text.Json.JsonDocument.Parse(jsonText))
-                {
-                    var root = doc.RootElement;
-                    string sampleBank = "instruments";
-                    if (root.TryGetProperty("sample_bank", out var sbProp))
-                    {
-                        if (sbProp.ValueKind == System.Text.Json.JsonValueKind.String)
-                        {
-                            sampleBank = sbProp.GetString() ?? "instruments";
-                        }
-                        else if (sbProp.ValueKind == System.Text.Json.JsonValueKind.Object)
-                        {
-                            if (sbProp.TryGetProperty("else", out var elseProp))
-                            {
-                                sampleBank = elseProp.GetString() ?? "instruments";
-                            }
-                        }
-                    }
-
-                    if (sm64Inst == 127) // Percussion/Drums
-                    {
-                        if (root.TryGetProperty("percussion", out var percProp) && percProp.ValueKind == System.Text.Json.JsonValueKind.Array)
-                        {
-                            int index = pitch - 21;
-                            if (index >= 0 && index < percProp.GetArrayLength())
-                            {
-                                var percElement = percProp[index];
-                                if (percElement.TryGetProperty("sound", out var soundProp))
-                                {
-                                    string soundSample = ParseSoundProperty(soundProp, out tuning);
-
-                                    if (!string.IsNullOrEmpty(soundSample))
-                                    {
-                                        string sampleFile = soundSample + ".aiff";
-                                        string samplePath = System.IO.Path.Combine(_projectRoot, "sound", "samples", sampleBank, sampleFile);
-                                        if (System.IO.File.Exists(samplePath)) return samplePath;
-
-                                        samplePath = System.IO.Path.Combine(_projectRoot, "sound", "samples", "instruments", sampleFile);
-                                        if (System.IO.File.Exists(samplePath)) return samplePath;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    else // Normal instrument
-                    {
-                        if (root.TryGetProperty("instrument_list", out var listProp) && 
-                            root.TryGetProperty("instruments", out var instsProp))
-                        {
-                            if (sm64Inst < listProp.GetArrayLength())
-                            {
-                                var instNameElement = listProp[sm64Inst];
-                                if (instNameElement.ValueKind == System.Text.Json.JsonValueKind.String)
-                                {
-                                    string instName = instNameElement.GetString() ?? "";
-                                    if (instsProp.TryGetProperty(instName, out var instProp))
-                                    {
-                                        string soundSample = "";
-                                        
-                                        int rangeLo = 0;
-                                        int rangeHi = 127;
-                                        if (instProp.TryGetProperty("normal_range_lo", out var loProp))
-                                        {
-                                            rangeLo = loProp.GetInt32();
-                                        }
-                                        if (instProp.TryGetProperty("normal_range_hi", out var hiProp))
-                                        {
-                                            rangeHi = hiProp.GetInt32();
-                                        }
-
-                                        if (pitch < rangeLo && instProp.TryGetProperty("sound_lo", out var soundLoProp))
-                                        {
-                                            soundSample = ParseSoundProperty(soundLoProp, out tuning);
-                                        }
-                                        else if (pitch > rangeHi && instProp.TryGetProperty("sound_hi", out var soundHiProp))
-                                        {
-                                            soundSample = ParseSoundProperty(soundHiProp, out tuning);
-                                        }
-                                        else if (instProp.TryGetProperty("sound", out var soundProp))
-                                        {
-                                            soundSample = ParseSoundProperty(soundProp, out tuning);
-                                        }
-                                        else if (instProp.TryGetProperty("sound_hi", out var fallbackHiProp))
-                                        {
-                                            soundSample = ParseSoundProperty(fallbackHiProp, out tuning);
-                                        }
-                                        else if (instProp.TryGetProperty("sound_lo", out var fallbackLoProp))
-                                        {
-                                            soundSample = ParseSoundProperty(fallbackLoProp, out tuning);
-                                        }
-
-                                        if (!string.IsNullOrEmpty(soundSample))
-                                        {
-                                            string sampleFile = soundSample + ".aiff";
-                                            string samplePath = System.IO.Path.Combine(_projectRoot, "sound", "samples", sampleBank, sampleFile);
-                                            if (System.IO.File.Exists(samplePath)) return samplePath;
-
-                                            samplePath = System.IO.Path.Combine(_projectRoot, "sound", "samples", "instruments", sampleFile);
-                                            if (System.IO.File.Exists(samplePath)) return samplePath;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error parsing soundbank JSON: {ex.Message}");
-            }
-
-            return string.Empty;
+            var instrument = ResolveInstrument(sm64Inst, pitch);
+            tuning = instrument?.Tuning ?? 0;
+            return instrument?.SamplePath ?? string.Empty;
         }
+
     }
 
 

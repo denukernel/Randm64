@@ -59,10 +59,10 @@ namespace Sm64DecompLevelViewer
             {
                 if (Directory.Exists(_projectRoot))
                 {
-                    var bakFiles = Directory.GetFiles(_projectRoot, "*.bak", SearchOption.AllDirectories);
+                    var bakFiles = Services.LevelSourceRecovery.FindChoices(_projectRoot);
                     foreach (var file in bakFiles)
                     {
-                        string rel = Path.GetRelativePath(_projectRoot, file).Replace("\\", "/");
+                        string rel = Services.LevelSourceRecovery.Describe(_projectRoot, file).Replace("\\", "/");
                         var item = new BackupItem
                         {
                             FullPath = file,
@@ -94,7 +94,7 @@ namespace Sm64DecompLevelViewer
         {
             if (StatusTextBlock == null || GitRevertCheck == null) return;
             int backupsCount = Backups.Count(b => b.IsEnabled);
-            StatusTextBlock.Text = $"{backupsCount} backup files selected, Git clean: {(GitRevertCheck.IsChecked == true ? "YES" : "NO")}";
+            StatusTextBlock.Text = $"{backupsCount} recovery groups selected, Git clean: {(GitRevertCheck.IsChecked == true ? "YES" : "NO")}";
         }
 
         private void GitRevertCheck_Toggle(object sender, RoutedEventArgs e)

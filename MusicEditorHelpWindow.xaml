@@ -24,6 +24,7 @@
                 <TextBlock Text="• Top Timeline (left-drag): Drag playhead cursor (Vegas Pro style)." Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,15"/>
 
                 <TextBlock Text="KEYBOARD SHORTCUTS" FontWeight="Bold" Foreground="#4EC9B0" Margin="0,0,0,5"/>
+                <TextBlock Text="• Space: Play / pause at the current playhead. Stop returns to the beginning." Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,3"/>
                 <TextBlock Text="• Ctrl + A: Select all notes in active channel." Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,3"/>
                 <TextBlock Text="• Ctrl + C: Copy selected notes." Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,3"/>
                 <TextBlock Text="• Ctrl + V: Paste notes at current playhead position." Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,3"/>

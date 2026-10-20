@@ -90,8 +90,7 @@ public partial class MainWindow : Window
         {
             if (_renderer != null)
             {
-                _renderer.Close();
-                _renderer.Dispose();
+                _renderer.RequestCloseThreadSafe();
                 _renderer = null;
             }
         }
@@ -344,6 +343,14 @@ public partial class MainWindow : Window
 
                     if (revertWindow.IsSuccessful)
                     {
+                        // Editors hold object anchors, material caches and mesh snapshots from before recovery.
+                        foreach(var editor in Application.Current.Windows.OfType<LevelEditorWindow>().ToArray()) editor.Close();
+                        foreach(var editor in Application.Current.Windows.OfType<LevelMeshEditorWindow>().ToArray()) editor.Close();
+                        _renderer?.RequestCloseThreadSafe();
+                        _renderer=null;
+                        _currentObjects.Clear();
+                        _currentVisualMesh=null;
+                        _currentCollisionMesh=null;
                         LoadLevels();
                     }
                 }
@@ -500,6 +507,13 @@ public partial class MainWindow : Window
         StatusText.Text = $"{_levels.Count} levels loaded";
     }
 
+    private void OpenScanDebugger_Click(object sender, RoutedEventArgs e)
+    {
+        var debuggerWindow = new ScanDebuggerWindow();
+        debuggerWindow.Owner = this;
+        debuggerWindow.ShowDialog();
+    }
+
     private void LoadCollisionFiles(LevelMetadata level)
     {
         _collisionFiles = _collisionParser.FindCollisionFiles(level.LevelPath);
@@ -548,114 +562,8 @@ public partial class MainWindow : Window
                 _selectedLevel.FullName
             );
 
-            if (_modelFiles.ContainsKey(areaName))
-            {
-                var modelFilePaths = _modelFiles[areaName];
-                
-                Dictionary<string, OpenTK.Mathematics.Matrix4>? transforms = null;
-                var areaPath = Path.GetDirectoryName(modelFilePaths[0]);
-                if (areaPath != null)
-                {
-                    var geoLayoutPath = Path.Combine(areaPath, "..", "geo.inc.c");
-                    if (File.Exists(geoLayoutPath))
-                    {
-                        var geoParser = new GeoLayoutParser();
-                        var geoRoot = geoParser.ParseGeoLayout(geoLayoutPath);
-                        if (geoRoot != null) transforms = geoParser.ExtractTransformations(geoRoot);
-                    }
-                }
-
-                if (transforms == null) transforms = new Dictionary<string, OpenTK.Mathematics.Matrix4>();
-
-                var levelRoot = Path.GetDirectoryName(Path.GetDirectoryName(modelFilePaths[0]));
-                if (levelRoot != null)
-                {
-                    try
-                    {
-                        var specialParser = new SpecialObjectParser();
-                        var includePath = ResolveIncludePath("special_presets.inc.c");
-                        if (includePath != null)
-                        {
-                            var presetMapping = specialParser.ParsePresets(includePath);
-                            var objectParser = new ObjectParser();
-                            var scriptPath = Path.Combine(_selectedLevel.LevelPath, "script.c");
-                            var modelToGeo = objectParser.ParseLoadModels(scriptPath);
-
-                            // Load model IDs for resolving aliases
-                            var modelIdsPath = ResolveIncludePath("model_ids.h");
-                            var modelIdMapping = modelIdsPath != null ? objectParser.ParseModelIds(modelIdsPath) : new Dictionary<string, int>();
-
-                            // Map numeric ID to geo layout name
-                            var idToGeo = new Dictionary<int, string>();
-                            foreach (var kvp in modelToGeo)
-                            {
-                                if (modelIdMapping.TryGetValue(kvp.Key, out int id))
-                                {
-                                    idToGeo[id] = kvp.Value;
-                                }
-                            }
-
-                            string colContent = File.ReadAllText(collisionFilePath);
-                            var geoParser = new GeoLayoutParser();
-
-                            var specialMatches = SpecialObjectPattern.Matches(colContent);
-                            var specialWithYawMatches = SpecialObjectWithYawPattern.Matches(colContent);
-
-                            void ProcessSpecial(string preset, float x, float y, float z, float yaw)
-                            {
-                                if (presetMapping.TryGetValue(preset, out string? modelId))
-                                {
-                                    string? geoLayoutName = null;
-                                    
-                                    // Try direct map
-                                    if (!modelToGeo.TryGetValue(modelId, out geoLayoutName))
-                                    {
-                                        // Try via ID alias
-                                        if (modelIdMapping.TryGetValue(modelId, out int id))
-                                        {
-                                            idToGeo.TryGetValue(id, out geoLayoutName);
-                                        }
-                                    }
-
-                                    if (geoLayoutName != null)
-                                    {
-                                        string? subGeoPath = FindGeoLayoutForModel(levelRoot, geoLayoutName);
-                                        if (subGeoPath != null)
-                                        {
-                                            string? dlName = geoParser.GetPrimaryDisplayListName(subGeoPath);
-                                            if (dlName != null)
-                                            {
-                                                var mat = OpenTK.Mathematics.Matrix4.CreateRotationY(OpenTK.Mathematics.MathHelper.DegreesToRadians(yaw)) *
-                                                          OpenTK.Mathematics.Matrix4.CreateTranslation(x, y, z);
-                                                transforms[dlName] = mat;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            foreach (Match m in specialMatches)
-                                ProcessSpecial(m.Groups[1].Value, float.Parse(m.Groups[2].Value), float.Parse(m.Groups[3].Value), float.Parse(m.Groups[4].Value), 0);
-                            foreach (Match m in specialWithYawMatches)
-                                ProcessSpecial(m.Groups[1].Value, float.Parse(m.Groups[2].Value), float.Parse(m.Groups[3].Value), float.Parse(m.Groups[4].Value), float.Parse(m.Groups[5].Value));
-                        }
-                    }
-                    catch (Exception ex) { Console.WriteLine($"Special object parsing error: {ex.Message}"); }
-                }
-                
-                _currentVisualMesh = _modelParser.ParseMultipleModelFiles(modelFilePaths, areaName, _selectedLevel.FullName, transforms);
-                if (_currentVisualMesh != null && _projectRootPath != null)
-                {
-                    _currentVisualMesh.SkyboxBin = _selectedLevel.SkyboxBin;
-                    _modelParser.ParseTextureMapping(_selectedLevel.LevelPath, _currentVisualMesh, _projectRootPath);
-                    _modelParser.ResolveSharedTextures(_currentVisualMesh, _selectedLevel.TextureBin, _projectRootPath);
-                }
-            }
-            else
-            {
-                _currentVisualMesh = null;
-            }
-
+            int sceneArea = int.Parse(System.Text.RegularExpressions.Regex.Match(areaName, @"\d+").Value);
+            _currentVisualMesh = LevelSceneLoader.Load(_projectRootPath!, _selectedLevel.LevelPath, sceneArea, _selectedLevel.TextureBin);
             if (_currentCollisionMesh != null)
             {
                 string statsText = $"✓ Collision: {_currentCollisionMesh.VertexCount} vertices, {_currentCollisionMesh.TriangleCount} triangles";
@@ -695,8 +603,7 @@ public partial class MainWindow : Window
             // Close existing renderer if already open
             if (_renderer != null)
             {
-                try { _renderer.Close(); } catch { }
-                try { _renderer.Dispose(); } catch { }
+                try { _renderer.RequestCloseThreadSafe(); } catch { }
                 _renderer = null;
             }
 
@@ -768,7 +675,7 @@ public partial class MainWindow : Window
                             var selectedIncludePath = ResolveIncludePath("special_presets.inc.c");
                             if (selectedIncludePath != null) presetMapping = specialParser.ParsePresets(selectedIncludePath);
 
-                            string colContent = File.ReadAllText(collisionFilePath);
+                            string colContent = ActorSourceReader.Read(collisionFilePath,preserveOffsets:true);
                             var specialMatches = SpecialObjectPattern.Matches(colContent);
                             var specialWithYawMatches = SpecialObjectWithYawPattern.Matches(colContent);
                             var specialWithYawAndParamMatches = SpecialObjectWithYawAndParamPattern.Matches(colContent);
@@ -837,22 +744,12 @@ public partial class MainWindow : Window
                                 }
                             }
 
-                            foreach (Match m in specialMatches)
+                            foreach(var call in CSourceCalls.Read(colContent,n=>n is "SPECIAL_OBJECT" or "SPECIAL_OBJECT_WITH_YAW" or "SPECIAL_OBJECT_WITH_YAW_AND_PARAM"))
                             {
-                                ProcessSpecialObject(m.Groups[1].Value.Trim(), int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value), int.Parse(m.Groups[4].Value), 0, null, collisionFilePath, m.Index, m.Length);
-                            }
-                            foreach (Match m in specialWithYawMatches)
-                            {
-                                int byteYaw = int.Parse(m.Groups[5].Value);
-                                int degreeYaw = (int)(byteYaw * 360.0 / 256.0);
-                                ProcessSpecialObject(m.Groups[1].Value.Trim(), int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value), int.Parse(m.Groups[4].Value), degreeYaw, null, collisionFilePath, m.Index, m.Length);
-                            }
-                            foreach (Match m in specialWithYawAndParamMatches)
-                            {
-                                int byteYaw = int.Parse(m.Groups[5].Value);
-                                int degreeYaw = (int)(byteYaw * 360.0 / 256.0);
-                                string paramStr = m.Groups[6].Value.Trim();
-                                ProcessSpecialObject(m.Groups[1].Value.Trim(), int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value), int.Parse(m.Groups[4].Value), degreeYaw, paramStr, collisionFilePath, m.Index, m.Length);
+                                string Arg(int i)=>call.Argument(colContent,i);
+                                int yaw=call.Arguments.Count>4 ? (int)Math.Round(int.Parse(Arg(4))*360.0/256) : 0;
+                                ProcessSpecialObject(Arg(0),int.Parse(Arg(1)),int.Parse(Arg(2)),int.Parse(Arg(3)),yaw,
+                                    call.Arguments.Count>5 ? Arg(5) : null,collisionFilePath,call.Start,call.End-call.Start);
                             }
                         }
                     }
@@ -866,6 +763,12 @@ public partial class MainWindow : Window
                     // Open the new Level Editor window
                     var settings = _settingsService.LoadSettings();
                     var editor = new LevelEditorWindow(objects, collisionMesh, visualMesh, projectRoot ?? "", areaIndex, supportedModels, settings, collisionFilePath ?? "");
+                    editor.GeometryChanged += (s, ev) =>
+                    {
+                        if (_selectedLevel?.LevelPath == selectedLevel.LevelPath &&
+                            AreaComboBox.SelectedItem is string selectedArea && selectedArea == areaName)
+                            LoadCollisionMesh(selectedArea);
+                    };
                     
                     editor.RequestReload += (s, ev) =>
                     {

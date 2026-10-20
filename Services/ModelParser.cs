@@ -8,46 +8,55 @@ namespace Sm64DecompLevelViewer.Services;
 public class ModelParser
 {
     // Regex patterns for parsing model data
-    private static readonly Regex VtxArrayPattern = new(@"static\s+const\s+Vtx\s+(\w+)\[\]\s*=\s*\{", RegexOptions.Compiled);
+    private static readonly Regex VtxArrayPattern = new(@"(?:static\s+)?(?:const\s+)?Vtx\s+(\w+)\[\]\s*=\s*\{", RegexOptions.Compiled);
     
     
     private static readonly Regex VtxDataPattern = new(
         @"\{\{\{\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\},\s*\d+,\s*\{\s*(-?\d+),\s*(-?\d+)\},\s*\{(0x[0-9a-fA-F]{2}),\s*(0x[0-9a-fA-F]{2}),\s*(0x[0-9a-fA-F]{2}),\s*(0x[0-9a-fA-F]{2})\}\}\}",
         RegexOptions.Compiled);
     
-    private static readonly Regex SpVertexPattern = new(@"gsSPVertex\((\w+),\s*(\d+),\s*(\d+)\)", RegexOptions.Compiled);
+    private static readonly Regex SpVertexPattern = new(@"gsSPVertex\(\s*&?(\w+)(?:(?:\s*\+\s*|\s*\[\s*)(\d+)\s*\]?)?\s*,\s*(\d+)\s*,\s*(\d+)\s*\)", RegexOptions.Compiled);
     private static readonly Regex Sp2TrianglesPattern = new(@"gsSP2Triangles\(\s*(\d+),\s*(\d+),\s*(\d+),\s*0x[0-9a-fA-F]+,\s*(\d+),\s*(\d+),\s*(\d+),\s*0x[0-9a-fA-F]+\)", RegexOptions.Compiled);
     private static readonly Regex Sp1TrianglePattern = new(@"gsSP1Triangle\(\s*(\d+),\s*(\d+),\s*(\d+),\s*0x[0-9a-fA-F]+\)", RegexOptions.Compiled);
     private static readonly Regex DisplayListPattern = new(@"const\s+Gfx\s+(\w+)\[\]\s*=\s*\{", RegexOptions.Compiled);
     private static readonly Regex SetTextureImagePattern = new(@"gsDPSetTextureImage\(\s*[^,]+\s*,\s*[^,]+\s*,\s*[^,]+\s*,\s*(\w+)\)", RegexOptions.Compiled);
-    private static readonly Regex TextureSymbolPattern = new(@"ALIGNED8\s+static\s+const\s+Texture\s+(\w+)\[\]\s*=\s*\{", RegexOptions.Compiled);
+    private static readonly Regex TextureSymbolPattern = new(@"(?:ALIGNED8\s+)?(?:static\s+)?const\s+(?:Texture|u8)\s+(\w+)\[\]\s*=\s*\{", RegexOptions.Compiled);
     private static readonly Regex IncludePattern = new(@"#include\s+""([^""]+)""", RegexOptions.Compiled);
     private static readonly Regex gdSPLightsPattern = new(
-        @"static\s+const\s+Lights1\s+(\w+)\s*=\s*gdSPDefLights1\(\s*(0x[0-9a-fA-F]{2}|\d+),\s*(0x[0-9a-fA-F]{2}|\d+),\s*(0x[0-9a-fA-F]{2}|\d+),\s*(0x[0-9a-fA-F]{2}|\d+),\s*(0x[0-9a-fA-F]{2}|\d+),\s*(0x[0-9a-fA-F]{2}|\d+)",
+        @"(?:static\s+)?(?:const\s+)?Lights1\s+(\w+)\s*=\s*gdSPDefLights1\(\s*(0x[0-9a-fA-F]{2}|\d+),\s*(0x[0-9a-fA-F]{2}|\d+),\s*(0x[0-9a-fA-F]{2}|\d+),\s*(0x[0-9a-fA-F]{2}|\d+),\s*(0x[0-9a-fA-F]{2}|\d+),\s*(0x[0-9a-fA-F]{2}|\d+)",
         RegexOptions.Compiled);
     private static readonly Regex SpLightPattern = new(@"gsSPLight\s*\(\s*&(\w+)\.(?:l(?:\[\d+\])?|a)\s*,\s*\d+\s*\)", RegexOptions.Compiled);
+    private static readonly Regex MovtexArrayPattern = new(@"(?:static\s+)?Movtex\s+(\w+)\[\]\s*=\s*\{", RegexOptions.Compiled);
+    private static readonly Regex MovtexTrisPattern = new(@"MOV_TEX_TRIS\s*\(\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\)", RegexOptions.Compiled);
+    private static readonly Regex MovtexRotTrisPattern = new(@"MOV_TEX_ROT_TRIS\s*\(\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\)", RegexOptions.Compiled);
+    private static readonly Regex MovtexBoxTrisPattern = new(@"MOV_TEX_4_BOX_TRIS\s*\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)", RegexOptions.Compiled);
 
     public VisualMesh? ParseModelFile(
         string modelFilePath, 
         string areaName, 
         string levelName, 
         Dictionary<string, Matrix4>? transformations = null,
-        Dictionary<string, int>? dlToJointIndex = null)
+        Dictionary<string, int>? dlToJointIndex = null,
+        List<GeoDisplayListInstance>? displayListInstances = null,
+        float rootScale = 1.0f,
+        string? sourceText = null)
     {
         try
         {
-            if (!File.Exists(modelFilePath))
+            if (sourceText == null && !File.Exists(modelFilePath))
             {
                 Console.WriteLine($"Model file not found: {modelFilePath}");
                 return null;
             }
 
-            var fileContent = File.ReadAllText(modelFilePath);
+            var fileContent = sourceText ?? ActorSourceReader.Read(modelFilePath);
             var mesh = new VisualMesh
             {
                 AreaName = areaName,
                 LevelName = levelName,
-                DlToJointIndex = dlToJointIndex ?? new()
+                DlToJointIndex = dlToJointIndex ?? new(),
+                DisplayListInstances = displayListInstances ?? new(),
+                RootScale = rootScale
             };
 
             var vertexArrays = ParseVertexArrays(fileContent);
@@ -64,7 +73,7 @@ public class ModelParser
                 mesh.LightGroupColors[lightGroupName] = new Vector3(r / 255.0f, g / 255.0f, b / 255.0f);
             }
 
-            ParseDisplayLists(fileContent, vertexArrays, mesh, transformations);
+            ParseDisplayLists(fileContent, vertexArrays, mesh, transformations, displayListInstances);
 
             Console.WriteLine($"Parsed visual mesh: {mesh}");
             return mesh;
@@ -124,10 +133,81 @@ public class ModelParser
             }
         }
 
+        var movtexMatches = MovtexArrayPattern.Matches(content);
+        foreach (Match arrayMatch in movtexMatches)
+        {
+            string arrayName = arrayMatch.Groups[1].Value;
+            int startIndex = arrayMatch.Index + arrayMatch.Length;
+            
+            int braceCount = 1;
+            int endIndex = startIndex;
+            for (int i = startIndex; i < content.Length && braceCount > 0; i++)
+            {
+                if (content[i] == '{') braceCount++;
+                if (content[i] == '}') braceCount--;
+                endIndex = i;
+            }
+
+            string arrayContent = content.Substring(startIndex, endIndex - startIndex);
+            
+            var vertices = new List<ModelVertex>();
+            var trisMatches = MovtexTrisPattern.Matches(arrayContent);
+            
+            foreach (Match trisMatch in trisMatches)
+            {
+                int x = int.Parse(trisMatch.Groups[1].Value);
+                int y = int.Parse(trisMatch.Groups[2].Value);
+                int z = int.Parse(trisMatch.Groups[3].Value);
+                int s = int.Parse(trisMatch.Groups[4].Value) * 1024;
+                int t = int.Parse(trisMatch.Groups[5].Value) * 1024;
+
+                vertices.Add(new ModelVertex(x, y, z, s, t, 0, 127, 0, 255));
+            }
+
+            if (vertices.Count == 0)
+            {
+                var rotTrisMatches = MovtexRotTrisPattern.Matches(arrayContent);
+                foreach (Match rotMatch in rotTrisMatches)
+                {
+                    int x = int.Parse(rotMatch.Groups[1].Value);
+                    int y = int.Parse(rotMatch.Groups[2].Value);
+                    int z = int.Parse(rotMatch.Groups[3].Value);
+
+                    vertices.Add(new ModelVertex(x, y, z, 0, 0, 0, 127, 0, 255));
+                }
+            }
+
+            if (vertices.Count == 0)
+            {
+                var boxMatches = MovtexBoxTrisPattern.Matches(arrayContent);
+                if (boxMatches.Count >= 4)
+                {
+                    for (int i = 0; i + 3 < boxMatches.Count; i += 4)
+                    {
+                        int x1 = int.Parse(boxMatches[i + 0].Groups[1].Value);
+                        int z1 = int.Parse(boxMatches[i + 0].Groups[2].Value);
+                        int x2 = int.Parse(boxMatches[i + 2].Groups[1].Value);
+                        int z2 = int.Parse(boxMatches[i + 2].Groups[2].Value);
+
+                        vertices.Add(new ModelVertex(x1, 0, z1, 0, 0, 0, 127, 0, 255));
+                        vertices.Add(new ModelVertex(x1, 0, z2, 0, 2048, 0, 127, 0, 255));
+                        vertices.Add(new ModelVertex(x2, 0, z2, 2048, 2048, 0, 127, 0, 255));
+                        vertices.Add(new ModelVertex(x2, 0, z1, 2048, 0, 0, 127, 0, 255));
+                    }
+                }
+            }
+
+            if (vertices.Count > 0)
+            {
+                vertexArrays[arrayName] = vertices;
+                Console.WriteLine($"  Movtex {arrayName}: {vertices.Count} vertices");
+            }
+        }
+
         return vertexArrays;
     }
 
-    private void ParseDisplayLists(string content, Dictionary<string, List<ModelVertex>> vertexArrays, VisualMesh mesh, Dictionary<string, Matrix4>? transformations)
+    private void ParseDisplayLists(string content, Dictionary<string, List<ModelVertex>> vertexArrays, VisualMesh mesh, Dictionary<string, Matrix4>? transformations, List<GeoDisplayListInstance>? displayListInstances = null)
     {
         var dlMatches = DisplayListPattern.Matches(content);
         
@@ -381,6 +461,57 @@ public class ModelParser
             }
         }
 
+        int[] rspVertexBuffer = new int[64];
+
+        if (displayListInstances != null && displayListInstances.Count > 0)
+        {
+            var callStack = new HashSet<string>();
+            // RSP material state survives both nested calls and successive geo nodes.
+            string? currentTextureSymbol = null;
+            string? currentLightSymbol = null;
+            bool textureEnabled = false;
+            var textureScale = Vector2.One;
+            bool blendTextureWithShade = false;
+            var addressS = TextureAddressMode.Repeat;
+            var addressT = TextureAddressMode.Repeat;
+            bool lightingEnabled = true;
+            bool decalTexture = false;
+            foreach (var inst in displayListInstances)
+            {
+                if (string.IsNullOrEmpty(inst.DisplayListName)) continue;
+
+                mesh.DisplayListNames.Add(inst.DisplayListName);
+                if (mesh.MainDisplayListName == null)
+                {
+                    mesh.MainDisplayListName = inst.DisplayListName;
+                }
+
+                int[] instanceRspBuffer = new int[64];
+
+                callStack.Clear();
+                callStack.Add(inst.DisplayListName);
+                ExecuteDisplayList(
+                    inst.DisplayListName,
+                    inst,
+                    dlContents,
+                    vertexArrays,
+                    mesh,
+                    instanceRspBuffer,
+                    ref currentTextureSymbol,
+                    ref currentLightSymbol,
+                    ref textureEnabled,
+                    ref textureScale,
+                    ref blendTextureWithShade,
+                    ref addressS,
+                    ref addressT,
+                    ref lightingEnabled,
+                    ref decalTexture,
+                    callStack,
+                    0);
+            }
+            return;
+        }
+
         // Finally, parse the display lists that we keeping
         foreach (var pair in dlContents)
         {
@@ -401,7 +532,268 @@ public class ModelParser
                 mesh.MainDisplayListName = dlName;
             }
 
-            ProcessDisplayList(dlContent, vertexArrays, mesh, dlName, transformations, inheritedTextures, inheritedLights);
+            ProcessDisplayList(dlContent, vertexArrays, mesh, dlName, transformations, inheritedTextures, inheritedLights, rspVertexBuffer);
+        }
+    }
+
+    private void ExecuteDisplayList(
+        string dlName,
+        GeoDisplayListInstance instance,
+        Dictionary<string, string> dlContents,
+        Dictionary<string, List<ModelVertex>> vertexArrays,
+        VisualMesh mesh,
+        int[] rspVertexBuffer,
+        ref string? currentTextureSymbol,
+        ref string? currentLightSymbol,
+        ref bool textureEnabled,
+        ref Vector2 textureScale,
+        ref bool blendTextureWithShade,
+        ref TextureAddressMode addressS,
+        ref TextureAddressMode addressT,
+        ref bool lightingEnabled,
+        ref bool decalTexture,
+        HashSet<string> callStack,
+        int depth)
+    {
+        if (depth > 16) return;
+
+        string actualDlName = dlName;
+        if (!dlContents.TryGetValue(actualDlName, out string? dlContent))
+        {
+            if (dlContents.TryGetValue(dlName + "_dl", out dlContent))
+            {
+                actualDlName = dlName + "_dl";
+            }
+            else if (dlName.EndsWith("_dl") && dlContents.TryGetValue(dlName.Substring(0, dlName.Length - 3), out dlContent))
+            {
+                actualDlName = dlName.Substring(0, dlName.Length - 3);
+            }
+            else
+            {
+                return;
+            }
+        }
+
+        var spVertexMatches = SpVertexPattern.Matches(dlContent);
+        var sp2TriMatches = Sp2TrianglesPattern.Matches(dlContent);
+        var sp1TriMatches = Sp1TrianglePattern.Matches(dlContent);
+        var setTexImgMatches = SetTextureImagePattern.Matches(dlContent);
+        var spLightMatches = SpLightPattern.Matches(dlContent);
+        var spDisplayListMatches = new Regex(@"gsSPDisplayList\(\s*(\w+)\s*\)", RegexOptions.Compiled).Matches(dlContent);
+        var textureStateMatches = Regex.Matches(dlContent, @"gsSPTexture\([^)]*,\s*(G_ON|G_OFF|1|0)\s*\)");
+        var combineMatches = Regex.Matches(dlContent, @"gsDPSetCombineMode\(\s*(\w+)\s*,[^)]*\)");
+        var tileMatches = Regex.Matches(dlContent, @"gsDPSetTile\(([^)]*)\)");
+        var geometryMatches = Regex.Matches(dlContent, @"gsSP(Set|Clear)GeometryMode\(([^)]*)\)");
+        var setLightsMatches = Regex.Matches(dlContent, @"gsSPSetLights1\(\s*(\w+)\s*\)");
+        var branchMatches = Regex.Matches(dlContent, @"gsSPBranchList\(\s*(\w+)\s*\)");
+
+        var commands = new List<(int pos, string type, Match match)>();
+        foreach (Match m in spVertexMatches) commands.Add((m.Index, "vertex", m));
+        foreach (Match m in sp2TriMatches) commands.Add((m.Index, "tri2", m));
+        foreach (Match m in sp1TriMatches) commands.Add((m.Index, "tri1", m));
+        foreach (Match m in setTexImgMatches) commands.Add((m.Index, "texture", m));
+        foreach (Match m in Regex.Matches(dlContent, @"gsDPLoadTexture(?:Block(?:_4b)?|Tile(?:_4b)?)\(\s*(\w+)\s*,([^;]*?)\),"))
+            commands.Add((m.Index, "loadTexture", m));
+        foreach (Match m in spLightMatches) commands.Add((m.Index, "light", m));
+        foreach (Match m in spDisplayListMatches) commands.Add((m.Index, "calldl", m));
+        foreach (Match m in textureStateMatches) commands.Add((m.Index, "textureState", m));
+        foreach (Match m in Regex.Matches(dlContent,@"gsSPTexture\(\s*(0x[\da-fA-F]+|\d+)\s*,\s*(0x[\da-fA-F]+|\d+)\s*,")) commands.Add((m.Index,"textureScale",m));
+        foreach (Match m in combineMatches) commands.Add((m.Index, "combine", m));
+        foreach (Match m in tileMatches) commands.Add((m.Index, "tile", m));
+        foreach (Match m in geometryMatches) commands.Add((m.Index, "geometry", m));
+        foreach (Match m in setLightsMatches) commands.Add((m.Index, "light", m));
+        foreach (Match m in branchMatches) commands.Add((m.Index, "branchdl", m));
+
+        commands.Sort((a, b) => a.pos.CompareTo(b.pos));
+
+        foreach (var (pos, type, match) in commands)
+        {
+            if (type == "geometry")
+            {
+                if (Regex.IsMatch(match.Groups[2].Value, @"\bG_LIGHTING\b"))
+                    lightingEnabled = match.Groups[1].Value == "Set";
+            }
+            else if (type == "tile")
+            {
+                var fields = match.Groups[1].Value.Split(',').Select(field => field.Trim()).ToArray();
+                if (fields.Length == 12 && fields[4] is "G_TX_RENDERTILE" or "0")
+                {
+                    static TextureAddressMode Address(string flags) => flags.Contains("G_TX_CLAMP")
+                        ? TextureAddressMode.Clamp : Regex.IsMatch(flags, @"\bG_TX_MIRROR\b")
+                            ? TextureAddressMode.Mirror : TextureAddressMode.Repeat;
+                    addressT = Address(fields[6]);
+                    addressS = Address(fields[9]);
+                }
+            }
+            else if (type == "combine")
+            {
+                blendTextureWithShade = match.Groups[1].Value == "G_CC_BLENDRGBFADEA";
+                decalTexture = match.Groups[1].Value.StartsWith("G_CC_DECAL") || match.Groups[1].Value == "G_CC_REPLACE";
+            }
+            else if (type == "textureScale")
+            {
+                static float Scale(string value)
+                {
+                    int n = value.StartsWith("0x",StringComparison.OrdinalIgnoreCase) ? Convert.ToInt32(value[2..],16) : int.Parse(value);
+                    return n == 65535 ? 1 : n / 65536f;
+                }
+                textureScale = new Vector2(Scale(match.Groups[1].Value),Scale(match.Groups[2].Value));
+            }
+            else if (type == "textureState")
+            {
+                textureEnabled = match.Groups[1].Value is "G_ON" or "1";
+            }
+            else if (type == "loadTexture")
+            {
+                currentTextureSymbol = match.Groups[1].Value;
+                var fields = match.Groups[2].Value.Split(',').Select(s => s.Trim()).ToArray();
+                int wrap = match.Value.StartsWith("gsDPLoadTextureBlock_4b") ? 4 : 5;
+                if (fields.Length > wrap + 1)
+                {
+                    static TextureAddressMode Address(string flags) => flags.Contains("G_TX_CLAMP") ? TextureAddressMode.Clamp
+                        : Regex.IsMatch(flags, @"\bG_TX_MIRROR\b") ? TextureAddressMode.Mirror : TextureAddressMode.Repeat;
+                    addressS = Address(fields[wrap]);
+                    addressT = Address(fields[wrap + 1]);
+                }
+            }
+            else if (type == "texture")
+            {
+                currentTextureSymbol = match.Groups[1].Value;
+            }
+            else if (type == "light")
+            {
+                currentLightSymbol = match.Groups[1].Value;
+            }
+            else if (type is "calldl" or "branchdl")
+            {
+                string childDl = match.Groups[1].Value;
+                if (!callStack.Contains(childDl))
+                {
+                    callStack.Add(childDl);
+                    ExecuteDisplayList(
+                        childDl,
+                        instance,
+                        dlContents,
+                        vertexArrays,
+                        mesh,
+                        rspVertexBuffer,
+                        ref currentTextureSymbol,
+                        ref currentLightSymbol,
+                        ref textureEnabled,
+                    ref textureScale,
+                        ref blendTextureWithShade,
+                        ref addressS,
+                        ref addressT,
+                        ref lightingEnabled,
+                        ref decalTexture,
+                        callStack,
+                        depth + 1);
+                    callStack.Remove(childDl);
+                }
+                if (type == "branchdl") return;
+            }
+            else if (type == "vertex")
+            {
+                string arrayName = match.Groups[1].Value;
+                int vtxArrayOffset = match.Groups[2].Success && !string.IsNullOrEmpty(match.Groups[2].Value) ? int.Parse(match.Groups[2].Value) : 0;
+                int count = int.Parse(match.Groups[3].Value);
+                int destIndex = int.Parse(match.Groups[4].Value);
+
+                if (vertexArrays.TryGetValue(arrayName, out var vtxList))
+                {
+                    Matrix4 localToJoint = Matrix4.Identity;
+                    if (instance.JointIndex >= 0)
+                    {
+                        try
+                        {
+                            localToJoint = instance.Transform * Matrix4.Invert(instance.JointWorldMatrix);
+                        }
+                        catch
+                        {
+                            localToJoint = Matrix4.Identity;
+                        }
+                    }
+
+                    for (int i = 0; i < count && (i + vtxArrayOffset) < vtxList.Count; i++)
+                    {
+                        var v = vtxList[i + vtxArrayOffset];
+                        var rawPos = new Vector3(v.X, v.Y, v.Z);
+                        var pJointLocal = Vector3.TransformPosition(rawPos, localToJoint);
+                        var pRestWorld = Vector3.TransformPosition(rawPos, instance.Transform);
+
+                        var vertex = new ModelVertex(
+                            (int)Math.Round(pRestWorld.X),
+                            (int)Math.Round(pRestWorld.Y),
+                            (int)Math.Round(pRestWorld.Z),
+                            (int)(v.S * textureScale.X), (int)(v.T * textureScale.Y), v.NX, v.NY, v.NZ, v.Alpha)
+                        {
+                            SourceArrayName = arrayName,
+                            SourceArrayIndex = i + vtxArrayOffset,
+                            RefX = (int)Math.Round(pJointLocal.X),
+                            RefY = (int)Math.Round(pJointLocal.Y),
+                            RefZ = (int)Math.Round(pJointLocal.Z),
+                            RestX = (int)Math.Round(pRestWorld.X),
+                            RestY = (int)Math.Round(pRestWorld.Y),
+                            RestZ = (int)Math.Round(pRestWorld.Z),
+                            JointIndex = instance.JointIndex
+                        };
+                        vertex.ReferenceNormal = Vector3.TransformNormal(v.ReferenceNormal, localToJoint);
+                        vertex.SetNormal(Vector3.TransformNormal(v.ReferenceNormal, instance.Transform));
+                        vertex.VertexColor = v.VertexColor;
+                        vertex.Billboard = instance.Billboard;
+                        if (instance.Billboard != null)
+                            vertex.BillboardPosition = Vector3.TransformPosition(rawPos,
+                                instance.Transform * Matrix4.Invert(instance.Billboard.RestWorldMatrix));
+
+                        mesh.Vertices.Add(vertex);
+                        int globalIndex = mesh.Vertices.Count - 1;
+                        if (destIndex + i < rspVertexBuffer.Length)
+                        {
+                            rspVertexBuffer[destIndex + i] = globalIndex;
+                        }
+                    }
+                }
+            }
+            else if (type == "tri2")
+            {
+                int v1 = int.Parse(match.Groups[1].Value);
+                int v2 = int.Parse(match.Groups[2].Value);
+                int v3 = int.Parse(match.Groups[3].Value);
+                int v4 = int.Parse(match.Groups[4].Value);
+                int v5 = int.Parse(match.Groups[5].Value);
+                int v6 = int.Parse(match.Groups[6].Value);
+
+                string? activeSymbol = textureEnabled ? currentTextureSymbol ?? currentLightSymbol : currentLightSymbol;
+                if (v1 < rspVertexBuffer.Length && v2 < rspVertexBuffer.Length && v3 < rspVertexBuffer.Length)
+                {
+                    mesh.Triangles.Add(new ModelTriangle(rspVertexBuffer[v1], rspVertexBuffer[v2], rspVertexBuffer[v3], activeSymbol)
+                        { ShadeLightSymbol = currentLightSymbol, BlendTextureWithShade = textureEnabled && blendTextureWithShade,
+                            TextureAddressS = addressS, TextureAddressT = addressT,
+                            LightingEnabled = lightingEnabled, DecalTexture = textureEnabled && decalTexture });
+                }
+                if (v4 < rspVertexBuffer.Length && v5 < rspVertexBuffer.Length && v6 < rspVertexBuffer.Length)
+                {
+                    mesh.Triangles.Add(new ModelTriangle(rspVertexBuffer[v4], rspVertexBuffer[v5], rspVertexBuffer[v6], activeSymbol)
+                        { ShadeLightSymbol = currentLightSymbol, BlendTextureWithShade = textureEnabled && blendTextureWithShade,
+                            TextureAddressS = addressS, TextureAddressT = addressT,
+                            LightingEnabled = lightingEnabled, DecalTexture = textureEnabled && decalTexture });
+                }
+            }
+            else if (type == "tri1")
+            {
+                int v1 = int.Parse(match.Groups[1].Value);
+                int v2 = int.Parse(match.Groups[2].Value);
+                int v3 = int.Parse(match.Groups[3].Value);
+
+                string? activeSymbol = textureEnabled ? currentTextureSymbol ?? currentLightSymbol : currentLightSymbol;
+                if (v1 < rspVertexBuffer.Length && v2 < rspVertexBuffer.Length && v3 < rspVertexBuffer.Length)
+                {
+                    mesh.Triangles.Add(new ModelTriangle(rspVertexBuffer[v1], rspVertexBuffer[v2], rspVertexBuffer[v3], activeSymbol)
+                        { ShadeLightSymbol = currentLightSymbol, BlendTextureWithShade = textureEnabled && blendTextureWithShade,
+                            TextureAddressS = addressS, TextureAddressT = addressT,
+                            LightingEnabled = lightingEnabled, DecalTexture = textureEnabled && decalTexture });
+                }
+            }
         }
     }
 
@@ -412,10 +804,11 @@ public class ModelParser
         string dlName, 
         Dictionary<string, Matrix4>? transformations,
         Dictionary<string, string> inheritedTextures,
-        Dictionary<string, string> inheritedLights)
+        Dictionary<string, string> inheritedLights,
+        int[] rspVertexBuffer)
     {
+        Array.Clear(rspVertexBuffer, 0, rspVertexBuffer.Length);
         List<ModelVertex>? currentVertexBuffer = null;
-        int vertexBufferOffset = 0;
         string? currentTextureSymbol = inheritedTextures.TryGetValue(dlName, out var t) ? t : null;
         string? currentLightSymbol = inheritedLights.TryGetValue(dlName, out var l) ? l : null;
 
@@ -440,6 +833,41 @@ public class ModelParser
 
         commands.Sort((a, b) => a.pos.CompareTo(b.pos));
 
+        bool hasVertexCmd = commands.Any(c => c.type == "vertex");
+        if (!hasVertexCmd && vertexArrays.Count > 0)
+        {
+            foreach (var kvp in vertexArrays)
+            {
+                if (kvp.Key.Contains("movtex") || dlName.Contains(kvp.Key.Replace("movtex_tris_", "dl_").Replace("_data", "")))
+                {
+                    if (currentTextureSymbol == null)
+                    {
+                        if (kvp.Key.Contains("lava") || dlName.Contains("lava"))
+                            currentTextureSymbol = "fire_09001800";
+                        else if (kvp.Key.Contains("water") || dlName.Contains("water"))
+                            currentTextureSymbol = "water_09000000";
+                    }
+
+                    for (int i = 0; i < kvp.Value.Count; i++)
+                    {
+                        var v = kvp.Value[i];
+                        var vertex = new ModelVertex(v.X, v.Y, v.Z, v.S, v.T, v.NX, v.NY, v.NZ, v.Alpha)
+                        {
+                            RefX = v.X,
+                            RefY = v.Y,
+                            RefZ = v.Z
+                        };
+                        mesh.Vertices.Add(vertex);
+                        if (i < rspVertexBuffer.Length)
+                        {
+                            rspVertexBuffer[i] = mesh.Vertices.Count - 1;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
         foreach (var (pos, type, match) in commands)
         {
             if (type == "texture")
@@ -453,13 +881,13 @@ public class ModelParser
             else if (type == "vertex")
             {
                 string arrayName = match.Groups[1].Value;
-                int count = int.Parse(match.Groups[2].Value);
-                vertexBufferOffset = int.Parse(match.Groups[3].Value);
+                int vtxArrayOffset = match.Groups[2].Success && !string.IsNullOrEmpty(match.Groups[2].Value) ? int.Parse(match.Groups[2].Value) : 0;
+                int count = int.Parse(match.Groups[3].Value);
+                int destIndex = int.Parse(match.Groups[4].Value);
 
                 if (vertexArrays.ContainsKey(arrayName))
                 {
                     currentVertexBuffer = vertexArrays[arrayName];
-                    vertexBufferOffset = mesh.Vertices.Count;
                     
                     Matrix4? transform = null;
                     if (transformations != null && dlName != null)
@@ -470,9 +898,9 @@ public class ModelParser
                         }
                     }
 
-                    for (int i = 0; i < count && i < currentVertexBuffer.Count; i++)
+                    for (int i = 0; i < count && (i + vtxArrayOffset) < currentVertexBuffer.Count; i++)
                     {
-                        var v = currentVertexBuffer[i];
+                        var v = currentVertexBuffer[i + vtxArrayOffset];
                         var vertex = new ModelVertex(v.X, v.Y, v.Z, v.S, v.T, v.NX, v.NY, v.NZ, v.Alpha)
                         {
                             RefX = v.X,
@@ -492,11 +920,20 @@ public class ModelParser
                         {
                             vertex = ApplySingleTransform(vertex, transform.Value);
                         }
+                        vertex.RestX = vertex.X;
+                        vertex.RestY = vertex.Y;
+                        vertex.RestZ = vertex.Z;
                         mesh.Vertices.Add(vertex);
+
+                        int globalIndex = mesh.Vertices.Count - 1;
+                        if (destIndex + i < rspVertexBuffer.Length)
+                        {
+                            rspVertexBuffer[destIndex + i] = globalIndex;
+                        }
                     }
                 }
             }
-            else if (type == "tri2" && currentVertexBuffer != null)
+            else if (type == "tri2")
             {
                 int v1 = int.Parse(match.Groups[1].Value);
                 int v2 = int.Parse(match.Groups[2].Value);
@@ -505,21 +942,28 @@ public class ModelParser
                 int v5 = int.Parse(match.Groups[5].Value);
                 int v6 = int.Parse(match.Groups[6].Value);
 
-                int baseIndex = vertexBufferOffset;
                 string? activeSymbol = currentTextureSymbol ?? currentLightSymbol;
                 
-                mesh.Triangles.Add(new ModelTriangle(baseIndex + v1, baseIndex + v2, baseIndex + v3, activeSymbol));
-                mesh.Triangles.Add(new ModelTriangle(baseIndex + v4, baseIndex + v5, baseIndex + v6, activeSymbol));
+                if (v1 < rspVertexBuffer.Length && v2 < rspVertexBuffer.Length && v3 < rspVertexBuffer.Length)
+                {
+                    mesh.Triangles.Add(new ModelTriangle(rspVertexBuffer[v1], rspVertexBuffer[v2], rspVertexBuffer[v3], activeSymbol));
+                }
+                if (v4 < rspVertexBuffer.Length && v5 < rspVertexBuffer.Length && v6 < rspVertexBuffer.Length)
+                {
+                    mesh.Triangles.Add(new ModelTriangle(rspVertexBuffer[v4], rspVertexBuffer[v5], rspVertexBuffer[v6], activeSymbol));
+                }
             }
-            else if (type == "tri1" && currentVertexBuffer != null)
+            else if (type == "tri1")
             {
                 int v1 = int.Parse(match.Groups[1].Value);
                 int v2 = int.Parse(match.Groups[2].Value);
                 int v3 = int.Parse(match.Groups[3].Value);
 
-                int baseIndex = vertexBufferOffset;
                 string? activeSymbol = currentTextureSymbol ?? currentLightSymbol;
-                mesh.Triangles.Add(new ModelTriangle(baseIndex + v1, baseIndex + v2, baseIndex + v3, activeSymbol));
+                if (v1 < rspVertexBuffer.Length && v2 < rspVertexBuffer.Length && v3 < rspVertexBuffer.Length)
+                {
+                    mesh.Triangles.Add(new ModelTriangle(rspVertexBuffer[v1], rspVertexBuffer[v2], rspVertexBuffer[v3], activeSymbol));
+                }
             }
         }
     }
@@ -531,7 +975,7 @@ public class ModelParser
             string textureIncPath = Path.Combine(levelPath, "texture.inc.c");
             if (!File.Exists(textureIncPath)) return;
 
-            string content = File.ReadAllText(textureIncPath);
+            string content = ActorSourceReader.Read(textureIncPath,keepIncludes:true);
             var symbolMatches = TextureSymbolPattern.Matches(content);
 
             foreach (Match symbolMatch in symbolMatches)
@@ -622,7 +1066,7 @@ public class ModelParser
         {
             if (!File.Exists(modelFilePath)) return;
 
-            string content = File.ReadAllText(modelFilePath);
+            string content = ActorSourceReader.Read(modelFilePath,keepIncludes:true);
             var symbolMatches = TextureSymbolPattern.Matches(content);
 
             foreach (Match symbolMatch in symbolMatches)
@@ -747,24 +1191,79 @@ public class ModelParser
                 var areaName = $"Area {areaNumber}";
                 var areaModelFiles = new List<string>();
                 
-                var subAreaDirectories = Directory.GetDirectories(areaDir);
+                var geoDlRegex = new Regex(@"(?:GEO_DISPLAY_LIST|GEO_TRANSLATE_WITH_DL|GEO_ROTATE_WITH_DL|GEO_SCALE_WITH_DL|GEO_TRANSLATE_ROTATE_WITH_DL)\s*\(\s*(?:\w+\s*,\s*)*(\w+)\s*\)", RegexOptions.Compiled);
+                
+                var geoFiles = Directory.GetFiles(areaDir, "geo.inc.c", SearchOption.AllDirectories).ToList();
+                var levelGeoC = Path.Combine(levelPath, "geo.c");
+                if (File.Exists(levelGeoC)) geoFiles.Add(levelGeoC);
+
+                var geoDls = new HashSet<string>();
+                foreach (var gFile in geoFiles)
+                {
+                    try
+                    {
+                        string geoText = File.ReadAllText(gFile);
+                        foreach (Match m in geoDlRegex.Matches(geoText))
+                        {
+                            geoDls.Add(m.Groups[1].Value);
+                        }
+                    }
+                    catch { }
+                }
+
+                var subAreaDirectories = Directory.GetDirectories(areaDir)
+                    .OrderBy(d => int.TryParse(Path.GetFileName(d), out int n) ? n : 999)
+                    .ToArray();
+
                 foreach (var subAreaDir in subAreaDirectories)
                 {
+                    bool hasOwnGeo = File.Exists(Path.Combine(subAreaDir, "geo.inc.c"));
                     var files = Directory.GetFiles(subAreaDir, "*.inc.c");
                     foreach (var file in files)
                     {
                         var fileName = Path.GetFileName(file);
-                        if (fileName == "collision.inc.c" || fileName == "geo.inc.c" || fileName == "macro.inc.c" || fileName == "movtext.inc.c")
+                        if (fileName == "collision.inc.c" || fileName == "geo.inc.c" || fileName == "macro.inc.c")
                             continue;
 
+                        if (geoDls.Count > 0 && !hasOwnGeo)
+                        {
+                            string fileContent = File.ReadAllText(file);
+                            bool matchesGeo = geoDls.Any(dl => fileContent.Contains(dl));
+                            if (!matchesGeo)
+                            {
+                                LogService.Log($"[ScanDebugger] Skipping object subfolder file: {file}");
+                                continue;
+                            }
+                        }
+
+                        LogService.Log($"[ScanDebugger] Included level model file: {file}");
                         areaModelFiles.Add(file);
                     }
                 }
                 
+                var movtextCandidates = new List<string>
+                {
+                    Path.Combine(areaDir, "movtext.inc.c"),
+                    Path.Combine(levelPath, "movtext.inc.c")
+                };
+                foreach (var otherAreaDir in areaDirectories)
+                {
+                    movtextCandidates.Add(Path.Combine(otherAreaDir, "movtext.inc.c"));
+                }
+
+                foreach (var movtextPath in movtextCandidates.Distinct())
+                {
+                    if (File.Exists(movtextPath) && !areaModelFiles.Contains(movtextPath))
+                    {
+                        LogService.Log($"[ScanDebugger] Included Movtex file: {movtextPath}");
+                        areaModelFiles.Add(movtextPath);
+                    }
+                }
+
                 if (areaModelFiles.Count > 0)
                 {
                     modelFiles[areaName] = areaModelFiles;
-                    Console.WriteLine($"Found {areaModelFiles.Count} model file(s) for {areaName}");
+                    LogService.Log($"[ScanDebugger] Found {areaModelFiles.Count} model file(s) for {areaName}");
                 }
             }
         }

@@ -18,25 +18,33 @@ namespace Sm64DecompLevelViewer
     {
         private readonly string _projectRoot;
         private readonly AppSettings _settings;
-        private readonly ModelParser _modelParser;
         private string? _selectedActor;
         private GeometryRenderer? _renderer;
+        private volatile bool _isClosing;
         private List<ActorTextureItem> _textures = new();
-        private List<MarioAnimation> _marioAnimations = new();
+        private List<MarioAnimation> _actorAnimations = new();
         private MarioAnimation? _selectedAnimation;
+        private bool _syncAnimationControls;
+        private readonly System.Windows.Threading.DispatcherTimer _animationUiTimer = new()
+            { Interval = TimeSpan.FromMilliseconds(100) };
 
         public ActorEditorWindow(string projectRoot)
         {
             InitializeComponent();
             _projectRoot = projectRoot;
-            _modelParser = new ModelParser();
             
             var settingsService = new SettingsService();
             _settings = settingsService.LoadSettings();
 
-#if !DEBUG
-            Open3DButton.Visibility = Visibility.Collapsed;
-#endif
+            _animationUiTimer.Tick += (_, _) =>
+            {
+                if (_renderer == null || _selectedAnimation == null) return;
+                _syncAnimationControls = true;
+                AnimationFrameSlider.Value = _renderer.AnimationFrame;
+                AnimationFrameText.Text = $"Frame {_renderer.AnimationFrame + 1} / {_selectedAnimation.FrameCount}";
+                PlayAnimButton.Content = _renderer.AnimationPlaying ? "Pause" : "Play";
+                _syncAnimationControls = false;
+            };
 
             Loaded += ActorEditorWindow_Loaded;
             Closing += ActorEditorWindow_Closing;
@@ -45,6 +53,7 @@ namespace Sm64DecompLevelViewer
         private void ActorEditorWindow_Loaded(object sender, RoutedEventArgs e)
         {
             ScanActors();
+            _animationUiTimer.Start();
         }
 
         private void ScanActors()
@@ -84,6 +93,11 @@ namespace Sm64DecompLevelViewer
 
         private void ActorsListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (_renderer != null && _selectedActor != ActorsListBox.SelectedItem as string)
+            {
+                _renderer.RequestCloseThreadSafe();
+                _renderer = null;
+            }
             _selectedActor = ActorsListBox.SelectedItem as string;
 
             if (string.IsNullOrEmpty(_selectedActor))
@@ -99,22 +113,16 @@ namespace Sm64DecompLevelViewer
             string actorDir = Path.Combine(_projectRoot, "actors", _selectedActor);
             ActorPathText.Text = actorDir;
             Open3DButton.IsEnabled = true;
+            LoadActorAnimations();
 
             if (_selectedActor == "mario")
             {
                 MarioColorsPanel.Visibility = Visibility.Visible;
-#if DEBUG
-                MarioAnimationsPanel.Visibility = Visibility.Visible;
-                LoadMarioAnimations();
-#else
-                MarioAnimationsPanel.Visibility = Visibility.Collapsed;
-#endif
                 LoadMarioColorsFromSource(actorDir);
             }
             else
             {
                 MarioColorsPanel.Visibility = Visibility.Collapsed;
-                MarioAnimationsPanel.Visibility = Visibility.Collapsed;
             }
 
             LoadActorTextures(actorDir);
@@ -188,47 +196,21 @@ namespace Sm64DecompLevelViewer
         {
             if (string.IsNullOrEmpty(_selectedActor)) return;
 
-#if !DEBUG
-            return;
-#else
-            if (_selectedActor == "mario")
-            {
-                var result = MessageBox.Show("mario's model viewing is currently broken, do you want to continue?", "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.Question);
-                if (result != MessageBoxResult.Yes)
-                {
-                    return;
-                }
-            }
-#endif
-
             try
             {
-                string actorDir = Path.Combine(_projectRoot, "actors", _selectedActor);
-                string modelPath = Path.Combine(actorDir, "model.inc.c");
-                string geoPath = Path.Combine(actorDir, "geo.inc.c");
+                VisualMesh visualMesh = ActorModelLoader.Load(_projectRoot, _selectedActor);
 
-                var geoParser = new GeoLayoutParser();
-                var transforms = geoParser.ParseActorGeoLayout(geoPath);
-
-                VisualMesh? visualMesh = _modelParser.ParseModelFile(modelPath, "", _selectedActor, transforms, geoParser.DlToJointIndex);
-                if (visualMesh != null)
-                {
-                    visualMesh.Joints = geoParser.ParsedJoints;
-                    visualMesh.DlToJointIndex = geoParser.DlToJointIndex;
-                    _modelParser.ParseActorTextureMapping(actorDir, modelPath, visualMesh, _projectRoot);
-                }
-
-                if (visualMesh == null)
-                {
-                    MessageBox.Show("Failed to parse actor model geometry.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
+                // Frame the assembled idle pose rather than the unrotated bind skeleton.
+                var previewAnimation = _selectedAnimation;
+                new AnimationParser().ApplyFrame(visualMesh, previewAnimation, previewAnimation?.StartFrame ?? 0);
+                bool loopAnimation = LoopAnimationCheckBox.IsChecked == true;
+                float animationSpeed = (float)AnimationSpeedSlider.Value;
 
                 // If renderer is already open, close it
                 if (_renderer != null)
                 {
-                    try { _renderer.Close(); } catch { }
-                    try { _renderer.Dispose(); } catch { }
+                    try { _renderer.RequestCloseThreadSafe(); } catch { }
+
                     _renderer = null;
                 }
 
@@ -247,19 +229,49 @@ namespace Sm64DecompLevelViewer
 
                 var rendererThread = new System.Threading.Thread(() =>
                 {
-                    _renderer = new GeometryRenderer(gameWindowSettings, nativeWindowSettings, _projectRoot);
-                    _renderer.CameraMoveSpeed = _settings.CameraMoveSpeed;
-                    _renderer.CameraRotationSensitivity = _settings.CameraRotationSpeed;
+                    using var renderer = new GeometryRenderer(gameWindowSettings, nativeWindowSettings, _projectRoot);
+                    _renderer = renderer;
+                    if (_isClosing) { _renderer = null; return; }
+                    renderer.CameraMoveSpeed = _settings.CameraMoveSpeed;
+                    renderer.CameraRotationSensitivity = _settings.CameraRotationSpeed;
                     
-                    _renderer.LoadVisualMesh(visualMesh);
-                    if (_selectedAnimation != null)
+                    renderer.LoadVisualMesh(visualMesh);
+                    renderer.UseActorLighting = true;
+                    renderer.LoopAnimationPreview = loopAnimation;
+                    renderer.AnimationSpeed = animationSpeed;
+
+                    // Frame camera nicely on actor model
+                    if (visualMesh.Vertices.Count > 0)
                     {
-                        _renderer.SetActiveAnimation(_selectedAnimation);
+                        float minX = float.MaxValue, minY = float.MaxValue, minZ = float.MaxValue;
+                        float maxX = float.MinValue, maxY = float.MinValue, maxZ = float.MinValue;
+                        foreach (var v in visualMesh.Vertices)
+                        {
+                            if (v.X < minX) minX = v.X;
+                            if (v.X > maxX) maxX = v.X;
+                            if (v.Y < minY) minY = v.Y;
+                            if (v.Y > maxY) maxY = v.Y;
+                            if (v.Z < minZ) minZ = v.Z;
+                            if (v.Z > maxZ) maxZ = v.Z;
+                        }
+                        var center = new Vector3((minX + maxX) * 0.5f, (minY + maxY) * 0.5f, (minZ + maxZ) * 0.5f);
+                        float size = (new Vector3(maxX - minX, maxY - minY, maxZ - minZ)).Length;
+                        float distance = MathF.Max(size * 1.3f, 150f);
+                        var camPos = center + new Vector3(distance * 0.45f, distance * 0.25f, distance * 1.5f);
+                        renderer.SetCameraPositionAndTarget(camPos, center);
                     }
-                    _renderer.Run();
+
+                    if (previewAnimation != null)
+                    {
+                        renderer.SetActiveAnimation(previewAnimation);
+                    }
+                    renderer.Run();
+                    if (ReferenceEquals(_renderer, renderer)) _renderer = null;
                 });
 
                 rendererThread.SetApartmentState(System.Threading.ApartmentState.STA);
+                rendererThread.IsBackground = true;
+                rendererThread.Name = "Actor viewport";
                 rendererThread.Start();
             }
             catch (Exception ex)
@@ -294,21 +306,9 @@ namespace Sm64DecompLevelViewer
                     // If renderer is open, update visual mesh texture maps and reload OpenGL cache
                     if (_renderer != null)
                     {
-                        string modelPath = Path.Combine(actorDir, "model.inc.c");
-                        string geoPath = Path.Combine(actorDir, "geo.inc.c");
-
-                        var geoParser = new GeoLayoutParser();
-                        var transforms = geoParser.ParseActorGeoLayout(geoPath);
-
-                        VisualMesh? newMesh = _modelParser.ParseModelFile(modelPath, "", _selectedActor, transforms, geoParser.DlToJointIndex);
-                        if (newMesh != null)
-                        {
-                            newMesh.Joints = geoParser.ParsedJoints;
-                            newMesh.DlToJointIndex = geoParser.DlToJointIndex;
-                            _modelParser.ParseActorTextureMapping(actorDir, modelPath, newMesh, _projectRoot);
-                            _renderer.LoadVisualMeshThreadSafe(newMesh);
-                            _renderer.ReloadTexturesThreadSafe();
-                        }
+                        var newMesh = ActorModelLoader.Load(_projectRoot, _selectedActor);
+                        _renderer.LoadVisualMeshThreadSafe(newMesh);
+                        _renderer.ReloadTexturesThreadSafe();
                     }
 
                     MessageBox.Show($"Replaced texture: {item.FileName}.\nBuild the project to compile this texture into the game.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -322,10 +322,12 @@ namespace Sm64DecompLevelViewer
 
         private void ActorEditorWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
+            _isClosing = true;
+            _animationUiTimer.Stop();
             if (_renderer != null)
             {
-                try { _renderer.Close(); } catch { }
-                try { _renderer.Dispose(); } catch { }
+                try { _renderer.RequestCloseThreadSafe(); } catch { }
+
                 _renderer = null;
             }
         }
@@ -438,19 +440,9 @@ namespace Sm64DecompLevelViewer
 
                 if (_renderer != null)
                 {
-                    string geoPath = Path.Combine(actorDir, "geo.inc.c");
-                    var geoParser = new GeoLayoutParser();
-                    var transforms = geoParser.ParseActorGeoLayout(geoPath);
-
-                    VisualMesh? newMesh = _modelParser.ParseModelFile(modelPath, "", "mario", transforms, geoParser.DlToJointIndex);
-                    if (newMesh != null)
-                    {
-                        newMesh.Joints = geoParser.ParsedJoints;
-                        newMesh.DlToJointIndex = geoParser.DlToJointIndex;
-                        _modelParser.ParseActorTextureMapping(actorDir, modelPath, newMesh, _projectRoot);
-                        _renderer.LoadVisualMeshThreadSafe(newMesh);
-                        _renderer.ReloadTexturesThreadSafe();
-                    }
+                    var newMesh = ActorModelLoader.Load(_projectRoot, "mario");
+                    _renderer.LoadVisualMeshThreadSafe(newMesh);
+                    _renderer.ReloadTexturesThreadSafe();
                 }
             }
             catch (Exception ex)
@@ -459,31 +451,49 @@ namespace Sm64DecompLevelViewer
             }
         }
 
-        private void LoadMarioAnimations()
+        private void LoadActorAnimations()
         {
             try
             {
                 var parser = new AnimationParser();
-                _marioAnimations = parser.ScanAnimations(_projectRoot);
-                AnimationComboBox.ItemsSource = _marioAnimations.Select(a => a.Name).ToList();
-                if (_marioAnimations.Count > 0)
+                var geo = new GeoLayoutParser();
+                geo.ParseActorGeoLayout(Path.Combine(_projectRoot, "actors", _selectedActor!, "geo.inc.c"));
+                _actorAnimations = parser.ScanActorAnimations(_projectRoot, _selectedActor!, geo.ParsedJoints.Count);
+                AnimationComboBox.ItemsSource = _actorAnimations.Select(a => a.Name).ToList();
+                MarioAnimationsPanel.Visibility = _actorAnimations.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+                if (_actorAnimations.Count > 0)
                 {
-                    AnimationComboBox.SelectedIndex = 0;
+                    int idle = _actorAnimations.IndexOf(AnimationParser.SelectDefaultAnimation(_actorAnimations, _selectedActor!)!);
+                    AnimationComboBox.SelectedIndex = idle >= 0 ? idle : 0;
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error loading Mario animations: {ex.Message}");
+                Console.WriteLine($"Error loading actor animations: {ex.Message}");
             }
         }
 
         private void AnimationComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (AnimationComboBox.SelectedIndex >= 0 && AnimationComboBox.SelectedIndex < _marioAnimations.Count)
+            if (AnimationComboBox.SelectedIndex >= 0 && AnimationComboBox.SelectedIndex < _actorAnimations.Count)
             {
-                _selectedAnimation = _marioAnimations[AnimationComboBox.SelectedIndex];
+                _selectedAnimation = _actorAnimations[AnimationComboBox.SelectedIndex];
                 var parser = new AnimationParser();
-                parser.LoadAnimationData(_selectedAnimation);
+                try
+                {
+                    parser.LoadAnimationData(_selectedAnimation);
+                }
+                catch (Exception ex)
+                {
+                    _selectedAnimation = null;
+                    MessageBox.Show($"Unable to load animation: {ex.Message}", "Animation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                _syncAnimationControls = true;
+                AnimationFrameSlider.Maximum = Math.Max(0, _selectedAnimation.FrameCount - 1);
+                AnimationFrameSlider.Value = _selectedAnimation.StartFrame;
+                AnimationFrameText.Text = $"Frame 1 / {_selectedAnimation.FrameCount}";
+                _syncAnimationControls = false;
                 
                 if (_renderer != null && _selectedAnimation != null)
                 {
@@ -502,9 +512,14 @@ namespace Sm64DecompLevelViewer
 
         private void PlayAnim_Click(object sender, RoutedEventArgs e)
         {
+            if (_renderer == null && _selectedAnimation != null)
+            {
+                Open3D_Click(sender, e);
+                return;
+            }
             if (_renderer != null && _selectedAnimation != null)
             {
-                _renderer.SetActiveAnimation(_selectedAnimation);
+                _renderer.SetAnimationPlaying(!_renderer.AnimationPlaying);
             }
         }
 
@@ -512,7 +527,27 @@ namespace Sm64DecompLevelViewer
         {
             if (_renderer != null)
             {
-                _renderer.SetActiveAnimation(null);
+                _renderer.SeekAnimationFrame(_selectedAnimation?.StartFrame ?? 0);
+                _renderer.SetAnimationPlaying(false);
+            }
+        }
+
+        private void AnimationSettings_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_renderer != null) _renderer.LoopAnimationPreview = LoopAnimationCheckBox.IsChecked == true;
+        }
+
+        private void AnimationSpeed_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_renderer != null) _renderer.AnimationSpeed = (float)e.NewValue;
+        }
+
+        private void AnimationFrame_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (!_syncAnimationControls && _renderer != null)
+            {
+                _renderer.SetAnimationPlaying(false);
+                _renderer.SeekAnimationFrame((int)e.NewValue);
             }
         }
     }

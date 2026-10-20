@@ -1,7 +1,7 @@
 <Window x:Class="Sm64DecompLevelViewer.LevelEditorWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="SM64 Level Editor" Height="768" Width="1024"
+        Title="SM64 Level Editor" Height="840" Width="1280" MinHeight="680" MinWidth="1050"
         Background="#1E1E1E" Foreground="#CCCCCC"
         Icon="Assets/icon.png"
         Closing="Window_Closing">
@@ -13,6 +13,11 @@
         <SolidColorBrush x:Key="ButtonHoverBrush" Color="#3E3E42" />
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="#CCCCCC"/>
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#E5E7EB"/>
+            <Setter Property="Margin" Value="0,0,14,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
 
         <Style x:Key="RibbonButtonStyle" TargetType="Button">
@@ -210,8 +215,9 @@
         <!-- 2. MAIN WORKSPACE -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="300"/> <!-- Sidebar -->
-                <ColumnDefinition Width="*"/>   <!-- Viewport + Controls -->
+                <ColumnDefinition Width="330" MinWidth="280"/> <!-- Sidebar -->
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="*" MinWidth="500"/>   <!-- Viewport + Controls -->
             </Grid.ColumnDefinitions>
 
             <!-- SIDEBAR -->
@@ -327,7 +333,10 @@
                                     </Grid.RowDefinitions>
                                     <Button Grid.Row="0" Grid.Column="0" Content="Add Point" Click="AddSplinePoint_Click" Margin="2" Background="#007ACC" Foreground="White" BorderThickness="0" Padding="5"/>
                                     <Button Grid.Row="0" Grid.Column="1" Content="Remove Point" Click="RemoveSplinePoint_Click" Margin="2" Background="#D13438" Foreground="White" BorderThickness="0" Padding="5"/>
-                                    <Button Grid.Row="1" Grid.ColumnSpan="2" Content="🎥 Play Path Preview" Click="PlayPathPreview_Click" Margin="2,5" Background="#107C41" Foreground="White" BorderThickness="0" Padding="6"/>
+                                    <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal">
+                                        <Button Content="Play / Pause camera" Click="PlayPathPreview_Click" Margin="2,5" Background="#107C41" Foreground="White" BorderThickness="0" Padding="6"/>
+                                        <Button Content="Stop" Click="StopPathPreview_Click" Margin="2,5" Background="#444" Foreground="White" BorderThickness="0" Padding="6"/>
+                                    </StackPanel>
                                 </Grid>
                             </Grid>
                         </TabItem>
@@ -567,22 +576,47 @@
                 </Grid>
             </Border>
 
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" Background="#343942" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"/>
             <!-- RIGHT WORKSPACE (Viewport + Controls) -->
-            <Grid Grid.Column="1">
+            <Grid Grid.Column="2">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
+                    <RowDefinition x:Name="MeshDockRow" Height="0"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
+                <Border Background="#252A33" BorderBrush="#3F3F46" BorderThickness="0,0,0,1" Padding="12,9">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,9">
+                            <Button DockPanel.Dock="Right" Content="Frame level" Click="FrameLevel_Click" Padding="10,4" Background="#3E4654" Foreground="White" BorderThickness="0" ToolTip="Fit the entire area in the viewport"/>
+                            <Button DockPanel.Dock="Right" Content="Mesh tools" Click="LevelMeshEditorButton_Click" Padding="10,4" Margin="0,0,8,0" Background="#007ACC" Foreground="White" BorderThickness="0" ToolTip="Add meshes, edit visual vertices and collision in this editor"/>
+                            <TextBlock x:Name="SceneInfoText" Text="Loading level…" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </DockPanel>
+                        <WrapPanel>
+                            <CheckBox x:Name="TerrainViewCheckBox" Content="Terrain" IsChecked="True" Checked="ViewSettings_Changed" Unchecked="ViewSettings_Changed"/>
+                            <CheckBox x:Name="SkyboxViewCheckBox" Content="Skybox" IsChecked="True" Checked="ViewSettings_Changed" Unchecked="ViewSettings_Changed"/>
+                            <CheckBox x:Name="WaterViewCheckBox" Content="Water" IsChecked="True" Checked="ViewSettings_Changed" Unchecked="ViewSettings_Changed"/>
+                            <CheckBox x:Name="ActorsViewCheckBox" Content="Actors" IsChecked="True" Checked="ViewSettings_Changed" Unchecked="ViewSettings_Changed" ToolTip="Preview registered actor models at their placed transforms"/>
+                            <CheckBox x:Name="AnimateActorsCheckBox" Content="Animate" IsChecked="True" IsEnabled="{Binding IsChecked, ElementName=ActorsViewCheckBox}" Checked="ViewSettings_Changed" Unchecked="ViewSettings_Changed"/>
+                            <CheckBox x:Name="CollisionViewCheckBox" Content="Collision" IsChecked="False" Checked="ViewSettings_Changed" Unchecked="ViewSettings_Changed" ToolTip="Collision wireframe (C)"/>
+                            <CheckBox x:Name="MarkersViewCheckBox" Content="Markers" IsChecked="False" Checked="ViewSettings_Changed" Unchecked="ViewSettings_Changed" ToolTip="Object and invisible trigger markers"/>
+                        </WrapPanel>
+                        <TextBlock Text="WASD move · Right-drag orbit · Wheel zoom · Click select · Ctrl-click geometry" Foreground="#9CA9B9" FontSize="11" Margin="0,8,0,0"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- Viewport Container -->
-                <Border Background="Black" x:Name="RendererContainer" MouseDown="RendererContainer_MouseDown" Focusable="True">
+                <Border Grid.Row="1" Background="Black" x:Name="RendererContainer" MouseDown="RendererContainer_MouseDown" Focusable="True">
                     <Grid x:Name="HostGrid">
                         <TextBlock Text="3D VIEWER" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="24" Opacity="0.3"/>
                     </Grid>
                 </Border>
 
                 <!-- BOTTOM CONTROLS -->
-                <Border Grid.Row="1" Background="#1E1E1E" BorderBrush="#3F3F46" BorderThickness="0,1,0,0" Padding="10">
+                <Border Grid.Row="2" x:Name="MeshDock" Background="#252526" BorderBrush="#3F3F46" BorderThickness="0,1,0,0"/>
+                <GridSplitter Grid.Row="2" Height="5" VerticalAlignment="Top" HorizontalAlignment="Stretch" ResizeDirection="Rows" ResizeBehavior="PreviousAndCurrent" Background="#485261"/>
+                <Border Grid.Row="3" x:Name="NavigationControls" Background="#1E1E1E" BorderBrush="#3F3F46" BorderThickness="0,1,0,0" Padding="10">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/> <!-- Movement Gizmos -->
@@ -610,7 +644,7 @@
                         </StackPanel>
 
                         <!-- Sliders -->
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="40,0">
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="20,0">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="120"/>
@@ -633,17 +667,11 @@
                             </Grid>
                         </StackPanel>
 
-                        <!-- Mode & Drop -->
+                        <!-- Mode & Drop & Debugger -->
                         <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                            <Button Content="🔍 Open Scan Debugger" Padding="10,5" Margin="0,0,0,5" Background="#007ACC" Foreground="White" BorderThickness="0" Click="OpenScanDebugger_Click"/>
                             <Button Content="Drop To Ground" Padding="10,5" Margin="0,0,0,5" Background="#3E3E42" Foreground="White" BorderThickness="0" Click="DropToGround_Click"/>
-                            <ComboBox SelectedIndex="0" Width="120" Background="#333333" Foreground="White" BorderThickness="1" BorderBrush="#3F3F46">
-                                <ComboBox.Resources>
-                                    <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#333333" />
-                                    <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="White" />
-                                </ComboBox.Resources>
-                                <ComboBoxItem Content="Fly Mode" Background="#333333" Foreground="White"/>
-                                <ComboBoxItem Content="Orbit Mode" Background="#333333" Foreground="White"/>
-                            </ComboBox>
+                            <Button Content="Focus selected" Click="FocusSelected_Click" Padding="10,5" Background="#3E4654" Foreground="White" BorderThickness="0"/>
                         </StackPanel>
                     </Grid>
                 </Border>

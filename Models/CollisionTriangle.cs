@@ -9,7 +9,9 @@ public class CollisionTriangle
     public int V2 { get; set; }  // Vertex index 2
     public int V3 { get; set; }  // Vertex index 3
     public string SurfaceType { get; set; } = "SURFACE_DEFAULT";
-    public int? SpecialParam { get; set; }
+    private int? specialParam;
+    public string? RawSpecialParam { get; set; }
+    public int? SpecialParam { get=>specialParam; set { specialParam=value; RawSpecialParam=null; } }
 
     public CollisionTriangle(int v1, int v2, int v3, string surfaceType = "SURFACE_DEFAULT", int? specialParam = null)
     {

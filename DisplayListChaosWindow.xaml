@@ -1,7 +1,7 @@
 <Window x:Class="Sm64DecompLevelViewer.DisplayListChaosWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Display List Chaos Manager" Height="420" Width="480"
+        Title="Display List Chaos Manager" Height="465" Width="540"
         Background="#121212" Foreground="#E0E0E0"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
     <Window.Resources>
@@ -21,7 +21,7 @@
         <!-- Header -->
         <StackPanel Grid.Row="0" Margin="0,0,0,15">
             <TextBlock Text="DISPLAY LIST CHAOS" FontSize="20" FontWeight="ExtraBold" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center"/>
-            <TextBlock Text="Exclude parts of models and level geometry dynamically at runtime" FontSize="11" Foreground="#888888" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+            <TextBlock Text="Skip actual nested display-list calls in actor and level source" FontSize="11" Foreground="#888888" HorizontalAlignment="Center" Margin="0,2,0,0"/>
         </StackPanel>
 
         <!-- Configuration Panel -->
@@ -29,7 +29,7 @@
             <StackPanel>
                 <!-- Slider -->
                 <DockPanel>
-                    <TextBlock Text="Exclusion Level:" FontSize="13" FontWeight="Bold" Foreground="#FFFFFF"/>
+                    <TextBlock Text="Exclusion Density:" FontSize="13" FontWeight="Bold" Foreground="#FFFFFF"/>
                     <TextBlock x:Name="LevelValueText" Text="Level 0 (Disabled)" FontSize="13" FontWeight="Bold" Foreground="#4CAF50" DockPanel.Dock="Right"/>
                 </DockPanel>
                 <Slider x:Name="LevelSlider" Minimum="0" Maximum="9" Value="0" TickFrequency="1" IsSnapToTickEnabled="True" Margin="0,8,0,15" ValueChanged="LevelSlider_ValueChanged"/>
@@ -39,18 +39,12 @@
                     <TextBlock x:Name="DescriptionText" Text="Select a level to see the exclusion effects." Foreground="#CCCCCC" TextWrapping="Wrap" FontSize="12" FontStyle="Italic"/>
                 </Border>
 
-                <!-- Trigger Mode -->
                 <DockPanel Margin="0,0,0,10">
-                    <TextBlock Text="Activation Trigger:" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="0,0,10,0" Width="120"/>
-                    <ComboBox x:Name="TriggerComboBox" SelectedIndex="0" Height="26" Background="#252526" Foreground="Black" BorderBrush="#3F3F46">
-                        <ComboBoxItem Content="Always Active"/>
-                        <ComboBoxItem Content="When Mario is Moving"/>
-                        <ComboBoxItem Content="When Mario is Standing"/>
-                    </ComboBox>
+                    <TextBlock Text="Pattern seed:" Width="130" VerticalAlignment="Center"/>
+                    <TextBox x:Name="SeedTextBox" Text="0" Width="160" HorizontalAlignment="Left"/>
                 </DockPanel>
-
-                <!-- Skybox toggle -->
-                <CheckBox x:Name="ExcludeSkyboxCheck" Content="Exclude Skybox (Levels 8-9)" Foreground="#CCCCCC" Margin="130,5,0,0" IsChecked="False"/>
+                <CheckBox x:Name="IncludeBranchesCheck" Content="Include branch-list tails" IsChecked="True" Foreground="#CCCCCC" Margin="0,0,0,10"/>
+                <TextBlock Text="Source edits require a ROM rebuild. HUD and generated skybox lists are preserved. No movement trigger is installed." Foreground="#999999" TextWrapping="Wrap"/>
             </StackPanel>
         </Border>
 
@@ -60,7 +54,7 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
-            <Button Content="Restore Original Files" Click="Restore_Click" Grid.Column="0" Height="30" Margin="0,0,5,0" Background="#3E3E42" Foreground="White" BorderThickness="0" Cursor="Hand" FontWeight="SemiBold"/>
+            <Button Content="Remove Exclusions" Click="Restore_Click" Grid.Column="0" Height="30" Margin="0,0,5,0" Background="#3E3E42" Foreground="White" BorderThickness="0" Cursor="Hand" FontWeight="SemiBold"/>
             <Button Content="Apply &amp; Patch Decomp" Click="Apply_Click" Grid.Column="1" Height="30" Margin="5,0,0,0" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0" Cursor="Hand" FontWeight="SemiBold"/>
         </Grid>
     </Grid>

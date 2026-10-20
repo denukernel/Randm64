@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\Services\SampleSynthPlayer.cs" Link="SampleSynthPlayer.cs" />
+    <Compile Include="..\..\Services\M64Service.cs" Link="M64Service.cs" />
+    <Compile Include="..\..\Services\M64TempoMap.cs" Link="M64TempoMap.cs" />
+    <Compile Include="..\..\Services\M64PreviewSchedule.cs" Link="M64PreviewSchedule.cs" />
+    <Compile Include="..\..\Services\M64LayerPlanner.cs" Link="M64LayerPlanner.cs" />
+    <Compile Include="..\..\Services\M64SequenceSaver.cs" Link="M64SequenceSaver.cs" />
+    <Compile Include="..\..\Services\AiffLoopReader.cs" Link="AiffLoopReader.cs" />
+    <Compile Include="..\..\Services\Sm64SoundBank.cs" Link="Sm64SoundBank.cs" />
+    <Compile Include="..\..\Services\Sm64Envelope.cs" Link="Sm64Envelope.cs" />
+    <Compile Include="..\..\Services\Sm64NoteTiming.cs" Link="Sm64NoteTiming.cs" />
+    <Compile Include="..\..\Services\Sm64Reverb.cs" Link="Sm64Reverb.cs" />
+  </ItemGroup>
+</Project>

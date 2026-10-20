@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Text;
+using Sm64DecompLevelViewer.Services.Chaos;
 using Microsoft.Win32;
 using System.Windows;
 using System.Windows.Controls;
@@ -23,10 +24,6 @@ namespace Sm64DecompLevelViewer
         private readonly List<int> _activeGameLogicModes = new() { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 };
         private bool _gameLogicSimultaneous = true;
         private readonly List<int> _activeAudioDistortionModes = new() { 0 };
-        private readonly List<int> _channelPointerOffsets = new();
-        private readonly List<int> _layerPointerOffsets = new();
-        private readonly List<int> _jumpPointerOffsets = new();
-        private readonly List<int> _decayReleaseOffsets = new();
 
         private readonly string _presetsDir;
         private bool _isLoadingPreset = false;
@@ -35,6 +32,7 @@ namespace Sm64DecompLevelViewer
         private readonly List<ChaosPreset> _stockpile = new();
         private readonly List<ChaosPreset> _queue = new();
         private bool _isQueueRunning = false;
+        private bool _isBusy;
         private bool _isQueueAccumulating = false;
         private readonly HashSet<string> _filesModifiedInQueue = new();
         private readonly Dictionary<string, string> _accumulatedMacros = new();
@@ -43,6 +41,7 @@ namespace Sm64DecompLevelViewer
         public ChaosEngineWindow(string projectRoot)
         {
             InitializeComponent();
+            Closing += (_, e) => { if (_isBusy) e.Cancel = true; };
             _projectRoot = projectRoot;
             
             _presetsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Randm64", "Settings", "ChaosPresets");
@@ -60,6 +59,9 @@ namespace Sm64DecompLevelViewer
 
         private async void ChaosButton_Click(object sender, RoutedEventArgs e)
         {
+            if (_isBusy) return;
+            _isBusy = true;
+            SetWindowEnabled(false);
             _isQueueRunning = false;
             _isQueueAccumulating = false;
             _filesModifiedInQueue.Clear();
@@ -84,7 +86,8 @@ namespace Sm64DecompLevelViewer
             }
             finally
             {
-                ChaosButton.IsEnabled = true;
+                _isBusy = false;
+                SetWindowEnabled(true);
                 CorruptionProgressBar.Visibility = Visibility.Collapsed;
             }
         }
@@ -133,7 +136,7 @@ namespace Sm64DecompLevelViewer
             bool randomizeSkybox = RandomizeSkyboxCheck.IsChecked == true;
             bool randomizeText = RandomizeTextCheck.IsChecked == true;
             int textMode = TextRandomizeModeComboBox.SelectedIndex;
-            int m64Mode = 0; // ignored, randomly selected from _activeM64Modes in CorruptM64SequenceFile
+            int[] m64Modes = _activeM64Modes.ToArray();
             bool randomizeTextures = RandomizeTexturesCheck.IsChecked == true;
             int textureMode = TextureRandomizeModeComboBox.SelectedIndex;
             
@@ -189,9 +192,11 @@ namespace Sm64DecompLevelViewer
                 !glitchAnimations && !glitchHud && !replaceSfx && !replaceTexturesCustom && !randomizeMarioColors && DlExclusionCheck.IsChecked != true &&
                 !scrambleTitleScreen && !randomizeCutsceneCamera && !startLevelChaos && !lakituCameraChaos && !gameLogicRandomizer)
             {
-                MessageBox.Show("Please select at least one target asset type or cheat to inflict.", "No Targets Selected", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
+                throw new InvalidOperationException("Please select at least one target asset type or cheat to inflict.");
             }
+
+            if (targetMusic && m64KeepStructure && m64Modes.Contains(27))
+                throw new InvalidOperationException("Deselect Sequence Pointer Slider: pointer mutation can crash the audio thread.");
 
             await Task.Run(() =>
             {
@@ -1566,9 +1571,13 @@ void apply_chaos_intro_camera(struct Camera *c) {
                         }
                     }
 
+                    filesToCorrupt = filesToCorrupt.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
+                    var failures = new List<string>();
                     int totalFiles = filesToCorrupt.Count;
                     if (totalFiles == 0)
                     {
+                        if (targetMusic)
+                            throw new InvalidOperationException("No M64 files matched the selected music targets.");
                         Dispatcher.Invoke(() =>
                         {
                             StatusTextBlock.Text = "No files found for selected targets.";
@@ -1582,35 +1591,33 @@ void apply_chaos_intro_camera(struct Camera *c) {
                     {
                         try
                         {
-                            // Create backup before modifying if it doesn't already exist; restore original before corrupting
-                            string backupPath = file + ".bak";
-                            if (!File.Exists(backupPath))
-                            {
-                                File.Copy(file, backupPath);
-                            }
-                            else if (!_isQueueRunning || !_isQueueAccumulating || !_filesModifiedInQueue.Contains(file))
-                            {
-                                File.Copy(backupPath, file, true);
-                            }
-                            if (_isQueueRunning)
-                            {
-                                _filesModifiedInQueue.Add(file);
-                            }
-
-                            string ext = Path.GetExtension(file).ToLower();
-
+                            string ext = Path.GetExtension(file).ToLowerInvariant();
                             if (ext == ".m64")
                             {
-                                if (m64KeepStructure)
-                                {
-                                    CorruptM64SequenceFile(file, intensity, m64Mode);
-                                }
-                                else
-                                {
-                                    CorruptM64Alienated(file, intensity);
-                                }
+                                bool accumulate = _isQueueRunning && _isQueueAccumulating && _filesModifiedInQueue.Contains(file);
+                                new M64Corruptor(_random).CorruptFile(file, m64KeepStructure ? m64Modes : Array.Empty<int>(), Math.Clamp(intensity, 0, 100), !m64KeepStructure, accumulate);
+                                if (_isQueueRunning) _filesModifiedInQueue.Add(file);
                             }
-                            else if (ext == ".aiff")
+                            else
+                            {
+                                // Create backup before modifying if it doesn't already exist; restore original before corrupting
+                                string backupPath = file + ".bak";
+                                if (!File.Exists(backupPath))
+                                {
+                                    File.Copy(file, backupPath);
+                                }
+                                else if (!_isQueueRunning || !_isQueueAccumulating || !_filesModifiedInQueue.Contains(file))
+                                {
+                                    File.Copy(backupPath, file, true);
+                                }
+                                if (_isQueueRunning)
+                                {
+                                    _filesModifiedInQueue.Add(file);
+                                }
+
+                            }
+
+                            if (ext == ".aiff")
                             {
                                 // If this sound is targeted for custom replacement, skip corrupting it so it stays clean and replaced
                                 if (replaceSfx && _sfxReplacementRules.Any(r => r.TargetPath == file))
@@ -1667,7 +1674,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"Error corrupting file {file}: {ex.Message}");
+                            failures.Add($"{Path.GetFileName(file)}: {ex.Message}");
                         }
 
                         processed++;
@@ -1675,9 +1682,11 @@ void apply_chaos_intro_camera(struct Camera *c) {
                         Dispatcher.Invoke(() =>
                         {
                             CorruptionProgressBar.Value = progressVal;
-                            StatusTextBlock.Text = $"Corrupted {processed}/{totalFiles} files...";
+                            StatusTextBlock.Text = $"Processed {processed}/{totalFiles} files ({failures.Count} failed)...";
                         });
                     }
+                    if (failures.Count > 0)
+                        throw new InvalidOperationException($"{failures.Count} file(s) failed; other files may have been modified.\n" + string.Join("\n", failures.Take(12)));
                 });
         }
 
@@ -2400,1394 +2409,6 @@ void apply_chaos_intro_camera(struct Camera *c) {
             catch (Exception ex)
             {
                 Console.WriteLine($"Error modifying AIFF file {filePath}: {ex.Message}");
-            }
-        }
-
-        private void CorruptM64SequenceFile(string filePath, double intensity, int ignoredMode)
-        {
-            byte[] data;
-            try
-            {
-                data = File.ReadAllBytes(filePath);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error reading M64: {ex.Message}");
-                return;
-            }
-
-            _channelPointerOffsets.Clear();
-            _layerPointerOffsets.Clear();
-            _jumpPointerOffsets.Clear();
-            _decayReleaseOffsets.Clear();
-
-            var tempoOffsets = new List<int>();
-            var instrumentOffsets = new List<int>();
-            var volumeOffsets = new List<int>();
-            var pitchOffsets = new List<int>();
-            var velocityOffsets = new List<int>();
-            var panOffsets = new List<int>();
-            var reverbOffsets = new List<int>();
-            var pitchBendOffsets = new List<int>();
-            var percussionPitchOffsets = new HashSet<int>();
-
-            var visited = new HashSet<int>();
-            var channelOffsets = new HashSet<int>();
-            var layerLargeNotes = new Dictionary<int, bool>();
-            var layerInstruments = new Dictionary<int, int>();
-
-            bool isShindou = DetectIsShindou(data);
-
-            int seqStartOffset = 0;
-            if (data.Length >= 6 && data[0] == 0x00 && data[1] == 0x02)
-            {
-                seqStartOffset = (data[4] << 8) | data[5];
-            }
-
-            try
-            {
-                // Parse sequence headers starting at seqStartOffset
-                ParseSeqCommandsForOffsets(data, seqStartOffset, visited, channelOffsets, tempoOffsets, volumeOffsets);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error parsing seq headers of {filePath}: {ex.Message}");
-            }
-
-            try
-            {
-                // Parse channels found
-                visited.Clear();
-                foreach (int chanPos in channelOffsets)
-                {
-                    ParseChanCommandsForOffsets(data, chanPos, visited, layerLargeNotes, layerInstruments, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets, isShindou, -1, false, true);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error parsing channels of {filePath}: {ex.Message}");
-            }
-
-            try
-            {
-                // Parse layers found
-                visited.Clear();
-                foreach (var kvp in layerLargeNotes)
-                {
-                    int layerPos = kvp.Key;
-                    bool largeNotes = kvp.Value;
-                    int layerInstr = layerInstruments.ContainsKey(layerPos) ? layerInstruments[layerPos] : -1;
-                    ParseLayerCommandsForOffsets(data, layerPos, visited, pitchOffsets, velocityOffsets, instrumentOffsets, percussionPitchOffsets, largeNotes, layerInstr, true);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error parsing layers of {filePath}: {ex.Message}");
-            }
-
-            int minPitch = 127;
-            int maxPitch = 0;
-            foreach (int offset in pitchOffsets)
-            {
-                if (offset >= 0 && offset < data.Length)
-                {
-                    int pitch = data[offset] & 0x3f;
-                    if (pitch < minPitch) minPitch = pitch;
-                    if (pitch > maxPitch) maxPitch = pitch;
-                }
-            }
-            if (minPitch > maxPitch)
-            {
-                minPitch = 36;
-                maxPitch = 72;
-            }
-
-            // Shuffle the active modes list so that no single mode always runs first and hogs all the offsets
-            var shuffledModes = new List<int>(_activeM64Modes);
-            int n = shuffledModes.Count;
-            while (n > 1)
-            {
-                n--;
-                int k = _random.Next(n + 1);
-                int temp = shuffledModes[k];
-                shuffledModes[k] = shuffledModes[n];
-                shuffledModes[n] = temp;
-            }
-
-            // Ensure Pitch Flatten (Monotone) is executed at the very end to prevent other pitch-modifying modes from overriding it
-            if (shuffledModes.Contains(26))
-            {
-                shuffledModes.Remove(26);
-                shuffledModes.Add(26);
-            }
-
-            // Ensure Sparta Remix Mode is executed at the very end as well so it's not scrambled/transposed
-            if (shuffledModes.Contains(29))
-            {
-                shuffledModes.Remove(29);
-                shuffledModes.Add(29);
-            }
-
-            double intensityFactor = intensity / 100.0;
-            foreach (int m64Mode in shuffledModes)
-            {
-                // Reset category tracking for each mode so that checked corruption modes combine and stack instead of blocking each other
-                var modifiedPitches = new HashSet<int>();
-                var modifiedVelocities = new HashSet<int>();
-                var modifiedDurations = new HashSet<int>();
-                var modifiedTempos = new HashSet<int>();
-                var modifiedInstruments = new HashSet<int>();
-                var modifiedPans = new HashSet<int>();
-                var modifiedReverbs = new HashSet<int>();
-                var modifiedPitchBends = new HashSet<int>();
-                if (m64Mode == 0) // Transpose (Pitch Shift)
-                {
-                    if (pitchOffsets.Count > 0)
-                    {
-                        int pitchOffsetRange = (int)Math.Max(1, Math.Round(12 * intensityFactor));
-                        int pitchOffset = _random.Next(-pitchOffsetRange, pitchOffsetRange + 1);
-                        foreach (int offset in pitchOffsets)
-                        {
-                            if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                            {
-                                if (percussionPitchOffsets.Contains(offset)) continue;
-                                byte cmd = data[offset];
-                                int pitch = cmd & 0x3f;
-                                int newPitch = Math.Clamp(pitch + pitchOffset, minPitch, maxPitch);
-                                data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
-                                modifiedPitches.Add(offset);
-                            }
-                        }
-                    }
-                }
-                else if (m64Mode == 1) // Tempo Shift (BPM Warp)
-                {
-                    foreach (int offset in tempoOffsets)
-                    {
-                        if (offset >= 0 && offset < data.Length && !modifiedTempos.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                        {
-                            int tempoOffsetRange = (int)Math.Max(5, Math.Round(60 * intensityFactor));
-                            int tempoOffset = _random.Next(-tempoOffsetRange, tempoOffsetRange + 1);
-                            int tempo = data[offset];
-                            data[offset] = (byte)Math.Clamp(tempo + tempoOffset, 48, 240);
-                            modifiedTempos.Add(offset);
-                        }
-                    }
-                }
-                else if (m64Mode == 2) // Instrument Swap (Orchestration)
-                {
-                    var existingInstruments = new List<byte>();
-                    foreach (int offset in instrumentOffsets)
-                    {
-                        if (offset >= 0 && offset < data.Length)
-                        {
-                            byte inst = data[offset];
-                            if (!existingInstruments.Contains(inst))
-                            {
-                                existingInstruments.Add(inst);
-                            }
-                        }
-                    }
-
-                    if (existingInstruments.Count > 0)
-                    {
-                        foreach (int offset in instrumentOffsets)
-                        {
-                            if (offset >= 0 && offset < data.Length && !modifiedInstruments.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                            {
-                                data[offset] = existingInstruments[_random.Next(existingInstruments.Count)];
-                                modifiedInstruments.Add(offset);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        foreach (int offset in instrumentOffsets)
-                        {
-                            if (offset >= 0 && offset < data.Length && !modifiedInstruments.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                            {
-                                data[offset] = (byte)_random.Next(0, 4);
-                                modifiedInstruments.Add(offset);
-                            }
-                        }
-                    }
-                }
-                else if (m64Mode == 3) // Duration Glitcher
-                {
-                    for (int i = 0; i < pitchOffsets.Count; i++)
-                    {
-                        int offset = pitchOffsets[i];
-                        int velOffset = velocityOffsets[i];
-                        if (offset >= 0 && offset < data.Length && velOffset >= 0 && velOffset < data.Length)
-                        {
-                            byte cmd = data[offset];
-                            bool isType2 = (cmd & 0xc0) == 0x80;
-                            bool isType0 = (cmd & 0xc0) == 0x00;
-                            if (isType2 || isType0)
-                            {
-                                int durOffset = velOffset + 1;
-                                if (durOffset >= 0 && durOffset < data.Length && !modifiedDurations.Contains(durOffset) && _random.NextDouble() < (intensity / 100.0))
-                                {
-                                    data[durOffset] = (byte)_random.Next(10, 255);
-                                    modifiedDurations.Add(durOffset);
-                                }
-                            }
-                        }
-                    }
-                }
-                else if (m64Mode == 4) // Velocity Randomizer
-                {
-                    foreach (int offset in volumeOffsets)
-                    {
-                        if (offset >= 0 && offset < data.Length && !modifiedVelocities.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                        {
-                            data[offset] = (byte)_random.Next(10, 128);
-                            modifiedVelocities.Add(offset);
-                        }
-                    }
-                    foreach (int offset in velocityOffsets)
-                    {
-                        if (offset >= 0 && offset < data.Length && !modifiedVelocities.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                        {
-                            data[offset] = (byte)_random.Next(10, 128);
-                            modifiedVelocities.Add(offset);
-                        }
-                    }
-                }
-                else if (m64Mode == 5) // Melody Scrambler (Shuffle)
-                {
-                    var melodyOffsetsList = pitchOffsets.Where(off => !percussionPitchOffsets.Contains(off)).ToList();
-                    var percussionOffsetsList = pitchOffsets.Where(off => percussionPitchOffsets.Contains(off)).ToList();
-
-                    if (melodyOffsetsList.Count > 0)
-                    {
-                        int shuffleCount = (int)(melodyOffsetsList.Count * (intensity / 100.0) * 0.1);
-                        if (shuffleCount <= 0) shuffleCount = 1;
-                        for (int s = 0; s < shuffleCount; s++)
-                        {
-                            int idx1 = melodyOffsetsList[_random.Next(0, melodyOffsetsList.Count)];
-                            int idx2 = melodyOffsetsList[_random.Next(0, melodyOffsetsList.Count)];
-                            if (idx1 >= 0 && idx1 < data.Length && idx2 >= 0 && idx2 < data.Length)
-                            {
-                                if (!modifiedPitches.Contains(idx1) && !modifiedPitches.Contains(idx2))
-                                {
-                                    byte cmd1 = data[idx1];
-                                    byte cmd2 = data[idx2];
-                                    byte newCmd1 = (byte)((cmd1 & 0xc0) | (cmd2 & 0x3f));
-                                    byte newCmd2 = (byte)((cmd2 & 0xc0) | (cmd1 & 0x3f));
-                                    data[idx1] = newCmd1;
-                                    data[idx2] = newCmd2;
-                                    modifiedPitches.Add(idx1);
-                                    modifiedPitches.Add(idx2);
-                                }
-                            }
-                        }
-                    }
-
-                    if (percussionOffsetsList.Count > 0)
-                    {
-                        int shuffleCount = (int)(percussionOffsetsList.Count * (intensity / 100.0) * 0.1);
-                        if (shuffleCount <= 0) shuffleCount = 1;
-                        for (int s = 0; s < shuffleCount; s++)
-                        {
-                            int idx1 = percussionOffsetsList[_random.Next(0, percussionOffsetsList.Count)];
-                            int idx2 = percussionOffsetsList[_random.Next(0, percussionOffsetsList.Count)];
-                            if (idx1 >= 0 && idx1 < data.Length && idx2 >= 0 && idx2 < data.Length)
-                            {
-                                if (!modifiedPitches.Contains(idx1) && !modifiedPitches.Contains(idx2))
-                                {
-                                    byte cmd1 = data[idx1];
-                                    byte cmd2 = data[idx2];
-                                    byte newCmd1 = (byte)((cmd1 & 0xc0) | (cmd2 & 0x3f));
-                                    byte newCmd2 = (byte)((cmd2 & 0xc0) | (cmd1 & 0x3f));
-                                    data[idx1] = newCmd1;
-                                    data[idx2] = newCmd2;
-                                    modifiedPitches.Add(idx1);
-                                    modifiedPitches.Add(idx2);
-                                }
-                            }
-                        }
-                    }
-                }
-                else if (m64Mode == 6) // Octave Jumper (Shift +12 or -12 semitones)
-                {
-                    foreach (int offset in pitchOffsets)
-                    {
-                        if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                        {
-                            if (percussionPitchOffsets.Contains(offset)) continue;
-                            byte cmd = data[offset];
-                            int pitch = cmd & 0x3f;
-                            int maxOctaves = (int)Math.Clamp(Math.Round(3 * intensityFactor), 1, 4);
-                            int shift = _random.Next(1, maxOctaves + 1) * 12 * (_random.Next(0, 2) == 0 ? 1 : -1);
-                            int newPitch = Math.Clamp(pitch + shift, minPitch, maxPitch);
-                            data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
-                            modifiedPitches.Add(offset);
-                        }
-                    }
-                }
-                else if (m64Mode == 7) // Channel Muter
-                {
-                    foreach (int offset in volumeOffsets)
-                    {
-                        if (offset >= 0 && offset < data.Length && !modifiedVelocities.Contains(offset) && _random.NextDouble() < (intensity / 100.0) * 0.4)
-                        {
-                            data[offset] = 0; // Mute channel
-                            modifiedVelocities.Add(offset);
-                        }
-                    }
-                }
-                else if (m64Mode == 8) // Pan Scrambler (0, 64, 127)
-                {
-                    foreach (int offset in panOffsets)
-                    {
-                        if (offset >= 0 && offset < data.Length && !modifiedPans.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                        {
-                            int r = _random.Next(0, 3);
-                            data[offset] = (byte)(r == 0 ? 0 : (r == 1 ? 64 : 127));
-                            modifiedPans.Add(offset);
-                        }
-                    }
-                }
-                else if (m64Mode == 9) // Reverb Maxer
-                {
-                    foreach (int offset in reverbOffsets)
-                    {
-                        if (offset >= 0 && offset < data.Length && !modifiedReverbs.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                        {
-                            int targetReverb = (int)Math.Clamp(127 * intensityFactor, 10, 127);
-                            data[offset] = (byte)targetReverb;
-                            modifiedReverbs.Add(offset);
-                        }
-                    }
-                }
-                else if (m64Mode == 10) // Pitch Bend Chaos
-                {
-                    foreach (int offset in pitchBendOffsets)
-                    {
-                        if (offset >= 0 && offset < data.Length && !modifiedPitchBends.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                        {
-                            int bendRange = (int)Math.Clamp(127 * intensityFactor, 10, 127);
-                            data[offset] = (byte)(128 + _random.Next(-bendRange, bendRange + 1));
-                            modifiedPitchBends.Add(offset);
-                        }
-                    }
-                }
-                else if (m64Mode == 11) // Note Lengthener (Sustain)
-                {
-                    for (int i = 0; i < pitchOffsets.Count; i++)
-                    {
-                        int offset = pitchOffsets[i];
-                        int velOffset = velocityOffsets[i];
-                        if (offset >= 0 && offset < data.Length && velOffset >= 0 && velOffset < data.Length)
-                        {
-                            byte cmd = data[offset];
-                            bool isType2 = (cmd & 0xc0) == 0x80;
-                            bool isType0 = (cmd & 0xc0) == 0x00;
-                            if (isType2 || isType0)
-                            {
-                                int durOffset = velOffset + 1;
-                                if (durOffset >= 0 && durOffset < data.Length && !modifiedDurations.Contains(durOffset) && _random.NextDouble() < (intensity / 100.0))
-                                {
-                                    int val = data[durOffset];
-                                    double mult = 1.0 + (3.0 * intensityFactor);
-                                    data[durOffset] = (byte)Math.Clamp(val * mult, 10, 255);
-                                    modifiedDurations.Add(durOffset);
-                                }
-                            }
-                        }
-                    }
-                }
-                else if (m64Mode == 12) // Note Shortener (Staccato)
-                {
-                    for (int i = 0; i < pitchOffsets.Count; i++)
-                    {
-                        int offset = pitchOffsets[i];
-                        int velOffset = velocityOffsets[i];
-                        if (offset >= 0 && offset < data.Length && velOffset >= 0 && velOffset < data.Length)
-                        {
-                            byte cmd = data[offset];
-                            bool isType2 = (cmd & 0xc0) == 0x80;
-                            bool isType0 = (cmd & 0xc0) == 0x00;
-                            if (isType2 || isType0)
-                            {
-                                int durOffset = velOffset + 1;
-                                if (durOffset >= 0 && durOffset < data.Length && !modifiedDurations.Contains(durOffset) && _random.NextDouble() < (intensity / 100.0))
-                                {
-                                    data[durOffset] = (byte)_random.Next(1, 8); // extremely short duration
-                                    modifiedDurations.Add(durOffset);
-                                }
-                            }
-                        }
-                    }
-                }
-                else if (m64Mode == 13) // Major Scale Lock
-                {
-                    int[] majorScale = { 0, 2, 4, 5, 7, 9, 11 };
-                    foreach (int offset in pitchOffsets)
-                    {
-                        if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                        {
-                            if (percussionPitchOffsets.Contains(offset)) continue;
-                            byte cmd = data[offset];
-                            int pitch = cmd & 0x3f;
-                            int noteNum = pitch % 12;
-                            int octave = pitch / 12;
-                            int closest = majorScale.OrderBy(n => Math.Abs(n - noteNum)).First();
-                            int newPitch = Math.Clamp(octave * 12 + closest, minPitch, maxPitch);
-                            data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
-                            modifiedPitches.Add(offset);
-                        }
-                    }
-                }
-                else if (m64Mode == 14) // Minor Scale Lock
-                {
-                    int[] minorScale = { 0, 2, 3, 5, 7, 8, 10 };
-                    foreach (int offset in pitchOffsets)
-                    {
-                        if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                        {
-                            if (percussionPitchOffsets.Contains(offset)) continue;
-                            byte cmd = data[offset];
-                            int pitch = cmd & 0x3f;
-                            int noteNum = pitch % 12;
-                            int octave = pitch / 12;
-                            int closest = minorScale.OrderBy(n => Math.Abs(n - noteNum)).First();
-                            int newPitch = Math.Clamp(octave * 12 + closest, minPitch, maxPitch);
-                            data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
-                            modifiedPitches.Add(offset);
-                        }
-                    }
-                }
-                else if (m64Mode == 15) // Atonal Glitcher
-                {
-                    foreach (int offset in pitchOffsets)
-                    {
-                        if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                        {
-                            if (percussionPitchOffsets.Contains(offset))
-                            {
-                                byte cmd = data[offset];
-                                int pitch = cmd & 0x3f;
-                                int newPitch = Math.Clamp(21 + _random.Next(0, 43), 21, 63);
-                                data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
-                                modifiedPitches.Add(offset);
-                            }
-                            else
-                            {
-                                byte cmd = data[offset];
-                                int pitch = cmd & 0x3f;
-                                int atonalRange = (int)Math.Max(2, Math.Round(24 * intensityFactor));
-                                int newPitch = Math.Clamp(pitch + _random.Next(-atonalRange, atonalRange + 1), minPitch, maxPitch);
-                                data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
-                                modifiedPitches.Add(offset);
-                            }
-                        }
-                    }
-                }
-                else if (m64Mode == 16) // Velocity Inverter
-                {
-                    foreach (int offset in velocityOffsets)
-                    {
-                        if (offset >= 0 && offset < data.Length && !modifiedVelocities.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                        {
-                            int val = data[offset];
-                            data[offset] = (byte)Math.Clamp(127 - val, 10, 127);
-                            modifiedVelocities.Add(offset);
-                        }
-                    }
-                }
-                else if (m64Mode == 17) // Dynamic Tremolo
-                {
-                    foreach (int offset in volumeOffsets)
-                    {
-                        if (offset >= 0 && offset < data.Length && !modifiedVelocities.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                        {
-                            int val = data[offset];
-                            int mod = _random.Next(0, 2) == 0 ? 30 : -30;
-                            data[offset] = (byte)Math.Clamp(val + mod, 10, 127);
-                            modifiedVelocities.Add(offset);
-                        }
-                    }
-                }
-                else if (m64Mode == 18) // Transpose Per Channel
-                {
-                    int[] channelTransposes = new int[16];
-                    int chRange = (int)Math.Max(1, Math.Round(12 * intensityFactor));
-                    for (int c = 0; c < 16; c++)
-                    {
-                        channelTransposes[c] = _random.Next(-chRange, chRange + 1);
-                    }
-                    
-                    for (int i = 0; i < pitchOffsets.Count; i++)
-                    {
-                        int offset = pitchOffsets[i];
-                        if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                        {
-                            if (percussionPitchOffsets.Contains(offset)) continue;
-                            byte cmd = data[offset];
-                            int pitch = cmd & 0x3f;
-                            int ch = i % 16;
-                            int newPitch = Math.Clamp(pitch + channelTransposes[ch], minPitch, maxPitch);
-                            data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
-                            modifiedPitches.Add(offset);
-                        }
-                    }
-                }
-                else if (m64Mode == 19) // Harmonizer (Octave Duplicator)
-                {
-                    for (int i = 0; i < pitchOffsets.Count - 1; i += 2)
-                    {
-                        int offset2 = pitchOffsets[i + 1];
-                        if (offset2 >= 0 && offset2 < data.Length && !modifiedPitches.Contains(offset2) && _random.NextDouble() < (intensity / 100.0) * 0.5)
-                        {
-                            if (percussionPitchOffsets.Contains(offset2)) continue;
-                            int offset1 = pitchOffsets[i];
-                            if (offset1 >= 0 && offset1 < data.Length)
-                            {
-                                byte cmd1 = data[offset1];
-                                int pitch1 = cmd1 & 0x3f;
-                                int newPitch = Math.Clamp(pitch1 + 12, minPitch, maxPitch);
-                                data[offset2] = (byte)((data[offset2] & 0xc0) | (newPitch & 0x3f));
-                                modifiedPitches.Add(offset2);
-                            }
-                        }
-                    }
-                }
-                else if (m64Mode == 20) // Drum Roll Glitcher
-                {
-                    for (int i = 0; i < pitchOffsets.Count; i++)
-                    {
-                        int offset = pitchOffsets[i];
-                        int velOffset = velocityOffsets[i];
-                        if (offset >= 0 && offset < data.Length && velOffset >= 0 && velOffset < data.Length)
-                        {
-                            if (percussionPitchOffsets.Contains(offset))
-                            {
-                                if (!modifiedVelocities.Contains(velOffset) && _random.NextDouble() < (intensity / 100.0))
-                                {
-                                    data[velOffset] = 127;
-                                    modifiedVelocities.Add(velOffset);
-
-                                    byte cmd = data[offset];
-                                    bool isType2 = (cmd & 0xc0) == 0x80;
-                                    bool isType0 = (cmd & 0xc0) == 0x00;
-                                    if (isType2 || isType0)
-                                    {
-                                        int durOffset = velOffset + 1;
-                                        if (durOffset >= 0 && durOffset < data.Length && !modifiedDurations.Contains(durOffset))
-                                        {
-                                            data[durOffset] = (byte)_random.Next(2, 8);
-                                            modifiedDurations.Add(durOffset);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                else if (m64Mode == 21) // Tempo Drifter
-                {
-                    int currentTempo = 120;
-                    foreach (int offset in tempoOffsets)
-                    {
-                        if (offset >= 0 && offset < data.Length && !modifiedTempos.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                        {
-                            currentTempo = data[offset];
-                            int mod = _random.Next(-15, 16);
-                            data[offset] = (byte)Math.Clamp(currentTempo + mod, 40, 220);
-                            modifiedTempos.Add(offset);
-                        }
-                    }
-                }
-                else if (m64Mode == 22) // Max all sequence volumes
-                {
-                    foreach (int offset in volumeOffsets)
-                    {
-                        if (offset >= 0 && offset < data.Length && !modifiedVelocities.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                        {
-                            data[offset] = 127;
-                            modifiedVelocities.Add(offset);
-                        }
-                    }
-                }
-                else if (m64Mode == 23) // Note Eraser and Lengthener
-                {
-                    for (int i = 0; i < pitchOffsets.Count; i++)
-                    {
-                        int offset = pitchOffsets[i];
-                        int velOffset = velocityOffsets[i];
-                        if (offset >= 0 && offset < data.Length && velOffset >= 0 && velOffset < data.Length)
-                        {
-                            byte cmd = data[offset];
-                            int durOffset = -1;
-                            bool isType2 = (cmd & 0xc0) == 0x80;
-                            if (isType2 || (cmd & 0xc0) == 0x00)
-                            {
-                                durOffset = velOffset + 1;
-                            }
-
-                            // 50% chance to erase (mute)
-                            if (_random.NextDouble() < 0.50)
-                            {
-                                if (!modifiedVelocities.Contains(velOffset))
-                                {
-                                    data[velOffset] = 0;
-                                    modifiedVelocities.Add(velOffset);
-                                }
-                            }
-                            // Otherwise, make some notes longer based on intensity
-                            else if (_random.NextDouble() < (intensity / 100.0))
-                            {
-                                if (durOffset >= 0 && durOffset < data.Length && !modifiedDurations.Contains(durOffset))
-                                {
-                                    int val = data[durOffset];
-                                    int clampMax = isType2 ? 255 : 127;
-                                    data[durOffset] = (byte)Math.Clamp(val * 4, 10, clampMax);
-                                    modifiedDurations.Add(durOffset);
-                                }
-                            }
-                        }
-                    }
-                }
-                else if (m64Mode == 24) // Melody Reverser
-                {
-                    var melodyOffsetsList = pitchOffsets.Where(off => !percussionPitchOffsets.Contains(off)).ToList();
-                    var percussionOffsetsList = pitchOffsets.Where(off => percussionPitchOffsets.Contains(off)).ToList();
-
-                    if (melodyOffsetsList.Count > 0)
-                    {
-                        List<int> targetOffsets = new List<int>();
-                        foreach (int offset in melodyOffsetsList)
-                        {
-                            if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                            {
-                                targetOffsets.Add(offset);
-                            }
-                        }
-                        
-                        List<byte> pitches = new List<byte>();
-                        foreach (int offset in targetOffsets)
-                        {
-                            pitches.Add((byte)(data[offset] & 0x3f));
-                        }
-                        pitches.Reverse();
-                        
-                        for (int i = 0; i < targetOffsets.Count; i++)
-                        {
-                            int offset = targetOffsets[i];
-                            byte cmd = data[offset];
-                            byte newPitch = pitches[i];
-                            data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
-                            modifiedPitches.Add(offset);
-                        }
-                    }
-
-                    if (percussionOffsetsList.Count > 0)
-                    {
-                        List<int> targetOffsets = new List<int>();
-                        foreach (int offset in percussionOffsetsList)
-                        {
-                            if (offset >= 0 && offset < data.Length && !modifiedPitches.Contains(offset) && _random.NextDouble() < (intensity / 100.0))
-                            {
-                                targetOffsets.Add(offset);
-                            }
-                        }
-                        
-                        List<byte> pitches = new List<byte>();
-                        foreach (int offset in targetOffsets)
-                        {
-                            pitches.Add((byte)(data[offset] & 0x3f));
-                        }
-                        pitches.Reverse();
-                        
-                        for (int i = 0; i < targetOffsets.Count; i++)
-                        {
-                            int offset = targetOffsets[i];
-                            byte cmd = data[offset];
-                            byte newPitch = pitches[i];
-                            data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
-                            modifiedPitches.Add(offset);
-                        }
-                    }
-                }
-                else if (m64Mode == 25) // Double Note (+3 Pitch)
-                {
-                    for (int i = 0; i < pitchOffsets.Count - 1; i += 2)
-                    {
-                        int offset2 = pitchOffsets[i + 1];
-                        if (offset2 >= 0 && offset2 < data.Length && !modifiedPitches.Contains(offset2) && _random.NextDouble() < (intensity / 100.0) * 0.5)
-                        {
-                            if (percussionPitchOffsets.Contains(offset2)) continue;
-                            int offset1 = pitchOffsets[i];
-                            if (offset1 >= 0 && offset1 < data.Length)
-                            {
-                                byte cmd1 = data[offset1];
-                                int pitch1 = cmd1 & 0x3f;
-                                int newPitch = Math.Clamp(pitch1 + 3, minPitch, maxPitch);
-                                data[offset2] = (byte)((data[offset2] & 0xc0) | (newPitch & 0x3f));
-                                modifiedPitches.Add(offset2);
-                            }
-                        }
-                    }
-                }
-                else if (m64Mode == 26) // Pitch Flatten (Monotone)
-                {
-                    // For each channel, find its pitch offsets and flatten them to a single random pitch
-                    foreach (int chanPos in channelOffsets)
-                    {
-                        var chanVisited = new HashSet<int>();
-                        var chanLayerLargeNotes = new Dictionary<int, bool>();
-                        var chanLayerInstruments = new Dictionary<int, int>();
-                        var chanInstrumentOffsets = new List<int>();
-                        var chanVolumeOffsets = new List<int>();
-                        var chanPanOffsets = new List<int>();
-                        var chanReverbOffsets = new List<int>();
-                        var chanPitchBendOffsets = new List<int>();
-
-                        ParseChanCommandsForOffsets(data, chanPos, chanVisited, chanLayerLargeNotes, chanLayerInstruments, chanInstrumentOffsets, chanVolumeOffsets, chanPanOffsets, chanReverbOffsets, chanPitchBendOffsets, isShindou, -1, false);
-
-                        var chanPitchOffsets = new List<int>();
-                        var chanVelocityOffsets = new List<int>();
-                        var chanVisitedLayers = new HashSet<int>();
-                        foreach (var kvp in chanLayerLargeNotes)
-                        {
-                            int layerPos = kvp.Key;
-                            int layerInstr = chanLayerInstruments.ContainsKey(layerPos) ? chanLayerInstruments[layerPos] : -1;
-                            ParseLayerCommandsForOffsets(data, layerPos, chanVisitedLayers, chanPitchOffsets, chanVelocityOffsets, chanInstrumentOffsets, percussionPitchOffsets, kvp.Value, layerInstr);
-                        }
-
-                        if (chanPitchOffsets.Count > 0)
-                        {
-                            // Choose a single target pitch for this entire channel (C2 to C5 / MIDI 36 to 72, or based on the first note pitch)
-                            int targetPitch = _random.Next(minPitch, maxPitch + 1);
-                            int firstOffset = chanPitchOffsets[0];
-                            if (firstOffset >= 0 && firstOffset < data.Length)
-                            {
-                                targetPitch = data[firstOffset] & 0x3f;
-                            }
-
-                            foreach (int offset in chanPitchOffsets)
-                            {
-                                if (offset >= 0 && offset < data.Length)
-                                {
-                                    if (percussionPitchOffsets.Contains(offset))
-                                    {
-                                        int targetPercussionPitch = Math.Clamp(targetPitch, 21, 63);
-                                        byte cmd = data[offset];
-                                        data[offset] = (byte)((cmd & 0xc0) | (targetPercussionPitch & 0x3f));
-                                        modifiedPitches.Add(offset);
-                                    }
-                                    else
-                                    {
-                                        byte cmd = data[offset];
-                                        data[offset] = (byte)((cmd & 0xc0) | (targetPitch & 0x3f));
-                                        modifiedPitches.Add(offset);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                else if (m64Mode == 27) // Sequence Pointer Slider
-                {
-                    // Slide channel pointers
-                    if (_channelPointerOffsets.Count > 0)
-                    {
-                        var targets = _channelPointerOffsets.Select(off => (data[off] << 8) | data[off + 1]).Distinct().OrderBy(t => t).ToList();
-                        foreach (int off in _channelPointerOffsets)
-                        {
-                            if (_random.NextDouble() < (intensity / 100.0))
-                            {
-                                int currentVal = (data[off] << 8) | data[off + 1];
-                                int idx = targets.IndexOf(currentVal);
-                                if (idx >= 0)
-                                {
-                                    int shift = _random.Next(-3, 4);
-                                    int newIdx = Math.Clamp(idx + shift, 0, targets.Count - 1);
-                                    int newVal = targets[newIdx];
-                                    data[off] = (byte)(newVal >> 8);
-                                    data[off + 1] = (byte)(newVal & 0xff);
-                                }
-                            }
-                        }
-                    }
-
-                    // Slide layer pointers
-                    if (_layerPointerOffsets.Count > 0)
-                    {
-                        var targets = _layerPointerOffsets.Select(off => (data[off] << 8) | data[off + 1]).Distinct().OrderBy(t => t).ToList();
-                        foreach (int off in _layerPointerOffsets)
-                        {
-                            if (_random.NextDouble() < (intensity / 100.0))
-                            {
-                                int currentVal = (data[off] << 8) | data[off + 1];
-                                int idx = targets.IndexOf(currentVal);
-                                if (idx >= 0)
-                                {
-                                    int shift = _random.Next(-3, 4);
-                                    int newIdx = Math.Clamp(idx + shift, 0, targets.Count - 1);
-                                    int newVal = targets[newIdx];
-                                    data[off] = (byte)(newVal >> 8);
-                                    data[off + 1] = (byte)(newVal & 0xff);
-                                }
-                            }
-                        }
-                    }
-
-                    // Slide jump/call pointers
-                    if (_jumpPointerOffsets.Count > 0)
-                    {
-                        var targets = _jumpPointerOffsets.Select(off => (data[off] << 8) | data[off + 1]).Distinct().OrderBy(t => t).ToList();
-                        foreach (int off in _jumpPointerOffsets)
-                        {
-                            if (_random.NextDouble() < (intensity / 100.0))
-                            {
-                                int currentVal = (data[off] << 8) | data[off + 1];
-                                int idx = targets.IndexOf(currentVal);
-                                if (idx >= 0)
-                                {
-                                    int shift = _random.Next(-3, 4);
-                                    int newIdx = Math.Clamp(idx + shift, 0, targets.Count - 1);
-                                    int newVal = targets[newIdx];
-                                    data[off] = (byte)(newVal >> 8);
-                                    data[off + 1] = (byte)(newVal & 0xff);
-                                }
-                            }
-                        }
-                    }
-                }
-                else if (m64Mode == 28) // Infinite Release
-                {
-                    // Overwrite note durations/gates to 255
-                    for (int i = 0; i < pitchOffsets.Count; i++)
-                    {
-                        int offset = pitchOffsets[i];
-                        int velOffset = velocityOffsets[i];
-                        if (offset >= 0 && offset < data.Length && velOffset >= 0 && velOffset < data.Length)
-                        {
-                            byte cmd = data[offset];
-                            int durOffset = -1;
-                            bool isType2 = (cmd & 0xc0) == 0x80;
-                            if (isType2 || (cmd & 0xc0) == 0x00)
-                            {
-                                durOffset = velOffset + 1;
-                            }
-                            if (durOffset >= 0 && durOffset < data.Length && !modifiedDurations.Contains(durOffset) && _random.NextDouble() < (intensity / 100.0))
-                            {
-                                data[durOffset] = 255;
-                                modifiedDurations.Add(durOffset);
-                            }
-                        }
-                    }
-
-                    // Maximize decay/release channel settings to 255
-                    foreach (int off in _decayReleaseOffsets)
-                    {
-                        if (off >= 0 && off < data.Length && _random.NextDouble() < (intensity / 100.0))
-                        {
-                            data[off] = 255;
-                        }
-                    }
-                }
-                else if (m64Mode == 29) // M64 Sparta Remix Mode
-                {
-                    // For each channel, replace instrument note pitches with the Sparta Remix melody sequence
-                    int[] spartaNotes = { 0, 0, 1, 1, -2, -2, 1, 1, 0, 12, 0, 12, 1, 13, 1, 13, -2, 10, -2, 10, 1, 13, 1, 13 };
-                    foreach (int chanPos in channelOffsets)
-                    {
-                        var chanVisited = new HashSet<int>();
-                        var chanLayerLargeNotes = new Dictionary<int, bool>();
-                        var chanLayerInstruments = new Dictionary<int, int>();
-                        var chanInstrumentOffsets = new List<int>();
-                        var chanVolumeOffsets = new List<int>();
-                        var chanPanOffsets = new List<int>();
-                        var chanReverbOffsets = new List<int>();
-                        var chanPitchBendOffsets = new List<int>();
-
-                        ParseChanCommandsForOffsets(data, chanPos, chanVisited, chanLayerLargeNotes, chanLayerInstruments, chanInstrumentOffsets, chanVolumeOffsets, chanPanOffsets, chanReverbOffsets, chanPitchBendOffsets, isShindou, -1, false);
-
-                        var chanPitchOffsets = new List<int>();
-                        var chanVelocityOffsets = new List<int>();
-                        var chanVisitedLayers = new HashSet<int>();
-                        foreach (var kvp in chanLayerLargeNotes)
-                        {
-                            int layerPos = kvp.Key;
-                            int layerInstr = chanLayerInstruments.ContainsKey(layerPos) ? chanLayerInstruments[layerPos] : -1;
-                            ParseLayerCommandsForOffsets(data, layerPos, chanVisitedLayers, chanPitchOffsets, chanVelocityOffsets, chanInstrumentOffsets, percussionPitchOffsets, kvp.Value, layerInstr);
-                        }
-
-                        if (chanPitchOffsets.Count > 0)
-                        {
-                            int basePitch = 60; // default Middle C
-                            // Find the first valid instrument note pitch to use as the base
-                            foreach (int offset in chanPitchOffsets)
-                            {
-                                if (offset >= 0 && offset < data.Length && !percussionPitchOffsets.Contains(offset))
-                                {
-                                    basePitch = data[offset] & 0x3f;
-                                    basePitch = (basePitch / 12) * 12;
-                                    break;
-                                }
-                            }
-
-                            int noteIndex = 0;
-                            foreach (int offset in chanPitchOffsets)
-                            {
-                                if (offset >= 0 && offset < data.Length)
-                                {
-                                    if (percussionPitchOffsets.Contains(offset)) continue;
-
-                                    byte cmd = data[offset];
-                                    int spartaOffset = spartaNotes[noteIndex % 24];
-                                    int newPitch = Math.Clamp(basePitch + spartaOffset, 0, 63);
-                                    data[offset] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
-                                    modifiedPitches.Add(offset);
-                                    noteIndex++;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            try
-            {
-                File.WriteAllBytes(filePath, data);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error writing mutated M64: {ex.Message}");
-            }
-        }
-
-        private bool DetectIsShindou(byte[] data)
-        {
-            for (int i = 0; i < data.Length - 2; i++)
-            {
-                byte cmd = data[i];
-                if (cmd >= 0x88 && cmd <= 0x8b)
-                {
-                    int offset = (data[i + 1] << 8) | data[i + 2];
-                    if (offset > 0 && offset < data.Length)
-                    {
-                        if (data[offset] <= 0xc0 || data[offset] == 0xfc || data[offset] == 0xfb || data[offset] == 0xff)
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
-            return false;
-        }
-
-        private int ReadVarIntForOffsets(byte[] data, ref int pos)
-        {
-            int val = 0;
-            byte b;
-            do
-            {
-                if (pos < 0 || pos >= data.Length) break;
-                b = data[pos++];
-                val = (val << 7) | (b & 0x7f);
-            } while ((b & 0x80) != 0);
-            return val;
-        }
-
-        private int GetSeqCmdSizeForOffsets(byte cmd, byte[] data, ref int pos)
-        {
-            // 0 parameter bytes
-            if (cmd == 0xff || cmd == 0xfe || cmd == 0xf7 || cmd == 0xf1 || 
-                cmd == 0xd4 || cmd == 0xc6)
-            {
-                return 0;
-            }
-
-            // Variable length integer (m64_read_compressed_u16)
-            if (cmd == 0xfd)
-            {
-                ReadVarIntForOffsets(data, ref pos);
-                return 0;
-            }
-
-            // 1 parameter byte
-            if (cmd == 0xf8 || cmd == 0xf2 || cmd == 0xdc || cmd == 0xda || 
-                cmd == 0xd5 || cmd == 0xdf || cmd == 0xde || cmd == 0xdd || 
-                cmd == 0xdb || cmd == 0xd3 || cmd == 0xd0 || cmd == 0xcc || 
-                cmd == 0xc9 || cmd == 0xc8 || cmd == 0xd9)
-            {
-                return 1;
-            }
-
-            // 2 parameter bytes
-            if (cmd == 0xfc || cmd == 0xfb || cmd == 0xfa || cmd == 0xf9 || 
-                cmd == 0xf5 || cmd == 0xd7 || cmd == 0xd6 || cmd == 0xd2 || 
-                cmd == 0xd1)
-            {
-                return 2;
-            }
-
-            // 3 parameter bytes
-            if (cmd == 0xc7)
-            {
-                return 3;
-            }
-
-            // Default for sub-commands or channel starts
-            if ((cmd & 0xF0) == 0x90) return 2;
-            if ((cmd & 0xF0) == 0x00) return 0;
-            if ((cmd & 0xF0) == 0x50) return 0;
-            if ((cmd & 0xF0) == 0x70) return 0;
-            if ((cmd & 0xF0) == 0x80) return 0;
-
-            return 0;
-        }
-
-        private int GetChanCmdSizeForOffsets(byte cmd, byte[] data, ref int pos, bool isShindou)
-        {
-            // 0 parameter bytes
-            if (cmd == 0xff || cmd == 0xfe || cmd == 0xf7 || cmd == 0xf6 || 
-                (cmd == 0xf1 && !isShindou) || (cmd == 0xf0 && isShindou) ||
-                cmd == 0xc5 || cmd == 0xc3 || cmd == 0xc4 || 
-                cmd == 0xe4 || cmd == 0xea || cmd == 0xec)
-            {
-                return 0;
-            }
-
-            // Variable length integer (m64_read_compressed_u16)
-            if (cmd == 0xfd)
-            {
-                ReadVarIntForOffsets(data, ref pos);
-                return 0;
-            }
-
-            // 1 parameter byte
-            if (cmd == 0xf8 || cmd == 0xf4 || cmd == 0xf3 || 
-                (cmd == 0xf2 && !isShindou) || (cmd == 0xf1 && isShindou) || 
-                cmd == 0xc6 || cmd == 0xc1 || cmd == 0xdf || cmd == 0xe0 || 
-                cmd == 0xdd || cmd == 0xdc || cmd == 0xdb || cmd == 0xd9 || 
-                cmd == 0xd8 || cmd == 0xd7 || cmd == 0xd6 || cmd == 0xd4 || 
-                cmd == 0xd3 || cmd == 0xd2 || cmd == 0xd1 || cmd == 0xe3 || 
-                cmd == 0xe5 || cmd == 0xe6 || cmd == 0xeb ||
-                cmd == 0xda || cmd == 0xd5 || cmd == 0xde || cmd == 0xd0 || 
-                cmd == 0xcc || cmd == 0xc9 || cmd == 0xc8)
-            {
-                return 1;
-            }
-
-            // 2 parameter bytes
-            if (cmd == 0xfc || cmd == 0xfb || cmd == 0xfa || cmd == 0xf9 || 
-                cmd == 0xf5 || cmd == 0xc2 || cmd == 0xda || cmd == 0xe7)
-            {
-                return 2;
-            }
-
-            // 3 parameter bytes
-            if (cmd == 0xe2 || cmd == 0xe1 || cmd == 0xc7)
-            {
-                return 3;
-            }
-
-            // 8 parameter bytes
-            if (cmd == 0xe8)
-            {
-                return 8;
-            }
-
-            // Default for any sub-commands or note events that fall into channel parsing
-            if ((cmd & 0xF0) == 0x90) return isShindou ? 0 : 2;
-            if ((cmd & 0xF0) == 0x10) return 2;
-            if ((cmd & 0xF0) == 0x20) return 0;
-            if ((cmd & 0xF0) == 0x30) return 1;
-            if ((cmd & 0xF0) == 0x40) return 1;
-            if ((cmd & 0xF0) == 0x50) return 0;
-            if ((cmd & 0xF0) == 0x60) return 0;
-            if ((cmd & 0xF0) == 0x70) return 0;
-            if ((cmd & 0xF0) == 0x80) return 0;
-
-            return 0;
-        }
-
-        private int GetLayerCmdSizeForOffsets(byte cmd, byte[] data, ref int pos)
-        {
-            // 0 parameter bytes
-            if (cmd == 0xff || cmd == 0xf7 || cmd == 0xc4 || cmd == 0xc5 || 
-                cmd == 0xc8 || cmd == 0xcc)
-            {
-                return 0;
-            }
-
-            // Rest command (0xc0) takes a variable-length integer delay parameter
-            // Set short note default play percentage (0xc3) takes a variable-length integer parameter
-            if (cmd == 0xc0 || cmd == 0xc3)
-            {
-                ReadVarIntForOffsets(data, ref pos);
-                return 0;
-            }
-
-            // 1 parameter byte
-            if (cmd == 0xf8 || cmd == 0xf4 || cmd == 0xc1 || cmd == 0xca || 
-                cmd == 0xc2 || cmd == 0xc9 || cmd == 0xc6)
-            {
-                return 1;
-            }
-
-            // 2 parameter bytes
-            if (cmd == 0xfc || cmd == 0xfb)
-            {
-                return 2;
-            }
-
-            // 3 parameter bytes (e.g. 0xcb reads s16 + u8 = 3 bytes)
-            if (cmd == 0xcb)
-            {
-                return 3;
-            }
-
-            // Portamento command (0xc7) has special dynamic parameter size
-            if (cmd == 0xc7)
-            {
-                if (pos < data.Length)
-                {
-                    byte mode = data[pos++]; // reads mode (1 byte)
-                    pos++; // Skip targetNote (1 byte)
-                    if ((mode & 0x80) != 0)
-                    {
-                        pos++; // Special mode: reads 1 byte for time
-                    }
-                    else
-                    {
-                        ReadVarIntForOffsets(data, ref pos); // Non-special mode: reads compressed u16 for time
-                    }
-                }
-                return 0;
-            }
-
-            // 0 parameter bytes for note table selectors (0xd0..0xef) and other commands
-            return 0;
-        }
-
-        private void ParseSeqCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, HashSet<int> channelOffsets, List<int> tempoOffsets, List<int> volumeOffsets)
-        {
-            if (pos < 0 || pos >= data.Length || visited.Contains(pos)) return;
-            visited.Add(pos);
-
-            while (pos < data.Length)
-            {
-                byte cmd = data[pos++];
-                if (cmd == 0xff) break;
-
-                if ((cmd & 0xf0) == 0x90)
-                {
-                    _channelPointerOffsets.Add(pos);
-                    int chanPos = (data[pos++] << 8) | data[pos++];
-                    if (chanPos > 0 && chanPos < data.Length)
-                    {
-                        channelOffsets.Add(chanPos);
-                    }
-                }
-                else if (cmd == 0xfb)
-                {
-                    _jumpPointerOffsets.Add(pos);
-                    int jumpOffset = (data[pos++] << 8) | data[pos++];
-                    if (jumpOffset > 0 && jumpOffset < data.Length)
-                    {
-                        ParseSeqCommandsForOffsets(data, jumpOffset, visited, channelOffsets, tempoOffsets, volumeOffsets);
-                    }
-                    break;
-                }
-                else if (cmd == 0xfd)
-                {
-                    ReadVarIntForOffsets(data, ref pos);
-                }
-                else if (cmd == 0xfe)
-                {
-                }
-                else if (cmd == 0xf2)
-                {
-                    volumeOffsets.Add(pos);
-                    pos++;
-                }
-                else if (cmd == 0xdd)
-                {
-                    tempoOffsets.Add(pos);
-                    pos++;
-                }
-                else
-                {
-                    int argSize = GetSeqCmdSizeForOffsets(cmd, data, ref pos);
-                    pos += argSize;
-                }
-            }
-        }
-
-        private void ParseChanCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, Dictionary<int, bool> layerLargeNotes, Dictionary<int, int> layerInstruments, List<int> instrumentOffsets, List<int> volumeOffsets, List<int> panOffsets, List<int> reverbOffsets, List<int> pitchBendOffsets, bool isShindou, int currentInstr = -1, bool largeNotesState = false, bool collectPointers = false)
-        {
-            if (pos < 0 || pos >= data.Length || visited.Contains(pos)) return;
-            visited.Add(pos);
-
-            while (pos < data.Length)
-            {
-                byte cmd = data[pos++];
-                if (cmd == 0xff) break;
-
-                if (cmd == 0xfb)
-                {
-                    if (collectPointers) _jumpPointerOffsets.Add(pos);
-                    int jumpOffset = (data[pos++] << 8) | data[pos++];
-                    if (jumpOffset > 0 && jumpOffset < data.Length)
-                    {
-                        ParseChanCommandsForOffsets(data, jumpOffset, visited, layerLargeNotes, layerInstruments, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets, isShindou, currentInstr, largeNotesState, collectPointers);
-                    }
-                    break;
-                }
-                else if (cmd == 0xfd)
-                {
-                    ReadVarIntForOffsets(data, ref pos);
-                }
-                else if (cmd == 0xc1)
-                {
-                    instrumentOffsets.Add(pos);
-                    if (pos < data.Length)
-                    {
-                        currentInstr = data[pos];
-                    }
-                    pos++;
-                }
-                else if (cmd == 0xc3) // chan_largenotesoff
-                {
-                    largeNotesState = false;
-                }
-                else if (cmd == 0xc4) // chan_largenoteson
-                {
-                    largeNotesState = true;
-                }
-                else if (cmd == 0xdf)
-                {
-                    volumeOffsets.Add(pos);
-                    pos++;
-                }
-                else if (cmd == 0xdd) // set pan
-                {
-                    panOffsets.Add(pos);
-                    pos++;
-                }
-                else if (cmd == 0xd4) // set reverb
-                {
-                    reverbOffsets.Add(pos);
-                    pos++;
-                }
-                else if (cmd == 0xd3) // set pitch bend
-                {
-                    pitchBendOffsets.Add(pos);
-                    pos++;
-                }
-                else if (cmd == 0xd9) // set decay release
-                {
-                    if (collectPointers) _decayReleaseOffsets.Add(pos);
-                    pos++;
-                }
-                else if (isShindou ? (cmd >= 0x88 && cmd <= 0x8b) : ((cmd & 0xf0) == 0x90))
-                {
-                    if (collectPointers) _layerPointerOffsets.Add(pos);
-                    int layerPos = (data[pos++] << 8) | data[pos++];
-                    if (layerPos > 0 && layerPos < data.Length)
-                    {
-                        layerLargeNotes[layerPos] = largeNotesState;
-                        layerInstruments[layerPos] = currentInstr;
-                    }
-                }
-                else
-                {
-                    int argSize = GetChanCmdSizeForOffsets(cmd, data, ref pos, isShindou);
-                    pos += argSize;
-                }
-            }
-        }
-
-        private void ParseLayerCommandsForOffsets(byte[] data, int pos, HashSet<int> visited, List<int> pitchOffsets, List<int> velocityOffsets, List<int> instrumentOffsets, HashSet<int> percussionPitchOffsets, bool largeNotes, int layerInstr = -1, bool collectPointers = false)
-        {
-            if (pos < 0 || pos >= data.Length || visited.Contains(pos)) return;
-            visited.Add(pos);
-
-            while (pos < data.Length)
-            {
-                byte cmd = data[pos++];
-                if (cmd == 0xff) break;
-
-                if (cmd == 0xfb)
-                {
-                    if (collectPointers) _jumpPointerOffsets.Add(pos);
-                    int jumpOffset = (data[pos++] << 8) | data[pos++];
-                    if (jumpOffset > 0 && jumpOffset < data.Length)
-                    {
-                        ParseLayerCommandsForOffsets(data, jumpOffset, visited, pitchOffsets, velocityOffsets, instrumentOffsets, percussionPitchOffsets, largeNotes, layerInstr, collectPointers);
-                    }
-                    break;
-                }
-                else if (cmd == 0xfc)
-                {
-                    if (collectPointers) _jumpPointerOffsets.Add(pos);
-                    int callOffset = (data[pos++] << 8) | data[pos++];
-                    if (callOffset > 0 && callOffset < data.Length)
-                    {
-                        ParseLayerCommandsForOffsets(data, callOffset, visited, pitchOffsets, velocityOffsets, instrumentOffsets, percussionPitchOffsets, largeNotes, layerInstr, collectPointers);
-                    }
-                }
-                else if (cmd == 0xfd)
-                {
-                    ReadVarIntForOffsets(data, ref pos);
-                }
-                else if (cmd == 0xc6)
-                {
-                    instrumentOffsets.Add(pos);
-                    if (pos < data.Length)
-                    {
-                        layerInstr = data[pos];
-                    }
-                    pos++;
-                }
-                else if (cmd >= 0x00 && cmd <= 0x3f) // Type 0 note (large)
-                {
-                    int pitchOffset = pos - 1;
-                    pitchOffsets.Add(pitchOffset);
-                    if (layerInstr == 127)
-                    {
-                        percussionPitchOffsets.Add(pitchOffset);
-                    }
-                    ReadVarIntForOffsets(data, ref pos); // Skip duration (varint)
-                    velocityOffsets.Add(pos);
-                    pos++; // Skip velocity (1 byte)
-                    pos++; // Skip gate/gateTime (1 byte)
-                }
-                else if (cmd >= 0x40 && cmd <= 0x7f) // Type 1 note (medium)
-                {
-                    int pitchOffset = pos - 1;
-                    pitchOffsets.Add(pitchOffset);
-                    if (layerInstr == 127)
-                    {
-                        percussionPitchOffsets.Add(pitchOffset);
-                    }
-                    ReadVarIntForOffsets(data, ref pos);
-                    velocityOffsets.Add(pos);
-                    pos++; // Skip velocity (1 byte)
-                }
-                else if (cmd >= 0x80 && cmd <= 0xbf) // Type 2 note (small)
-                {
-                    int pitchOffset = pos - 1;
-                    pitchOffsets.Add(pitchOffset);
-                    if (layerInstr == 127)
-                    {
-                        percussionPitchOffsets.Add(pitchOffset);
-                    }
-                    velocityOffsets.Add(pos);
-                    pos += 2; // Skip velocity (1 byte) and duration/gate (1 byte)
-                }
-                else
-                {
-                    int argSize = GetLayerCmdSizeForOffsets(cmd, data, ref pos);
-                    pos += argSize;
-                }
             }
         }
 
@@ -5834,6 +4455,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
 
         private void SetWindowEnabled(bool enabled)
         {
+            if (Content is UIElement content) content.IsEnabled = enabled;
             ChaosButton.IsEnabled = enabled;
             AddCurrentToQueueButton.IsEnabled = enabled;
             AddCurrentToStockpileButton.IsEnabled = enabled;
@@ -5847,12 +4469,14 @@ void apply_chaos_intro_camera(struct Camera *c) {
 
         private async void RunQueue_Click(object sender, RoutedEventArgs e)
         {
+            if (_isBusy) return;
             if (_queue.Count == 0)
             {
                 MessageBox.Show("Active queue is empty! Please add some presets to the queue first.", "Queue Empty", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
+            _isBusy = true;
             SetWindowEnabled(false);
             CorruptionProgressBar.Visibility = Visibility.Visible;
             CorruptionProgressBar.Value = 0;
@@ -5889,6 +4513,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             finally
             {
                 _isQueueRunning = false;
+                _isBusy = false;
                 SetWindowEnabled(true);
                 CorruptionProgressBar.Visibility = Visibility.Collapsed;
             }
@@ -5967,234 +4592,7 @@ void apply_chaos_intro_camera(struct Camera *c) {
             }
         }
 
-        private void CorruptM64Alienated(string filePath, double intensity)
-        {
-            byte[] bytes;
-            try
-            {
-                bytes = File.ReadAllBytes(filePath);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error reading M64: {ex.Message}");
-                return;
-            }
 
-            if (bytes.Length == 0) return;
-
-            int seqStartOffset = 0;
-            if (bytes.Length >= 6 && bytes[0] == 0x00 && bytes[1] == 0x02)
-            {
-                seqStartOffset = (bytes[4] << 8) | bytes[5];
-            }
-
-            _channelPointerOffsets.Clear();
-            _layerPointerOffsets.Clear();
-            _jumpPointerOffsets.Clear();
-            _decayReleaseOffsets.Clear();
-
-            var tempoOffsets = new List<int>();
-            var instrumentOffsets = new List<int>();
-            var volumeOffsets = new List<int>();
-            var pitchOffsets = new List<int>();
-            var velocityOffsets = new List<int>();
-            var panOffsets = new List<int>();
-            var reverbOffsets = new List<int>();
-            var pitchBendOffsets = new List<int>();
-            var percussionPitchOffsets = new HashSet<int>();
-
-            var visited = new HashSet<int>();
-            var channelOffsets = new HashSet<int>();
-            var layerLargeNotes = new Dictionary<int, bool>();
-            var layerInstruments = new Dictionary<int, int>();
-
-            bool isShindou = DetectIsShindou(bytes);
-
-            try
-            {
-                ParseSeqCommandsForOffsets(bytes, seqStartOffset, visited, channelOffsets, tempoOffsets, volumeOffsets);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error parsing seq headers for alienation of {filePath}: {ex.Message}");
-            }
-
-            try
-            {
-                visited.Clear();
-                foreach (int chanPos in channelOffsets)
-                {
-                    ParseChanCommandsForOffsets(bytes, chanPos, visited, layerLargeNotes, layerInstruments, instrumentOffsets, volumeOffsets, panOffsets, reverbOffsets, pitchBendOffsets, isShindou, -1, false, false);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error parsing channels for alienation of {filePath}: {ex.Message}");
-            }
-
-            try
-            {
-                visited.Clear();
-                foreach (var kvp in layerLargeNotes)
-                {
-                    int layerPos = kvp.Key;
-                    bool largeNotes = kvp.Value;
-                    int layerInstr = layerInstruments.ContainsKey(layerPos) ? layerInstruments[layerPos] : -1;
-                    ParseLayerCommandsForOffsets(bytes, layerPos, visited, pitchOffsets, velocityOffsets, instrumentOffsets, percussionPitchOffsets, largeNotes, layerInstr, false);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error parsing layers for alienation of {filePath}: {ex.Message}");
-            }
-
-            var safeOffsets = new HashSet<int>();
-            foreach (int offset in tempoOffsets) safeOffsets.Add(offset);
-            foreach (int offset in volumeOffsets) safeOffsets.Add(offset);
-            foreach (int offset in instrumentOffsets) safeOffsets.Add(offset);
-            foreach (int offset in panOffsets) safeOffsets.Add(offset);
-            foreach (int offset in reverbOffsets) safeOffsets.Add(offset);
-            foreach (int offset in pitchBendOffsets) safeOffsets.Add(offset);
-            foreach (int offset in pitchOffsets) safeOffsets.Add(offset);
-            foreach (int offset in velocityOffsets) safeOffsets.Add(offset);
-
-            for (int i = 0; i < pitchOffsets.Count; i++)
-            {
-                int offset = pitchOffsets[i];
-                int velOffset = velocityOffsets[i];
-                if (offset >= 0 && offset < bytes.Length && velOffset >= 0 && velOffset < bytes.Length)
-                {
-                    byte cmd = bytes[offset];
-                    if ((cmd & 0xc0) == 0x80 || (cmd & 0xc0) == 0x00)
-                    {
-                        int durOffset = velOffset + 1;
-                        if (durOffset >= 0 && durOffset < bytes.Length)
-                        {
-                            safeOffsets.Add(durOffset);
-                        }
-                    }
-                }
-            }
-
-            var safeOffsetsList = safeOffsets.Where(off => off >= 0 && off < bytes.Length).ToList();
-            if (safeOffsetsList.Count == 0) return;
-
-            var pitchOffsetsSet = new HashSet<int>(pitchOffsets);
-
-            double rate = (intensity / 100.0) * 0.15; // Higher rate for alienation
-            int changesCount = (int)(bytes.Length * rate);
-            if (changesCount <= 0) changesCount = 1;
-            changesCount = Math.Min(changesCount, safeOffsetsList.Count);
-
-            for (int i = 0; i < changesCount; i++)
-            {
-                int idx = _random.Next(safeOffsetsList.Count);
-                int pos = safeOffsetsList[idx];
-
-                if (pitchOffsetsSet.Contains(pos))
-                {
-                    byte cmd = bytes[pos];
-                    int newPitch = _random.Next(0, 64);
-                    bytes[pos] = (byte)((cmd & 0xc0) | (newPitch & 0x3f));
-                }
-                else
-                {
-                    bytes[pos] = (byte)_random.Next(0, 256);
-                }
-            }
-
-            try
-            {
-                File.WriteAllBytes(filePath, bytes);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error writing alienated M64: {ex.Message}");
-            }
-        }
-    }
-
-    public class ChaosPreset
-    {
-        public string PresetName { get; set; } = string.Empty;
-        public double Intensity { get; set; } = 10;
-        public int TargetLevelIndex { get; set; } = 0;
-        public string ChaosSeed { get; set; } = string.Empty;
-        public bool UseRandomSeed { get; set; } = true;
-        
-        public bool TargetMusicNotes { get; set; } = true;
-        public int MusicNotesMode { get; set; } = 0;
-        public List<int> ActiveM64Modes { get; set; } = new() { 0, 1, 2, 3, 4, 5 };
-        public bool M64All { get; set; } = true;
-        public bool M64Select { get; set; } = false;
-        public bool M64KeepStructure { get; set; } = true;
-
-        public bool TargetSounds { get; set; } = true;
-        public bool ShuffleSounds { get; set; } = false;
-        public bool ExcludeInstrumentsShuffle { get; set; } = false;
-        public bool ExcludeSfxShuffle { get; set; } = false;
-        public bool ShuffleSfxOnly { get; set; } = false;
-        public bool SfxIdentityShuffle { get; set; } = true;
-        public bool SfxPitchVariation { get; set; } = false;
-        public int SfxRandomizerMode { get; set; } = 0;
-
-        public bool ReplaceSfx { get; set; } = false;
-
-        public bool RandomizeDl { get; set; } = false;
-        public int DlRandomizerMode { get; set; } = 0;
-        public bool DlExclusion { get; set; } = false;
-
-        public bool TargetModels { get; set; } = true;
-        public bool TargetGoddard { get; set; } = true;
-        public int GoddardMode { get; set; } = 0;
-        public bool RandomizeMarioColors { get; set; } = false;
-        public int MarioColorsArea { get; set; } = 0;
-        public int MarioColorsMode { get; set; } = 0;
-
-        public bool GlitchAnimations { get; set; } = false;
-        public int AnimationGlitcherMode { get; set; } = 0;
-
-        public bool GlitchHud { get; set; } = false;
-        public int HudGlitcherMode { get; set; } = 0;
-
-        public bool RandomizeTextures { get; set; } = false;
-        public int TextureRandomizeMode { get; set; } = 0;
-        public bool ReplaceTexturesCustom { get; set; } = false;
-        public List<TextureReplacerWindow.TextureReplacementRule> ReplaceTexturesRules { get; set; } = new();
-        public bool TextureRandomizeSelectedOnly { get; set; } = false;
-        public List<string> TextureRandomizeSelectedPaths { get; set; } = new();
-
-        public int ModeIndex { get; set; } = 0;
-        public bool RandomizeSkybox { get; set; } = false;
-        public bool RandomizeText { get; set; } = false;
-        public int TextRandomizeMode { get; set; } = 0;
-
-        public bool ChaosLogicJumpWeird { get; set; } = false;
-        public bool ChaosLogicJumpDeath { get; set; } = false;
-        public bool LimboMario { get; set; } = false;
-        public int LimboMarioMode { get; set; } = 0;
-        public bool AlienSoundCheat { get; set; } = false;
-        public bool AudioDistortion { get; set; } = false;
-        public List<int> ActiveAudioDistortionModes { get; set; } = new() { 0 };
-        public bool GameLogicRandomizer { get; set; } = false;
-        public List<int> ActiveGameLogicModes { get; set; } = new() { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 };
-        public bool GameLogicSimultaneous { get; set; } = true;
-
-        public bool ScrambleTitleScreen { get; set; } = false;
-        public int TitleScreenScramblerMode { get; set; } = 0;
-        public bool RandomizeCutsceneCamera { get; set; } = false;
-        public int CutsceneCameraMode { get; set; } = 0;
-        public bool LakituCameraChaos { get; set; } = false;
-        public int LakituCameraMode { get; set; } = 0;
-        public bool StartLevelChaos { get; set; } = false;
-        public int StartLevelIndex { get; set; } = 0;
-    }
-
-    public class ChaosQueueFile
-    {
-        public List<ChaosPreset> Queue { get; set; } = new();
-        public List<ChaosPreset> Stockpile { get; set; } = new();
-        public bool Accumulate { get; set; } = true;
     }
 
     public static class InputBox
@@ -6242,3 +4640,4 @@ void apply_chaos_intro_camera(struct Camera *c) {
         }
     }
 }
+

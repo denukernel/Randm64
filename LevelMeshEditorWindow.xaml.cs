@@ -12,6 +12,111 @@ namespace Sm64DecompLevelViewer
 {
     public partial class LevelMeshEditorWindow : Window
     {
+        public event Action? EmbeddedCloseRequested;
+        public event Action<bool,string?>? PlacementPickingChanged;
+        private ModelImportPreviewWindow? placementPreview;
+        public bool HasPlacementPreview => placementPreview!=null;
+        private FrameworkElement? embeddedView;
+        public void PlaceOnTerrain(OpenTK.Mathematics.Vector3 point)
+        {
+            if(placementPreview==null) return;
+            placementPreview.PlaceOnTerrain(point);
+            _selectPointCallback?.Invoke(point,false);
+        }
+        public void ResumePlacement() => placementPreview?.ResumePlacement();
+        private async Task<bool> ShowPlacementAsync(ModelImportPreviewWindow preview,string? excluded=null)
+        {
+            placementPreview=preview;
+            var view=embeddedView ?? Content as FrameworkElement;
+            if(view!=null) view.IsEnabled=false;
+            preview.PickInLevelRequested+=()=>StatusBarText.Text="Shift-click terrain in the level viewport. Press Escape to return to the preview.";
+            PlacementPickingChanged?.Invoke(true,excluded);
+            try { return await preview.ShowForPlacementAsync(preview.Owner); }
+            finally
+            {
+                placementPreview=null;
+                PlacementPickingChanged?.Invoke(false,null);
+                if(view!=null) view.IsEnabled=true;
+            }
+        }
+        private readonly Func<OpenTK.Mathematics.Vector3>? _placementOrigin;
+        private (EditableGeometry Terrain,CollisionMesh Ground) PlacementContext(string area,string? excluded=null)
+        {
+            int index=int.Parse(System.Text.RegularExpressions.Regex.Match(area,@"\d+").Value);
+            var scene=LevelSceneLoader.Load(_projectRoot,_levelPath,index);
+            var terrain=ModelPlacementService.FromVisual(scene,t=>excluded==null ||
+                scene.Vertices[t.V1].SourceArrayName?.StartsWith(excluded+"_v",StringComparison.Ordinal)!=true);
+            var collision=_collisionParser.ParseCollisionFile(_collisionFiles[area],area,"") ?? throw new InvalidDataException("No collision geometry for placement.");
+            return (terrain,collision);
+        }
+        private async void AssembleImported_Click(object sender,RoutedEventArgs e)
+        {
+            try
+            {
+                if(ImportedModelsCombo.SelectedItem is not ImportedModelEntry entry || AreaComboBox.SelectedItem is not string area) return;
+                var original=ImportedModelPlacement.Read(entry,_projectRoot);
+                var centered=ImportedModelPlacement.AtBase(original);
+                var context=PlacementContext(area,entry.Symbol);
+                var excluded=ImportedModelPlacement.CollisionTriangles(original,context.Ground,entry);
+                var preview=new ModelImportPreviewWindow(centered.Local,entry.Symbol,centered.Pivot,1,context.Terrain,context.Ground,excluded,false)
+                { Owner=Application.Current?.Windows.OfType<Window>().FirstOrDefault(w=>w.IsActive),Title="Assemble imported model",ConfirmationText="Apply placement" };
+                if(!await ShowPlacementAsync(preview,entry.Symbol) || preview.Result==null) return;
+                string geo=Path.Combine(_levelPath,"areas",System.Text.RegularExpressions.Regex.Match(area,@"\d+").Value,"geo.inc.c");
+                ImportedModelPlacement.Save(entry,geo,_collisionFiles[area],original,preview.Result,_projectRoot);
+                LoadSelectedArea(); _reloadCallback?.Invoke();
+                _selectPointCallback?.Invoke(preview.Result.Vertices.Aggregate(OpenTK.Mathematics.Vector3.ComponentMin),true);
+                StatusBarText.Text="Imported model placement and collision saved.";
+            }
+            catch(Exception ex) { MessageBox.Show(ex.Message,"Assemble model",MessageBoxButton.OK,MessageBoxImage.Error); }
+        }
+        public FrameworkElement CreateEmbeddedView()
+        {
+            var view = (FrameworkElement)Content;
+            embeddedView=view;
+            Content = null;
+            view.Resources.MergedDictionaries.Add(Resources);
+            AreaComboBox.IsEnabled = false;
+            return view;
+        }
+        private async void AddPrimitive_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var center = new OpenTK.Mathematics.Vector3(float.Parse(CreateX.Text),float.Parse(CreateY.Text),float.Parse(CreateZ.Text));
+                string area = AreaComboBox.SelectedItem as string ?? throw new Exception("Select an area first.");
+                EditableGeometry geometry;
+                if ((sender as Button)?.Tag as string == "model")
+                {
+                    var dialog = new Microsoft.Win32.OpenFileDialog { Filter = ModelImportService.FileFilter };
+                    if (dialog.ShowDialog() != true) return;
+                    float scale=float.Parse(ImportScale.Text);
+                    ((Button)sender).IsEnabled=false;
+                    StatusBarText.Text="Importing model and materials…";
+                    geometry = await System.Threading.Tasks.Task.Run(()=>ModelImportService.Load(dialog.FileName));
+                    if(!IsLoaded && Application.Current?.Dispatcher.HasShutdownStarted==true) return;
+                    geometry=ImportedModelPlacement.AtBase(geometry).Local;
+                    if(center==OpenTK.Mathematics.Vector3.Zero && _placementOrigin!=null) center=_placementOrigin();
+                    var context=PlacementContext(area);
+                    var preview=new ModelImportPreviewWindow(geometry,dialog.FileName,center,scale,context.Terrain,context.Ground);
+                    preview.Owner=Application.Current?.Windows.OfType<Window>().FirstOrDefault(w=>w.IsActive);
+                    if(!await ShowPlacementAsync(preview) || preview.Result==null)
+                    { StatusBarText.Text="Model import canceled."; return; }
+                    geometry=preview.Result;
+                }
+                else geometry = LevelMeshCreation.Primitive(center,float.Parse(CreateSize.Text),(sender as Button)?.Tag as string == "box");
+                string model = _modelFiles[area].FirstOrDefault() ?? throw new Exception("No compiled model source found for this area.");
+                if (!Path.IsPathRooted(model)) model = Path.Combine(_levelPath,model);
+                string collision = _collisionFiles[area];
+                string geo = Path.Combine(_levelPath,"areas",System.Text.RegularExpressions.Regex.Match(area,@"\d+").Value,"geo.inc.c");
+                string symbol = LevelMeshCreation.Append(model,geo,collision,geometry,CreateCollision.IsChecked == true,_projectRoot);
+                LoadSelectedArea();
+                StatusBarText.Text = $"Added and saved {geometry.Triangles.Count} triangles ({symbol}).";
+                _reloadCallback?.Invoke();
+                _selectPointCallback?.Invoke(geometry.Vertices.Aggregate(OpenTK.Mathematics.Vector3.ComponentMin),true);
+            }
+            catch (Exception ex) { MessageBox.Show(ex.Message,"Add mesh",MessageBoxButton.OK,MessageBoxImage.Error); }
+            finally { if(sender is Button button) button.IsEnabled=true; }
+        }
         public class ColVertexViewModel
         {
             public int Index { get; set; }
@@ -226,10 +331,12 @@ namespace Sm64DecompLevelViewer
         public ObservableCollection<WaterBoxViewModel> WaterBoxes { get; } = new();
 
         private bool _isUpdatingUi = false;
+        private readonly Dictionary<string,byte[]> loadedSourceVersions=new(StringComparer.OrdinalIgnoreCase);
 
-        public LevelMeshEditorWindow(string levelPath, string initialArea, string projectRoot, Action reloadCallback, Action<OpenTK.Mathematics.Vector3?, bool>? selectPointCallback = null)
+        public LevelMeshEditorWindow(string levelPath, string initialArea, string projectRoot, Action reloadCallback, Action<OpenTK.Mathematics.Vector3?, bool>? selectPointCallback = null,Func<OpenTK.Mathematics.Vector3>? placementOrigin=null)
         {
             InitializeComponent();
+            _placementOrigin=placementOrigin;
 
             _levelPath = levelPath;
             _projectRoot = projectRoot;
@@ -287,11 +394,19 @@ namespace Sm64DecompLevelViewer
         {
             if (AreaComboBox.SelectedItem is not string selectedArea) return;
 
+            var previousImport=(ImportedModelsCombo.SelectedItem as ImportedModelEntry)?.Symbol;
+            ImportedModelsCombo.ItemsSource=_modelFiles.TryGetValue(selectedArea,out var importedFiles) ? ImportedModelPlacement.Find(importedFiles) : new();
+            ImportedModelsCombo.SelectedItem=ImportedModelsCombo.Items.OfType<ImportedModelEntry>().FirstOrDefault(i=>i.Symbol==previousImport);
+            if(ImportedModelsCombo.SelectedIndex<0 && ImportedModelsCombo.Items.Count>0) ImportedModelsCombo.SelectedIndex=ImportedModelsCombo.Items.Count-1;
+
             _isUpdatingUi = true;
 
             // Load Collision Mesh
             if (_collisionFiles.TryGetValue(selectedArea, out string? colPath) && File.Exists(colPath))
             {
+                loadedSourceVersions[colPath]=File.ReadAllBytes(colPath);
+                foreach(string name in new[]{"room.inc.c","rooms.inc.c"})
+                { string room=Path.Combine(Path.GetDirectoryName(colPath)!,name); if(File.Exists(room)) loadedSourceVersions[room]=File.ReadAllBytes(room); }
                 _currentColMesh = _collisionParser.ParseCollisionFile(colPath, selectedArea, "Level");
 
                 ColVertices.Clear();
@@ -335,7 +450,7 @@ namespace Sm64DecompLevelViewer
 
                 foreach (var path in modelPaths)
                 {
-                    VisualModelComboBox.Items.Add(Path.GetFileName(path));
+                    VisualModelComboBox.Items.Add(Path.GetRelativePath(_levelPath,path));
                 }
                 VisualModelComboBox.SelectedIndex = 0;
             }
@@ -348,6 +463,7 @@ namespace Sm64DecompLevelViewer
             }
 
             _isUpdatingUi = false;
+            LoadSelectedModelFile();
         }
 
         private void VisualModelComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -363,7 +479,7 @@ namespace Sm64DecompLevelViewer
 
             if (!_modelFiles.TryGetValue(selectedArea, out List<string>? paths)) return;
 
-            string? modelPath = paths.FirstOrDefault(p => Path.GetFileName(p) == selectedFileName);
+            string? modelPath = paths.FirstOrDefault(p => Path.GetRelativePath(_levelPath,p) == selectedFileName);
             if (modelPath == null || !File.Exists(modelPath)) return;
 
             _isUpdatingUi = true;
@@ -372,6 +488,7 @@ namespace Sm64DecompLevelViewer
             VisualVertices.Clear();
 
             string content = File.ReadAllText(modelPath);
+            loadedSourceVersions[modelPath]=File.ReadAllBytes(modelPath);
             _currentModelVertexArrays = _modelParser.ParseVertexArrays(content);
 
             foreach (var arrayName in _currentModelVertexArrays.Keys.OrderBy(k => k))
@@ -640,63 +757,48 @@ namespace Sm64DecompLevelViewer
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
             if (AreaComboBox.SelectedItem is not string selectedArea) return;
-
-            bool collisionSaved = false;
-            bool visualSaved = false;
-
-            // 1. Save Collision
-            if (_currentColMesh != null && _collisionFiles.TryGetValue(selectedArea, out string? colPath))
+            if (ColTriangles.Any(t => Math.Min(t.V1,Math.Min(t.V2,t.V3)) < 0 || Math.Max(t.V1,Math.Max(t.V2,t.V3)) >= ColVertices.Count))
             {
-                _currentColMesh.Vertices = ColVertices.Select(v => new CollisionVertex(v.X, v.Y, v.Z)).ToList();
-                _currentColMesh.Triangles = ColTriangles.Select(t => new CollisionTriangle(t.V1, t.V2, t.V3, t.SurfaceType, t.SpecialParam)).ToList();
-                _currentColMesh.WaterBoxes = WaterBoxes.Select(w => new WaterBox(w.Id, w.X1, w.Z1, w.X2, w.Z2, w.Y)).ToList();
-
-                collisionSaved = _meshService.SaveCollisionMesh(colPath, _currentColMesh);
+                MessageBox.Show("A collision triangle refers to a vertex that does not exist.","Save mesh");
+                return;
             }
 
-            // 2. Save Visual
-            if (VisualArrayComboBox.SelectedItem is string arrayName &&
-                VisualModelComboBox.SelectedItem is string modelFileName &&
-                _modelFiles.TryGetValue(selectedArea, out List<string>? modelPaths))
+            try
             {
-                string? modelPath = modelPaths.FirstOrDefault(p => Path.GetFileName(p) == modelFileName);
-                if (modelPath != null)
+                var staged=new Dictionary<string,byte[]>(StringComparer.OrdinalIgnoreCase);
+                var originals=new Dictionary<string,byte[]?>(StringComparer.OrdinalIgnoreCase);
+                void Remember(string path) { if(!originals.ContainsKey(path)) originals[path]=loadedSourceVersions.TryGetValue(path,out var loaded) ? loaded : File.Exists(path) ? File.ReadAllBytes(path) : null; }
+                if (_currentColMesh != null && _collisionFiles.TryGetValue(selectedArea, out string? colPath))
                 {
-                    // Map active array edited values
-                    var activeList = VisualVertices.Select(v => new ModelVertex(v.X, v.Y, v.Z, v.S, v.T, v.NX, v.NY, v.NZ, v.Alpha)).ToList();
-                    _currentModelVertexArrays[arrayName] = activeList;
-
-                    // If "All Arrays" target is active, we write all arrays back to file. Otherwise just the active one.
-                    if (BulkTargetComboBox.SelectedIndex == 2)
-                    {
-                        bool allOk = true;
-                        foreach (var kvp in _currentModelVertexArrays)
-                        {
-                            if (!_meshService.SaveVisualMesh(modelPath, kvp.Key, kvp.Value)) allOk = false;
-                        }
-                        visualSaved = allOk;
-                    }
-                    else
-                    {
-                        visualSaved = _meshService.SaveVisualMesh(modelPath, arrayName, activeList);
-                    }
+                    Remember(colPath);
+                    foreach(string name in new[]{"room.inc.c","rooms.inc.c"})
+                    { string room=Path.Combine(Path.GetDirectoryName(colPath)!,name); if(File.Exists(room)) Remember(room); }
+                    _currentColMesh.Vertices=ColVertices.Select(v=>new CollisionVertex(v.X,v.Y,v.Z)).ToList();
+                    _currentColMesh.Triangles=ColTriangles.Select(t=>new CollisionTriangle(t.V1,t.V2,t.V3,t.SurfaceType,t.SpecialParam)).ToList();
+                    _currentColMesh.WaterBoxes=WaterBoxes.Select(w=>new WaterBox(w.Id,w.X1,w.Z1,w.X2,w.Z2,w.Y)).ToList();
+                    foreach(var item in CollisionSourceWriter.Stage(colPath,_currentColMesh)) { Remember(item.Key); staged[item.Key]=item.Value; }
                 }
-            }
-
-            if (collisionSaved || visualSaved)
-            {
-                MessageBox.Show("Mesh changes compiled and saved successfully!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                if(VisualArrayComboBox.SelectedItem is string arrayName && VisualModelComboBox.SelectedItem is string modelFileName && _modelFiles.TryGetValue(selectedArea,out var modelPaths))
+                {
+                    string modelPath=modelPaths.FirstOrDefault(p=>Path.GetRelativePath(_levelPath,p)==modelFileName) ?? throw new InvalidDataException("Visual source not found.");
+                    Remember(modelPath); string content=File.ReadAllText(modelPath);
+                    var activeList=VisualVertices.Select(v=>new ModelVertex(v.X,v.Y,v.Z,v.S,v.T,v.NX,v.NY,v.NZ,v.Alpha)).ToList();
+                    _currentModelVertexArrays[arrayName]=activeList;
+                    if(BulkTargetComboBox.SelectedIndex==2)
+                        foreach(var array in _currentModelVertexArrays) content=LevelMeshService.StageVisualMesh(content,array.Key,array.Value);
+                    else content=LevelMeshService.StageVisualMesh(content,arrayName,activeList);
+                    staged[modelPath]=System.Text.Encoding.UTF8.GetBytes(content);
+                }
+                SourceFileTransaction.Commit(staged,originals.Where(p=>staged.ContainsKey(p.Key)).ToDictionary(p=>p.Key,p=>p.Value));
+                foreach(var item in staged) loadedSourceVersions[item.Key]=item.Value;
+                StatusBarText.Text="Geometry, collision and rooms saved; preview refreshed.";
                 _reloadCallback?.Invoke();
             }
-            else
-            {
-                MessageBox.Show("Failed to save changes. Please check log files or terminal output.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            catch(Exception ex) { MessageBox.Show("Mesh was not saved: "+ex.Message,"Save mesh",MessageBoxButton.OK,MessageBoxImage.Error); }
         }
-
         private void CloseButton_Click(object sender, RoutedEventArgs e)
         {
-            Close();
+            if (EmbeddedCloseRequested != null) EmbeddedCloseRequested.Invoke(); else Close();
         }
 
         private void ColVertexGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -804,6 +906,19 @@ namespace Sm64DecompLevelViewer
             var item = VisualVertices[index];
             VisualVertexGrid.SelectedItem = item;
             VisualVertexGrid.ScrollIntoView(item);
+        }
+        public void SelectSourceVertex(string arrayName, int index)
+        {
+            if (AreaComboBox.SelectedItem is not string area || !_modelFiles.TryGetValue(area,out var files)) return;
+            foreach (string file in files)
+            {
+                if (!System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(file),@"\bVtx\s+"+System.Text.RegularExpressions.Regex.Escape(arrayName)+@"\s*\[")) continue;
+                VisualModelComboBox.SelectedItem = Path.GetRelativePath(_levelPath,file);
+                LoadSelectedModelFile();
+                VisualArrayComboBox.SelectedItem = arrayName;
+                SelectVisualVertex(index);
+                return;
+            }
         }
     }
 }

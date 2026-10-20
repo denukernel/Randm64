@@ -587,38 +587,9 @@ namespace Sm64DecompLevelViewer
 
             try
             {
-                // Restore backup files
-                try
-                {
-                    IEnumerable<string> bakFilesToProcess;
-                    if (_bakFilesToRestore != null)
-                    {
-                        bakFilesToProcess = _bakFilesToRestore;
-                    }
-                    else
-                    {
-                        bakFilesToProcess = Directory.Exists(_projectRoot) 
-                            ? Directory.GetFiles(_projectRoot, "*.bak", SearchOption.AllDirectories) 
-                            : Array.Empty<string>();
-                    }
-
-                    foreach (var bakFile in bakFilesToProcess)
-                    {
-                        if (File.Exists(bakFile))
-                        {
-                            string originalPath = bakFile.Substring(0, bakFile.Length - 4);
-                            File.Copy(bakFile, originalPath, true);
-                            File.SetLastWriteTime(originalPath, DateTime.Now);
-                            File.Delete(bakFile);
-                            LogTextBox.AppendText($"> Restored from backup: {Path.GetFileName(originalPath)}\n");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    LogTextBox.AppendText($"> Warning restoring backups: {ex.Message}\n");
-                }
-
+                var choices = _bakFilesToRestore ?? Services.LevelSourceRecovery.FindChoices(_projectRoot).ToList();
+                int restored = await Task.Run(() => Services.LevelSourceRecovery.Restore(_projectRoot, choices));
+                LogTextBox.AppendText($"> Restored {restored} files; level assets and collision recovered together.\n");
                 bool checkoutSuccess = true;
                 if (_runGitRevert)
                 {

@@ -23,9 +23,12 @@
     <PackageReference Include="StbImageSharp" Version="2.30.15" />
     <PackageReference Include="YamlDotNet" Version="16.2.1" />
     <PackageReference Include="OpenTK" Version="4.8.0" />
+    <PackageReference Include="AssimpNet" Version="5.0.0-beta1" />
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="ThirdParty\AssimpNet-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Remove="Tests\**\*.cs" />
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
   </ItemGroup>

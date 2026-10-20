@@ -39,7 +39,7 @@ namespace Sm64DecompLevelViewer.Services
                     return points;
                 }
 
-                string content = File.ReadAllText(cameraCPath);
+                string content = ActorSourceReader.Read(cameraCPath);
 
                 // Find array definition start
                 string searchHeader = $"struct CutsceneSplinePoint {splineName}[]";
@@ -85,10 +85,11 @@ namespace Sm64DecompLevelViewer.Services
             {
                 if (!File.Exists(cameraCPath)) return;
 
-                string content = File.ReadAllText(cameraCPath);
+                string content = string.Join("\n",File.ReadAllLines(cameraCPath))+"\n";
+                string activeContent = ActorSourceReader.Read(cameraCPath,preserveOffsets:true);
 
                 string searchHeader = $"struct CutsceneSplinePoint {splineName}[]";
-                int arrayStart = content.IndexOf(searchHeader);
+                int arrayStart = activeContent.IndexOf(searchHeader,StringComparison.Ordinal);
                 if (arrayStart == -1) return;
 
                 int closingBrace = content.IndexOf("};", arrayStart);
@@ -108,9 +109,9 @@ namespace Sm64DecompLevelViewer.Services
                 }
                 sb.Append("};");
 
-                string targetText = content.Substring(arrayStart, (closingBrace + 2) - arrayStart);
-                string updatedContent = content.Replace(targetText, sb.ToString());
+                string updatedContent = content[..arrayStart] + sb + content[(closingBrace+2)..];
 
+                if (!File.Exists(cameraCPath+".bak")) File.WriteAllText(cameraCPath+".bak",content);
                 File.WriteAllText(cameraCPath, updatedContent);
                 Console.WriteLine($"Successfully saved spline {splineName} to {cameraCPath}");
             }

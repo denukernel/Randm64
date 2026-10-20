@@ -9,7 +9,7 @@ public class CollisionParser
     // Regex patterns for parsing collision macros
     private static readonly Regex VertexPattern = new(@"COL_VERTEX\((-?\d+),\s*(-?\d+),\s*(-?\d+)\)", RegexOptions.Compiled);
     private static readonly Regex TriPattern = new(@"\b(COL_TRI|COL_TRI_SPECIAL)\((\d+),\s*(\d+),\s*(\d+)(?:,\s*(0x[0-9a-fA-F]+|\d+))?\)", RegexOptions.Compiled);
-    private static readonly Regex TriInitPattern = new(@"COL_TRI_INIT\(([A-Z_]+),\s*(\d+)\)", RegexOptions.Compiled);
+    private static readonly Regex TriInitPattern = new(@"COL_TRI_INIT\(\s*([A-Z_][A-Z_0-9]*),\s*(\d+)\)", RegexOptions.Compiled);
     private static readonly Regex WaterBoxPattern = new(@"\bCOL_WATER_BOX\((\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\)", RegexOptions.Compiled);
 
     public CollisionMesh? ParseCollisionFile(string collisionFilePath, string areaName, string levelName)
@@ -22,20 +22,19 @@ public class CollisionParser
                 return null;
             }
 
-            var fileContent = File.ReadAllText(collisionFilePath);
-            string originalContent = fileContent;
+            var fileContent = CSourceCalls.MaskComments(ActorSourceReader.Read(collisionFilePath,preserveOffsets:true));
 
             // Extract only the first valid collision block to avoid merging JP/US/Object versions
             int initIndex = fileContent.IndexOf("COL_INIT()");
             if (initIndex != -1)
             {
-                int stopIndex = fileContent.IndexOf("COL_TRI_STOP()", initIndex);
-                if (stopIndex == -1) stopIndex = fileContent.IndexOf("COL_END()", initIndex);
+                int stopIndex = fileContent.IndexOf("COL_END()", initIndex);
+                if (stopIndex == -1) stopIndex = fileContent.IndexOf("COL_TRI_STOP()", initIndex);
                 
                 if (stopIndex != -1)
                 {
                     // Update content to only include the isolated block
-                    fileContent = fileContent.Substring(initIndex, stopIndex - initIndex + 10); // + padding
+                    fileContent = fileContent.Substring(initIndex, stopIndex - initIndex + (fileContent.AsSpan(stopIndex).StartsWith("COL_END()") ? 9 : 14));
                 }
             }
 
@@ -49,7 +48,12 @@ public class CollisionParser
 
             ParseTriangles(fileContent, mesh);
 
-            ParseWaterBoxes(originalContent, mesh);
+            ParseWaterBoxes(fileContent, mesh);
+            var commands=CSourceCalls.Read(fileContent,n=>n is "COL_VERTEX" or "COL_TRI" or "COL_TRI_SPECIAL" or "COL_WATER_BOX");
+            if(mesh.Vertices.Count!=commands.Count(c=>c.Name=="COL_VERTEX") ||
+                mesh.Triangles.Count!=commands.Count(c=>c.Name is "COL_TRI" or "COL_TRI_SPECIAL") ||
+                mesh.WaterBoxes.Count!=commands.Count(c=>c.Name=="COL_WATER_BOX"))
+                throw new InvalidDataException("Collision contains unsupported expressions or command formatting. It cannot be safely rewritten.");
 
             Console.WriteLine($"Parsed collision: {mesh}");
             return mesh;
@@ -99,7 +103,7 @@ public class CollisionParser
             if (match.Success && match.Groups.Count >= 5)
             {
                 // Check if we need to move to next surface type
-                if (triInitIndex < triInitMatches.Count - 1 && triCount >= expectedTriCount)
+                while (triInitIndex < triInitMatches.Count - 1 && triInitMatches[triInitIndex+1].Index<match.Index)
                 {
                     triInitIndex++;
                     currentSurfaceType = triInitMatches[triInitIndex].Groups[1].Value;
@@ -133,7 +137,7 @@ public class CollisionParser
                     }
                 }
 
-                mesh.Triangles.Add(new CollisionTriangle(v1, v2, v3, currentSurfaceType, specialParam));
+                mesh.Triangles.Add(new CollisionTriangle(v1, v2, v3, currentSurfaceType, specialParam) { RawSpecialParam=macroType=="COL_TRI_SPECIAL" ? match.Groups[5].Value : null });
                 triCount++;
             }
         }

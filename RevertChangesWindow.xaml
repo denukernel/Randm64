@@ -50,7 +50,7 @@
         <!-- Header -->
         <StackPanel Grid.Row="0" Margin="0,0,0,12">
             <TextBlock Text="Revert Decomp Source Changes" FontSize="18" FontWeight="Bold" Foreground="#E57373"/>
-            <TextBlock Text="Choose which changes to revert. You can restore specific backup files (.bak) or perform a full Git checkout to restore the workspace to a clean state." FontSize="11" Foreground="#999999" TextWrapping="Wrap" Margin="0,4,0,0"/>
+            <TextBlock Text="Levels restore as a group: geometry, textures, collision, rooms and objects return to their first saved baseline. Files created by tracked imports are removed. Older .bak files are grouped by level; unknown legacy assets are retained." FontSize="11" Foreground="#999999" TextWrapping="Wrap" Margin="0,4,0,0"/>
         </StackPanel>
 
         <!-- Main Content -->
@@ -71,7 +71,7 @@
             </Border>
 
             <!-- Option 2: Restore Backups list -->
-            <GroupBox Grid.Row="1" Header="Restore Specific Backup Files (.bak)" BorderBrush="{StaticResource BorderBrush}" Background="{StaticResource PanelBackground}" Foreground="#CCCCCC" Padding="5">
+            <GroupBox Grid.Row="1" Header="Restore Levels and Source Backups" BorderBrush="{StaticResource BorderBrush}" Background="{StaticResource PanelBackground}" Foreground="#CCCCCC" Padding="5">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*"/>

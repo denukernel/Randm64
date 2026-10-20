@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="M64 Music Sequencer &amp; Piano Roll" Height="650" Width="1000"
         WindowStartupLocation="CenterOwner" Background="#1E1E1E" Foreground="White"
-        KeyDown="Window_KeyDown">
+        KeyDown="Window_KeyDown" PreviewKeyDown="Window_PreviewKeyDown">
     <Window.Resources>
         <!-- Dark scrollbar style -->
         <Style TargetType="ScrollBar">
@@ -78,7 +78,7 @@
 
                 <!-- Row 1, Col 0: Playback Controls & Mode Selector -->
                 <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,6,0,0">
-                    <Button Click="PlayButton_Click" ToolTip="Play Sequence" Margin="2" Background="#107C41" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">▶ Play</Button>
+                    <Button x:Name="PlayPauseButton" Click="PlayPauseButton_Click" ToolTip="Play / pause (Space)" Margin="2" Background="#107C41" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">▶ Play</Button>
                     <Button Click="StopButton_Click" ToolTip="Stop" Margin="2" Background="#D13438" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">■ Stop</Button>
                     <CheckBox x:Name="UseMidiSynthCheckBox" IsChecked="True" Content="Clean MIDI Synth" Foreground="#CCCCCC" Margin="10,0,15,0" VerticalAlignment="Center" ToolTip="Use clean Windows General MIDI Synth. Recommended to avoid lag/stutter from WPF MediaPlayer."/>
                     
