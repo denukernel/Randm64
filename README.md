@@ -125,8 +125,6 @@ User configuration is stored under `Documents/Randm64/`:
 - `Data/Patchs`: Source patch files.
 - `Data/Custom Objects`: Behavior templates.
 
-The GitHub checkout excludes local test harnesses, build output, diagnostic runs, IDE state, and user settings. Documentation images are kept under `docs/images/`. Local validation harnesses can remain in the development workspace without being tracked.
-
 ## Troubleshooting
 
 - **Missing level textures:** Build the selected decomp project first and verify its extracted assets are available.
