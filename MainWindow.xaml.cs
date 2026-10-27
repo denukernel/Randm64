@@ -1,3 +1,4 @@
+using Sm64DecompLevelViewer.Services.Levels;
 using System.ComponentModel;
 using System.IO;
 using System.Diagnostics;
@@ -18,10 +19,10 @@ public partial class MainWindow : Window
     private List<LevelMetadata> _levels = new();
     private readonly LevelScanner _levelScanner;
     private readonly CollisionParser _collisionParser;
-    private readonly ModelParser _modelParser;
     private LevelMetadata? _selectedLevel;
     private Dictionary<string, string> _collisionFiles = new();
-    private Dictionary<string, List<string>> _modelFiles = new();
+    private int _meshLoadVersion;
+    private readonly System.Threading.SemaphoreSlim _meshLoadGate = new(1, 1);
     private readonly MacroObjectParser _macroParser;
     private CollisionMesh? _currentCollisionMesh;
     private VisualMesh? _currentVisualMesh;
@@ -33,21 +34,6 @@ public partial class MainWindow : Window
     private readonly PluginService _pluginService;
     private List<IPlugin> _loadedPlugins = new();
 
-    private static readonly Regex SpecialObjectPattern = new Regex(
-        @"SPECIAL_OBJECT\s*\(\s*(?:/\*.*?\*/\s*)?([^,]+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*\)[\s,]*",
-        RegexOptions.Compiled
-    );
-
-    private static readonly Regex SpecialObjectWithYawPattern = new Regex(
-        @"SPECIAL_OBJECT_WITH_YAW\s*\(\s*(?:/\*.*?\*/\s*)?([^,]+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*\)[\s,]*",
-        RegexOptions.Compiled
-    );
-
-    private static readonly Regex SpecialObjectWithYawAndParamPattern = new Regex(
-        @"SPECIAL_OBJECT_WITH_YAW_AND_PARAM\s*\(\s*(?:/\*.*?\*/\s*)?([^,]+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?(-?\d+)\s*,\s*(?:/\*.*?\*/\s*)?([^)]+)\)[\s,]*",
-        RegexOptions.Compiled
-    );
-
     public MainWindow()
     {
         InitializeComponent();
@@ -58,10 +44,12 @@ public partial class MainWindow : Window
 
         _levelScanner = new LevelScanner();
         _collisionParser = new CollisionParser();
-        _modelParser = new ModelParser();
         _macroParser = new MacroObjectParser();
         _levelSaver = new LevelSaver();
         _settingsService = new SettingsService();
+        var startupSettings = _settingsService.LoadSettings();
+        if (!string.IsNullOrWhiteSpace(startupSettings.LastProjectRoot))
+            Services.Build.WslBuildSessions.PrewarmProject(startupSettings.LastProjectRoot, startupSettings);
         _pluginService = new PluginService();
     }
 
@@ -74,7 +62,14 @@ public partial class MainWindow : Window
         var settings = _settingsService.LoadSettings();
         if (!string.IsNullOrEmpty(settings.LastProjectRoot) && Directory.Exists(settings.LastProjectRoot))
         {
-            _projectRootPath = settings.LastProjectRoot;
+            // Keep the saved project available when import is declined, cancelled or fails.
+            _projectRootPath = OfferWslImport(settings.LastProjectRoot, settings) ?? settings.LastProjectRoot;
+            if (_projectRootPath != settings.LastProjectRoot)
+            {
+                settings.LastProjectRoot = _projectRootPath;
+                _settingsService.SaveSettings(settings);
+            }
+            Services.Build.WslBuildSessions.PrewarmProject(_projectRootPath, settings);
             LoadLevels();
             LoadPlugins();
         }
@@ -86,6 +81,7 @@ public partial class MainWindow : Window
 
     private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        _meshLoadVersion++;
         try
         {
             if (_renderer != null)
@@ -121,11 +117,14 @@ public partial class MainWindow : Window
                 selectedPath = Path.GetDirectoryName(selectedPath) ?? selectedPath;
             }
 
-            _projectRootPath = selectedPath;
+            var settings = _settingsService.LoadSettings();
+            string? projectPath = OfferWslImport(selectedPath, settings);
+            if (projectPath == null) return;
+            _projectRootPath = projectPath;
             
             // Save to settings
-            var settings = _settingsService.LoadSettings();
             settings.LastProjectRoot = _projectRootPath;
+            Services.Build.WslBuildSessions.PrewarmProject(_projectRootPath, settings);
             _settingsService.SaveSettings(settings);
 
             LoadLevels();
@@ -165,245 +164,18 @@ public partial class MainWindow : Window
             {
                 LevelListBox_SelectionChanged(null, null);
             }
-        });
+        }, AreaComboBox.SelectedItem as string);
         tools.Owner = this;
         tools.Show();
     }
 
-    private void SoundReplacerButton_Click(object sender, RoutedEventArgs e)
+    private void LevelSearch_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
     {
-        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
+        if (LevelListBox?.ItemsSource is System.ComponentModel.ICollectionView view)
         {
-            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
+            string query = LevelSearchText.Text.Trim();
+            view.Filter = item => item is LevelMetadata level && (level.FullName.Contains(query, StringComparison.OrdinalIgnoreCase) || level.ShortName.Contains(query, StringComparison.OrdinalIgnoreCase) || level.Category.Contains(query, StringComparison.OrdinalIgnoreCase));
         }
-
-        var sfx = new SoundReplacerWindow(_projectRootPath, new List<SoundReplacerWindow.SoundReplacementRule>());
-        sfx.Owner = this;
-        sfx.ShowDialog();
-    }
-
-    private void MusicEditorMain_Click(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
-        {
-            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var musicEditor = new MusicEditorWindow(_projectRootPath);
-        musicEditor.Owner = this;
-        musicEditor.Show();
-    }
-
-    private void SoundEditorMain_Click(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
-        {
-            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var soundEditor = new SoundEditorWindow(_projectRootPath);
-        soundEditor.Owner = this;
-        soundEditor.Show();
-    }
-
-    private void LevelMeshEditorMain_Click(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
-        {
-            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        if (_selectedLevel == null)
-        {
-            MessageBox.Show("This tool requires a level to be selected. Please select a level in the Levels tab first.", "Level Specific Tool", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var meshEditor = new LevelMeshEditorWindow(_selectedLevel.LevelPath, "Area 1", _projectRootPath, () =>
-        {
-            LevelListBox_SelectionChanged(null, null);
-        });
-        meshEditor.Owner = this;
-        meshEditor.Show();
-    }
-
-    private void WarpEditorMain_Click(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
-        {
-            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        if (_selectedLevel == null)
-        {
-            MessageBox.Show("This tool requires a level to be selected. Please select a level in the Levels tab first.", "Level Specific Tool", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var warpEditor = new WarpEditorWindow(_selectedLevel.LevelPath, () =>
-        {
-            LevelListBox_SelectionChanged(null, null);
-        });
-        warpEditor.Owner = this;
-        warpEditor.Show();
-    }
-
-    private void PaintingEditorMain_Click(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
-        {
-            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        if (_selectedLevel == null)
-        {
-            MessageBox.Show("This tool requires a level to be selected. Please select a level in the Levels tab first.", "Level Specific Tool", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var paintingService = new Sm64DecompLevelViewer.Services.PaintingService();
-        string? paintingPath = paintingService.FindPaintingFile(_selectedLevel.LevelPath);
-        if (string.IsNullOrEmpty(paintingPath) || !File.Exists(paintingPath))
-        {
-            MessageBox.Show("No painting.inc.c file found in this level's folders.", "Information", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
-
-        var paintingEditor = new PaintingEditorWindow(_selectedLevel.LevelPath, () =>
-        {
-            LevelListBox_SelectionChanged(null, null);
-        });
-        paintingEditor.Owner = this;
-        paintingEditor.Show();
-    }
-
-    private void BehaviorBuilderButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
-        {
-            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var builder = new CustomBehaviorBuilderWindow(_projectRootPath);
-        builder.Owner = this;
-        builder.ShowDialog();
-    }
-
-    private void ActorEditorMain_Click(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
-        {
-            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var actorEditor = new ActorEditorWindow(_projectRootPath);
-        actorEditor.Owner = this;
-        actorEditor.ShowDialog();
-    }
-
-    private void BuildRomMain_Click(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
-        {
-            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var optionsWindow = new BuildOptionsWindow(_projectRootPath);
-        optionsWindow.Owner = this;
-        if (optionsWindow.ShowDialog() == true)
-        {
-            if (optionsWindow.IsCleanAndClone)
-            {
-                var cleanWindow = new BuildOutputWindow(_projectRootPath, optionsWindow.GitUrlToClone);
-                cleanWindow.Owner = this;
-                cleanWindow.ShowDialog();
-
-                if (cleanWindow.IsSuccessful)
-                {
-                    LoadLevels();
-                }
-            }
-            else if (optionsWindow.IsRevertSource)
-            {
-                var revertSelectWindow = new RevertChangesWindow(_projectRootPath) { Owner = this };
-                if (revertSelectWindow.ShowDialog() == true)
-                {
-                    var revertWindow = new BuildOutputWindow(_projectRootPath, revertSelectWindow.SelectedBackupFiles, revertSelectWindow.RunGitRevert);
-                    revertWindow.Owner = this;
-                    revertWindow.ShowDialog();
-
-                    if (revertWindow.IsSuccessful)
-                    {
-                        // Editors hold object anchors, material caches and mesh snapshots from before recovery.
-                        foreach(var editor in Application.Current.Windows.OfType<LevelEditorWindow>().ToArray()) editor.Close();
-                        foreach(var editor in Application.Current.Windows.OfType<LevelMeshEditorWindow>().ToArray()) editor.Close();
-                        _renderer?.RequestCloseThreadSafe();
-                        _renderer=null;
-                        _currentObjects.Clear();
-                        _currentVisualMesh=null;
-                        _currentCollisionMesh=null;
-                        LoadLevels();
-                    }
-                }
-            }
-            else
-            {
-                var buildWindow = new BuildOutputWindow(_projectRootPath, optionsWindow.SelectedSettings);
-                buildWindow.Owner = this;
-                buildWindow.ShowDialog();
-            }
-        }
-    }
-
-    private void PatchButtonMain_Click(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
-        {
-            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var patchWindow = new PatchWindow(_projectRootPath);
-        patchWindow.Owner = this;
-        patchWindow.ShowDialog();
-    }
-
-    private void RomAddressFinderMain_Click(object sender, RoutedEventArgs e)
-    {
-        var addressWindow = new RomAddressWindow(_projectRootPath);
-        addressWindow.Owner = this;
-        addressWindow.Show();
-    }
-
-    private void OptionsButton_Click(object sender, RoutedEventArgs e)
-    {
-        var settingsWindow = new SettingsWindow();
-        settingsWindow.Owner = this;
-        settingsWindow.ShowDialog();
-    }
-
-    private void ChaosEngineButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))
-        {
-            MessageBox.Show("Please select a valid SM64 Project Folder first.", "Chaos Engine Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var chaosWindow = new ChaosEngineWindow(_projectRootPath)
-        {
-            Owner = this
-        };
-        chaosWindow.ShowDialog();
     }
 
     private void LoadLevels()
@@ -415,21 +187,18 @@ public partial class MainWindow : Window
 
         try
         {
+            string? previousLevel = _selectedLevel?.LevelPath;
             _levels = new List<LevelMetadata>();
+            LevelListBox.ItemsSource = null;
+            HideLevelDetails();
 
-            var levelsDir = Path.Combine(_projectRootPath, "levels");
-            if (!Directory.Exists(levelsDir)) levelsDir = Path.Combine(_projectRootPath, "howtomake", "levels");
-
-            if (Directory.Exists(levelsDir))
-            {
-                _levels = _levelScanner.ScanLevels(Path.GetDirectoryName(levelsDir)!);
-            }
+            _levels = ProjectCatalog.ScanLevels(_projectRootPath);
 
             if (_levels.Count == 0)
             {
                 StatusText.Text = "No levels found";
                 MessageBox.Show(
-                    "No level.yaml files were found in the howtomake/levels directory.",
+                    "no level metadata or level scripts were found in the selected project",
                     "No Levels Found",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
@@ -437,9 +206,12 @@ public partial class MainWindow : Window
             }
 
             var groupedLevels = CollectionViewSource.GetDefaultView(_levels);
+            groupedLevels.GroupDescriptions.Clear();
             groupedLevels.GroupDescriptions.Add(new PropertyGroupDescription("Category"));
             
             LevelListBox.ItemsSource = groupedLevels;
+            LevelSearch_TextChanged(null, null);
+            LevelListBox.SelectedItem = _levels.FirstOrDefault(l => l.LevelPath == previousLevel) ?? _levels.FirstOrDefault();
             OpenLevelsFolderButton.IsEnabled = true;
 
             StatusText.Text = $"{_levels.Count} levels loaded";
@@ -470,6 +242,8 @@ public partial class MainWindow : Window
     private void DisplayLevelDetails(LevelMetadata level)
     {
         _selectedLevel = level;
+        ToolContextText.Text = "Selected level: " + level.FullName;
+        MeshMainToolButton.IsEnabled = true; WarpMainToolButton.IsEnabled = File.Exists(Path.Combine(level.LevelPath, "script.c")); PaintingMainToolButton.IsEnabled = new PaintingService().FindPaintingFile(level.LevelPath) != null;
         NoSelectionText.Visibility = Visibility.Collapsed;
         LevelDetailsPanel.Visibility = Visibility.Visible;
 
@@ -502,6 +276,11 @@ public partial class MainWindow : Window
 
     private void HideLevelDetails()
     {
+        _meshLoadVersion++;
+        _selectedLevel = null; _currentCollisionMesh = null; _currentVisualMesh = null;
+        if (ToolContextText != null) ToolContextText.Text = "Select a level in the levels tab for level tools";
+        if (MeshMainToolButton != null) { MeshMainToolButton.IsEnabled = false; WarpMainToolButton.IsEnabled = false; PaintingMainToolButton.IsEnabled = false; }
+        if (View3DButton != null) View3DButton.IsEnabled = false;
         NoSelectionText.Visibility = Visibility.Visible;
         LevelDetailsPanel.Visibility = Visibility.Collapsed;
         StatusText.Text = $"{_levels.Count} levels loaded";
@@ -516,8 +295,11 @@ public partial class MainWindow : Window
 
     private void LoadCollisionFiles(LevelMetadata level)
     {
+        string? previousArea = AreaComboBox.SelectedItem as string;
         _collisionFiles = _collisionParser.FindCollisionFiles(level.LevelPath);
-        _modelFiles = _modelParser.FindModelFiles(level.LevelPath);
+        // The scene loader discovers its own sources. The old model catalog was unused
+        // and scanned/read every area before loading the selected one.
+        _meshLoadVersion++;
         
         AreaComboBox.Items.Clear();
         CollisionStatsText.Text = "";
@@ -527,43 +309,54 @@ public partial class MainWindow : Window
 
         if (_collisionFiles.Count > 0)
         {
-            foreach (var areaName in _collisionFiles.Keys.OrderBy(k => k))
+            foreach (var areaName in _collisionFiles.Keys.OrderBy(k => int.TryParse(Regex.Match(k, @"\d+").Value, out int n) ? n : int.MaxValue))
             {
                 AreaComboBox.Items.Add(areaName);
             }
             
-            AreaComboBox.SelectedIndex = 0;
+            AreaComboBox.SelectedItem = previousArea != null && AreaComboBox.Items.Contains(previousArea) ? previousArea : AreaComboBox.Items[0];
+            MeshMainToolButton.IsEnabled = true;
         }
         else
         {
+            MeshMainToolButton.IsEnabled = false;
             CollisionStatsText.Text = "No collision files found for this level.";
         }
     }
 
-    private void AreaComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    private async void AreaComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (AreaComboBox.SelectedItem is string areaName && _selectedLevel != null)
         {
-            LoadCollisionMesh(areaName);
+            await LoadCollisionMesh(areaName);
         }
     }
 
-    private void LoadCollisionMesh(string areaName)
+    private async Task LoadCollisionMesh(string areaName)
     {
+        int version = ++_meshLoadVersion;
+        var level = _selectedLevel;
+        var projectRoot = _projectRootPath;
+        _currentCollisionMesh = null;
+        _currentVisualMesh = null;
+        View3DButton.IsEnabled = false;
+        if (level == null || !_collisionFiles.TryGetValue(areaName, out var collisionFilePath)) return;
+        CollisionStatsText.Text = "loading level geometry...";
+        await _meshLoadGate.WaitAsync();
         try
         {
-            if (!_collisionFiles.ContainsKey(areaName) || _selectedLevel == null)
-                return;
-
-            var collisionFilePath = _collisionFiles[areaName];
-            _currentCollisionMesh = _collisionParser.ParseCollisionFile(
-                collisionFilePath, 
-                areaName, 
-                _selectedLevel.FullName
-            );
-
-            int sceneArea = int.Parse(System.Text.RegularExpressions.Regex.Match(areaName, @"\d+").Value);
-            _currentVisualMesh = LevelSceneLoader.Load(_projectRootPath!, _selectedLevel.LevelPath, sceneArea, _selectedLevel.TextureBin);
+            // Serialize disk work and skip queued selections superseded by a newer one.
+            if (version != _meshLoadVersion) return;
+            var meshes = await Task.Run(() =>
+            {
+                var collision = new CollisionParser().ParseCollisionFile(collisionFilePath, areaName, level.FullName);
+                int sceneArea = int.Parse(Regex.Match(areaName, @"\d+").Value);
+                var visual = LevelSceneLoader.Load(projectRoot!, level.LevelPath, sceneArea, level.TextureBin);
+                return (Collision: collision, Visual: visual);
+            });
+            if (version != _meshLoadVersion) return;
+            _currentCollisionMesh = meshes.Collision;
+            _currentVisualMesh = meshes.Visual;
             if (_currentCollisionMesh != null)
             {
                 string statsText = $"✓ Collision: {_currentCollisionMesh.VertexCount} vertices, {_currentCollisionMesh.TriangleCount} triangles";
@@ -579,217 +372,11 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            if (version != _meshLoadVersion) return;
             CollisionStatsText.Text = $"✗ Error loading mesh: {ex.Message}";
             View3DButton.IsEnabled = false;
         }
-    }
-
-    private void View3DButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (_currentCollisionMesh == null)
-            return;
-
-        // Capture current state to local variables for thread safety
-        var collisionMesh = _currentCollisionMesh;
-        var visualMesh = _currentVisualMesh;
-        var selectedLevel = _selectedLevel;
-        var projectRoot = _projectRootPath;
-        var macroParser = _macroParser;
-        var areaName = AreaComboBox.SelectedItem as string;
-        _collisionFiles.TryGetValue(areaName ?? "", out var collisionFilePath);
-
-        try
-        {
-            // Close existing renderer if already open
-            if (_renderer != null)
-            {
-                try { _renderer.RequestCloseThreadSafe(); } catch { }
-                _renderer = null;
-            }
-
-            List<LevelObject> objects = new();
-            int areaIndex = -1;
-            if (selectedLevel != null)
-            {
-                var scriptPath = Path.Combine(selectedLevel.LevelPath, "script.c");
-                if (File.Exists(scriptPath))
-                {
-                    var objectParser = new ObjectParser();
-                    if (areaName != null && areaName.StartsWith("Area "))
-                    {
-                        int.TryParse(areaName.Substring(5), out areaIndex);
-                    }
-
-                    objects = objectParser.ParseScriptFile(scriptPath, areaIndex);
-
-                    // Load model IDs for resolving aliases
-                    var modelIdsPath = ResolveIncludePath("model_ids.h");
-                    var modelIdMapping = modelIdsPath != null ? objectParser.ParseModelIds(modelIdsPath) : new Dictionary<string, int>();
-
-                    // Map numeric ID to geo layout name
-                    var modelToGeo = objectParser.ParseLoadModels(scriptPath);
-                    var idToGeo = new Dictionary<int, string>();
-                    foreach (var kvp in modelToGeo)
-                    {
-                        if (modelIdMapping.TryGetValue(kvp.Key, out int id))
-                        {
-                            idToGeo[id] = kvp.Value;
-                        }
-                    }
-
-                    try
-                    {
-                        var macroListName = objectParser.ParseMacroListName(scriptPath, areaIndex);
-                        if (macroListName != null && !string.IsNullOrEmpty(projectRoot))
-                        {
-                            Dictionary<string, MacroPreset> presets = new();
-                            var selectedPresetsPath = Path.Combine(projectRoot, "include", "macro_presets.inc.c");
-                            if (!File.Exists(selectedPresetsPath)) selectedPresetsPath = Path.Combine(projectRoot, "howtomake", "include", "macro_presets.inc.c");
-
-                            if (File.Exists(selectedPresetsPath))
-                            {
-                                presets = macroParser.ParsePresets(selectedPresetsPath);
-                            }
-
-                            var levelPath = selectedLevel.LevelPath;
-                            var macroFiles = Directory.GetFiles(levelPath, "macro.inc.c", SearchOption.AllDirectories);
-                            foreach (var macroFile in macroFiles)
-                            {
-                                if (File.ReadAllText(macroFile).Contains(macroListName))
-                                {
-                                    var macroObjects = macroParser.ParseMacroFile(macroFile, presets);
-                                    objects.AddRange(macroObjects);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    catch (Exception ex) { Console.WriteLine($"Error loading macro objects: {ex.Message}"); }
-
-                    try
-                    {
-                        if (areaName != null && collisionFilePath != null)
-                        {
-                            var specialParser = new SpecialObjectParser();
-                            Dictionary<string, string> presetMapping = new();
-                            var selectedIncludePath = ResolveIncludePath("special_presets.inc.c");
-                            if (selectedIncludePath != null) presetMapping = specialParser.ParsePresets(selectedIncludePath);
-
-                            string colContent = ActorSourceReader.Read(collisionFilePath,preserveOffsets:true);
-                            var specialMatches = SpecialObjectPattern.Matches(colContent);
-                            var specialWithYawMatches = SpecialObjectWithYawPattern.Matches(colContent);
-                            var specialWithYawAndParamMatches = SpecialObjectWithYawAndParamPattern.Matches(colContent);
-
-                            void ProcessSpecialObject(string preset, int x, int y, int z, int ry, string? rawParams, string sourceFile, int sourceIndex, int sourceLength)
-                            {
-                                if (presetMapping.TryGetValue(preset, out string? modelId))
-                                {
-                                    string resolvedModelName = modelId;
-                                    
-                                    // Handle numeric model IDs (e.g. "0x1D" or "29")
-                                    int numericId = -1;
-                                    if (modelId.StartsWith("0x"))
-                                    {
-                                        int.TryParse(modelId.Substring(2), System.Globalization.NumberStyles.HexNumber, null, out numericId);
-                                    }
-                                    else if (int.TryParse(modelId, out int parsedId))
-                                    {
-                                        numericId = parsedId;
-                                    }
-
-                                    // Try to resolve alias if direct match fails
-                                    if (!modelToGeo.ContainsKey(modelId))
-                                    {
-                                        int id = numericId;
-                                        if (id == -1 && modelIdMapping.TryGetValue(modelId, out int mId))
-                                        {
-                                            id = mId;
-                                        }
-
-                                        if (id != -1 && idToGeo.TryGetValue(id, out string? loadedModelName))
-                                        {
-                                            resolvedModelName = modelToGeo.Keys.FirstOrDefault(k => modelIdMapping.TryGetValue(k, out int lid) && lid == id) ?? modelId;
-                                        }
-                                    }
-
-                                    uint paramValue = 0;
-                                    if (rawParams != null)
-                                    {
-                                        if (rawParams.StartsWith("0x"))
-                                        {
-                                            uint.TryParse(rawParams.Substring(2), System.Globalization.NumberStyles.HexNumber, null, out paramValue);
-                                        }
-                                        else
-                                        {
-                                            uint.TryParse(rawParams, out paramValue);
-                                        }
-                                    }
-
-                                    objects.Add(new LevelObject 
-                                    { 
-                                        ModelName = resolvedModelName, 
-                                        PresetName = preset,
-                                        Behavior = "(Special Object)", 
-                                        X = x, 
-                                        Y = y, 
-                                        Z = z, 
-                                        RY = ry, 
-                                        Params = paramValue,
-                                        RawParams = rawParams,
-                                        SourceFile = sourceFile, 
-                                        SourceIndex = sourceIndex, 
-                                        SourceLength = sourceLength,
-                                        SourceType = ObjectSourceType.Special
-                                    });
-                                }
-                            }
-
-                            foreach(var call in CSourceCalls.Read(colContent,n=>n is "SPECIAL_OBJECT" or "SPECIAL_OBJECT_WITH_YAW" or "SPECIAL_OBJECT_WITH_YAW_AND_PARAM"))
-                            {
-                                string Arg(int i)=>call.Argument(colContent,i);
-                                int yaw=call.Arguments.Count>4 ? (int)Math.Round(int.Parse(Arg(4))*360.0/256) : 0;
-                                ProcessSpecialObject(Arg(0),int.Parse(Arg(1)),int.Parse(Arg(2)),int.Parse(Arg(3)),yaw,
-                                    call.Arguments.Count>5 ? Arg(5) : null,collisionFilePath,call.Start,call.End-call.Start);
-                            }
-                        }
-                    }
-                    catch (Exception ex) { Console.WriteLine($"Error loading special objects: {ex.Message}"); }
-
-                    _currentObjects = objects;
-                    
-                    // Parse supported models for safety validation
-                    var supportedModels = objectParser.ParseSupportedModels(selectedLevel.LevelPath, projectRoot ?? "");
-                    
-                    // Open the new Level Editor window
-                    var settings = _settingsService.LoadSettings();
-                    var editor = new LevelEditorWindow(objects, collisionMesh, visualMesh, projectRoot ?? "", areaIndex, supportedModels, settings, collisionFilePath ?? "");
-                    editor.GeometryChanged += (s, ev) =>
-                    {
-                        if (_selectedLevel?.LevelPath == selectedLevel.LevelPath &&
-                            AreaComboBox.SelectedItem is string selectedArea && selectedArea == areaName)
-                            LoadCollisionMesh(selectedArea);
-                    };
-                    
-                    editor.RequestReload += (s, ev) =>
-                    {
-                        Dispatcher.BeginInvoke(new Action(() =>
-                        {
-                            editor.Close();
-                            // Re-parse the meshes from the newly cloned files
-                            if (AreaComboBox.SelectedItem is string areaName)
-                            {
-                                LoadCollisionMesh(areaName);
-                            }
-                            // Re-parse objects and open LevelEditorWindow again
-                            View3DButton_Click(this, new RoutedEventArgs());
-                        }));
-                    };
-
-                    editor.Show();
-                }
-            }
-        }
-        catch (Exception ex) { MessageBox.Show($"Error launching 3D editor:\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error); }
+        finally { _meshLoadGate.Release(); }
     }
 
     private void WorkshopButton_Click(object sender, RoutedEventArgs e)
@@ -811,54 +398,6 @@ public partial class MainWindow : Window
                 ObjectInfoText.Text = "";
             }
         });
-    }
-
-    private string? FindGeoLayoutForModel(string areaPath, string geoLayoutName)
-{
-    try
-    {
-        var geoFiles = Directory.GetFiles(areaPath, "geo.inc.c", SearchOption.AllDirectories);
-        foreach (var file in geoFiles)
-        {
-            if (File.ReadAllText(file).Contains(geoLayoutName)) return file;
-        }
-    }
-        catch { }
-        return null;
-    }
-
-    private string? ResolveIncludePath(string fileName)
-    {
-        if (_selectedLevel == null) return null;
-
-        // 1. Search upwards from level path
-        string? current = _selectedLevel.LevelPath;
-        while (!string.IsNullOrEmpty(current))
-        {
-            // Check in include, howtomake/include, leveleditor/include
-            var subDirs = new[] { "include", "howtomake/include", "leveleditor/include", "levels/include" };
-            foreach (var sub in subDirs)
-            {
-                var path = Path.Combine(current, sub.Replace('/', Path.DirectorySeparatorChar), fileName);
-                if (File.Exists(path)) return path;
-            }
-
-            current = Path.GetDirectoryName(current);
-            if (current == null || current.Length < 3) break; // Don't go above drive root
-        }
-
-        // 2. Try project root directly as fallback
-        if (!string.IsNullOrEmpty(_projectRootPath))
-        {
-            var rootSubDirs = new[] { "include", "leveleditor/include", "howtomake/include" };
-            foreach (var sub in rootSubDirs)
-            {
-                var path = Path.Combine(_projectRootPath, sub.Replace('/', Path.DirectorySeparatorChar), fileName);
-                if (File.Exists(path)) return path;
-            }
-        }
-
-        return null;
     }
 
     private void OpenLevelsFolderButton_Click(object sender, RoutedEventArgs e)

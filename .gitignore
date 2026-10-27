@@ -1,0 +1,29 @@
+# generated build and test output
+bin/
+obj/
+
+# local editor state
+.vs/
+*.csproj.user
+*.suo
+
+# temporary WPF projects and diagnostic runs
+*_wpftmp.csproj
+*.log
+.tools-validation/
+__pycache__/
+# Local validation harnesses and agent state
+/Tests/
+.agents/
+.codex/
+
+# Local distribution packages and user data
+*.zip
+*.7z
+*.pdb
+*.bak
+*.orig
+/Save/
+/Logs/
+/CrashReports/
+/Assets/oldicon.jpg

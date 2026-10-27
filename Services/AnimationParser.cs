@@ -114,6 +114,26 @@ public class AnimationParser
         return result;
     }
 
+    public MarioAnimation? LoadDefaultActorAnimation(string projectRoot, string actor, int jointCount)
+    {
+        // The level preview needs one pose, not every animation in the bank.
+        string marioIdle = Path.Combine(projectRoot, "assets", "anims", "anim_C5.inc.c");
+        if (actor == "mario" && File.Exists(marioIdle))
+        {
+            var idle = new MarioAnimation { Symbol = "anim_C5", FilePath = marioIdle };
+            LoadAnimationData(idle);
+            return idle;
+        }
+        var animations = ScanActorAnimations(projectRoot, actor);
+        while (SelectDefaultAnimation(animations, actor) is { } selected)
+        {
+            LoadAnimationData(selected);
+            if (actor == "mario" || jointCount > 0 && (selected.Indices.Length - 6) / 6 >= jointCount) return selected;
+            animations.Remove(selected);
+        }
+        return null;
+    }
+
     public static MarioAnimation? SelectDefaultAnimation(IReadOnlyList<MarioAnimation> animations, string actor) =>
         animations.FirstOrDefault(animation => actor == "mario" && animation.Symbol.Equals("anim_C5", StringComparison.OrdinalIgnoreCase)) ??
         animations.FirstOrDefault(animation => animation.Name.EndsWith(": idle")) ??

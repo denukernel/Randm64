@@ -65,7 +65,7 @@
                 <ListBox x:Name="ModesListBox" Background="#1E1E1E" BorderBrush="{StaticResource BorderBrush}" SelectionChanged="ModesListBox_SelectionChanged">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <CheckBox IsChecked="{Binding IsEnabled}" Content="{Binding Name}" Foreground="White" Margin="3" VerticalAlignment="Center"/>
+                            <CheckBox IsChecked="{Binding IsEnabled}" IsEnabled="{Binding IsAvailable}" ToolTip="{Binding Description}" Content="{Binding Name}" Foreground="White" Margin="3" VerticalAlignment="Center"/>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>

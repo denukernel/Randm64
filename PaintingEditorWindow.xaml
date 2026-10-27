@@ -48,7 +48,10 @@
         </Grid.RowDefinitions>
 
         <!-- Title Header -->
-        <TextBlock Text="🖼️ PAINTING STRUCTURES EDITOR" FontSize="16" FontWeight="Bold" Foreground="{StaticResource HeaderBrush}" Margin="0,0,0,10"/>
+        <DockPanel Margin="0,0,0,10">
+            <TextBlock Text="Painting source:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <ComboBox x:Name="PaintingFileCombo" SelectionChanged="PaintingFile_Changed"/>
+        </DockPanel>
 
         <!-- Grid of Paintings -->
         <DataGrid x:Name="PaintingGrid" Grid.Row="1" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False">
@@ -68,6 +71,7 @@
         <DockPanel Grid.Row="2" Margin="0,15,0,0">
             <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
                 <Button Content="💾 Save Changes" Click="SaveButton_Click" Background="#007ACC" Foreground="White" BorderThickness="0" Padding="15,6" FontWeight="Bold" Margin="0,0,10,0"/>
+                <Button Content="Reload" Click="Reload_Click" Background="#3f3f46" Foreground="White" Padding="10,6" Margin="0,0,8,0"/>
                 <Button Content="Close" Click="CloseButton_Click" Background="#3F3F46" Foreground="White" BorderThickness="0" Padding="12,6"/>
             </StackPanel>
         </DockPanel>

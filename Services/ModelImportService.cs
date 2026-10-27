@@ -14,8 +14,8 @@ public sealed class ImportedMaterial
     public byte[]? Pixels { get; set; }
     public int Width { get; set; }
     public int Height { get; set; }
-    public Models.TextureAddressMode WrapS { get; set; }
-    public Models.TextureAddressMode WrapT { get; set; }
+    public Sm64DecompLevelViewer.Models.TextureAddressMode WrapS { get; set; }
+    public Sm64DecompLevelViewer.Models.TextureAddressMode WrapT { get; set; }
     public int UvChannel { get; set; }
     public bool Transparent => Color.W < 0.999f || Pixels != null && Enumerable.Range(0,Width*Height).Any(i=>Pixels[i*4+3]<255);
 }
@@ -137,8 +137,8 @@ public static class ModelImportService
         var image=ImageResult.FromMemory(File.ReadAllBytes(path),ColorComponents.RedGreenBlueAlpha);
         ResizeForN64(material,image.Data,image.Width,image.Height);
     }
-    private static Models.TextureAddressMode Address(TextureWrapMode wrap) => wrap==TextureWrapMode.Clamp || wrap==TextureWrapMode.Decal
-        ? Models.TextureAddressMode.Clamp : wrap==TextureWrapMode.Mirror ? Models.TextureAddressMode.Mirror : Models.TextureAddressMode.Repeat;
+    private static Sm64DecompLevelViewer.Models.TextureAddressMode Address(TextureWrapMode wrap) => wrap==TextureWrapMode.Clamp || wrap==TextureWrapMode.Decal
+        ? Sm64DecompLevelViewer.Models.TextureAddressMode.Clamp : wrap==TextureWrapMode.Mirror ? Sm64DecompLevelViewer.Models.TextureAddressMode.Mirror : Sm64DecompLevelViewer.Models.TextureAddressMode.Repeat;
     private static void ResizeForN64(ImportedMaterial material,byte[] pixels,int width,int height)
     {
         if(width<=0 || height<=0 || (long)width*height>67108864) throw new InvalidDataException("Unsupported texture dimensions.");

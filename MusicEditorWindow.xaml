@@ -26,12 +26,14 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+<RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
+<WrapPanel Grid.Row="4" Grid.ColumnSpan="2" Margin="4,8,0,0"><RadioButton x:Name="DrawTool" Content="Draw notes" IsChecked="True" Foreground="White" Margin="0,4,12,0"/><RadioButton Content="Select notes" Foreground="White" Margin="0,4,12,0"/><TextBlock Text="Snap: " VerticalAlignment="Center"/><ComboBox x:Name="SnapSelector" SelectedIndex="2" Width="75" Margin="0,0,12,0"><ComboBoxItem Content="1/4" Tag="48"/><ComboBoxItem Content="1/8" Tag="24"/><ComboBoxItem Content="1/16" Tag="12"/><ComboBoxItem Content="1/32" Tag="6"/><ComboBoxItem Content="Off" Tag="1"/></ComboBox><TextBlock Text="New note: " VerticalAlignment="Center"/><ComboBox x:Name="NoteLengthSelector" SelectedIndex="2" Width="75" Margin="0,0,12,0"><ComboBoxItem Content="1/2" Tag="96"/><ComboBoxItem Content="1/4" Tag="48"/><ComboBoxItem Content="1/8" Tag="24"/><ComboBoxItem Content="1/16" Tag="12"/><ComboBoxItem Content="1/32" Tag="6"/></ComboBox><Button Content="Undo" Click="UndoButton_Click" Padding="10,3" Margin="0,0,6,0" ToolTip="Ctrl+Z"/><Button Content="Show notes" Click="ShowNotesButton_Click" Padding="10,3"/><TextBlock Text="Drag to move | right edge to resize | right-click note to delete" Foreground="#BBBBBB" Margin="12,4,0,4"/></WrapPanel>
                 <!-- Row 0, Col 0: File & App Controls -->
                 <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button Click="SaveButton_Click" ToolTip="Save to camera.c &amp; M64" Margin="2" Background="#007ACC" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">💾 Save M64</Button>
@@ -44,12 +46,12 @@
                 </StackPanel>
 
                 <!-- Row 0, Col 1: Track Details -->
-                <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="Sequence:" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="0,0,5,0"/>
                     <Button x:Name="SequenceSelectButton" Click="SequenceSelectButton_Click" Content="Select Sequence..." Width="180" Background="#3E3E42" Foreground="White" BorderThickness="0" Margin="0,0,15,0" Padding="8,4" FontSize="12" ToolTip="Click to search and select sound sequences"/>
 
                     <TextBlock Text="Active Channel:" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                    <ComboBox x:Name="ChannelSelector" SelectionChanged="ChannelSelector_SelectionChanged" Width="55" Background="#333337" Foreground="Black" BorderBrush="#3F3F46" Margin="0,0,15,0">
+                    <ComboBox x:Name="ChannelSelector" SelectionChanged="ChannelSelector_SelectionChanged" Width="105" Background="#333337" Foreground="Black" BorderBrush="#3F3F46" Margin="0,0,15,0">
                         <ComboBoxItem Content="0" IsSelected="True"/>
                         <ComboBoxItem Content="1"/>
                         <ComboBoxItem Content="2"/>
@@ -72,15 +74,15 @@
                     <ComboBox x:Name="InstrumentSelector" SelectionChanged="InstrumentSelector_SelectionChanged" Width="100" Background="#333337" Foreground="Black" BorderBrush="#3F3F46" Margin="0,0,15,0"/>
                     
                     <TextBlock Text="Vol:" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                    <Slider x:Name="VolumeSlider" Minimum="0" Maximum="127" Value="127" Width="80" VerticalAlignment="Center" ValueChanged="VolumeSlider_ValueChanged" ToolTip="Channel Volume (0-127)"/>
+                    <Slider x:Name="VolumeSlider" Minimum="0" Maximum="255" Value="127" TickFrequency="1" IsSnapToTickEnabled="True" Width="80" VerticalAlignment="Center" ValueChanged="VolumeSlider_ValueChanged" ToolTip="Channel Volume (0-255; 127 = normal, 255 = loud)"/>
                     <TextBlock x:Name="VolumeLabel" Text="127" Foreground="White" Width="25" TextAlignment="Right" VerticalAlignment="Center" Margin="5,0,0,0"/>
                 </StackPanel>
 
                 <!-- Row 1, Col 0: Playback Controls & Mode Selector -->
-                <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,6,0,0">
+                <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,6,0,0">
                     <Button x:Name="PlayPauseButton" Click="PlayPauseButton_Click" ToolTip="Play / pause (Space)" Margin="2" Background="#107C41" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">▶ Play</Button>
                     <Button Click="StopButton_Click" ToolTip="Stop" Margin="2" Background="#D13438" Foreground="White" BorderThickness="0" Padding="12,6" FontSize="12">■ Stop</Button>
-                    <CheckBox x:Name="UseMidiSynthCheckBox" IsChecked="True" Content="Clean MIDI Synth" Foreground="#CCCCCC" Margin="10,0,15,0" VerticalAlignment="Center" ToolTip="Use clean Windows General MIDI Synth. Recommended to avoid lag/stutter from WPF MediaPlayer."/>
+                    <CheckBox x:Name="UseSm64InstrumentsCheckBox" IsChecked="True" Content="Use SM64 Instruments" Foreground="#CCCCCC" Margin="10,0,15,0" VerticalAlignment="Center" ToolTip="Checked: preview with the project SM64 instruments and samples. Unchecked: preview with Windows General MIDI. Missing game samples fall back to MIDI."/>
                     
                     <TextBlock Text="Playback Mode:" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="10,0,5,0"/>
                     <ComboBox x:Name="PlaybackModeComboBox" SelectionChanged="PlaybackModeComboBox_SelectionChanged" Width="140" Background="#333337" Foreground="Black" BorderBrush="#3F3F46" VerticalAlignment="Center" SelectedIndex="0">
@@ -91,7 +93,7 @@
                 </StackPanel>
 
                 <!-- Row 1, Col 1: Editing / Effects Controls -->
-                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,6,0,0">
+                <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,6,0,0">
                     <TextBlock Text="Effects:" Foreground="#CCCCCC" VerticalAlignment="Center" Margin="0,0,5,0"/>
                     <Button x:Name="ReverseButton" Click="ReverseButton_Click" ToolTip="Reverse Selected Notes" Margin="1" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="6,4" FontSize="11">⇅ Reverse</Button>
                     <Button x:Name="TransposeUpButton" Click="TransposeUpButton_Click" ToolTip="Transpose +1 Semitone" Margin="1" Background="#4F4F4F" Foreground="White" BorderThickness="0" Padding="6,4" FontSize="11">▲ +1</Button>

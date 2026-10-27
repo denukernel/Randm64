@@ -22,11 +22,12 @@ namespace Sm64DecompLevelViewer
         private List<string> _supportedModels;
         public string? SelectedModel { get; private set; }
 
-        public ModelSelectionWindow(string projectRoot, List<string> supportedModels)
+        public ModelSelectionWindow(string projectRoot, List<string> supportedModels, Func<string, bool>? isAllowed = null)
         {
             InitializeComponent();
             _supportedModels = supportedModels;
             LoadModels(projectRoot);
+            if (isAllowed != null) _allModels = _allModels.Where(isAllowed).ToList();
             FilterModels("");
         }
 

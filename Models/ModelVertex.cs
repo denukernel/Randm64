@@ -2,7 +2,7 @@ using OpenTK.Mathematics;
 
 namespace Sm64DecompLevelViewer.Models;
 
-public class ModelVertex
+public class ModelVertex : Sm64DecompLevelViewer.Models.Levels.IMeshPosition
 {
     public int X { get; set; }
     public int Y { get; set; }
@@ -12,6 +12,8 @@ public class ModelVertex
     public int T { get; set; }
     public string? SourceArrayName { get; set; }
     public int SourceArrayIndex { get; set; }
+    public Matrix4 SourceTransform { get; set; } = Matrix4.Identity;
+    public Vector2 SourceUvScale { get; set; } = Vector2.One;
 
     public byte NX { get; set; }
     public byte NY { get; set; }

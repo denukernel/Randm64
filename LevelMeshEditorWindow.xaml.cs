@@ -16,6 +16,18 @@ namespace Sm64DecompLevelViewer
         public event Action<bool,string?>? PlacementPickingChanged;
         private ModelImportPreviewWindow? placementPreview;
         public bool HasPlacementPreview => placementPreview!=null;
+        public bool SaveTableChanges()
+        {
+            StatusBarText.Text = "Saving mesh tables...";
+            SaveButton_Click(this, new RoutedEventArgs());
+            return StatusBarText.Text.StartsWith("Geometry, collision and rooms saved", StringComparison.Ordinal);
+        }
+        public void PlaceBox(string size, bool collision)
+        {
+            CreateSize.Text = size;
+            CreateCollision.IsChecked = collision;
+            AddPrimitive_Click(new Button { Tag = "box-preview" }, new RoutedEventArgs());
+        }
         private FrameworkElement? embeddedView;
         public void PlaceOnTerrain(OpenTK.Mathematics.Vector3 point)
         {
@@ -40,15 +52,7 @@ namespace Sm64DecompLevelViewer
             }
         }
         private readonly Func<OpenTK.Mathematics.Vector3>? _placementOrigin;
-        private (EditableGeometry Terrain,CollisionMesh Ground) PlacementContext(string area,string? excluded=null)
-        {
-            int index=int.Parse(System.Text.RegularExpressions.Regex.Match(area,@"\d+").Value);
-            var scene=LevelSceneLoader.Load(_projectRoot,_levelPath,index);
-            var terrain=ModelPlacementService.FromVisual(scene,t=>excluded==null ||
-                scene.Vertices[t.V1].SourceArrayName?.StartsWith(excluded+"_v",StringComparison.Ordinal)!=true);
-            var collision=_collisionParser.ParseCollisionFile(_collisionFiles[area],area,"") ?? throw new InvalidDataException("No collision geometry for placement.");
-            return (terrain,collision);
-        }
+
         private async void AssembleImported_Click(object sender,RoutedEventArgs e)
         {
             try
@@ -103,6 +107,15 @@ namespace Sm64DecompLevelViewer
                     { StatusBarText.Text="Model import canceled."; return; }
                     geometry=preview.Result;
                 }
+                else if ((sender as Button)?.Tag as string == "box-preview")
+                {
+                    geometry = LevelMeshCreation.Primitive(OpenTK.Mathematics.Vector3.Zero, float.Parse(CreateSize.Text), true);
+                    var context = PlacementContext(area);
+                    var preview = new ModelImportPreviewWindow(geometry, "box", _placementOrigin?.Invoke() ?? center, 1, context.Terrain, context.Ground)
+                    { Owner = Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive), Title = "Place box", ConfirmationText = "add box" };
+                    if (!await ShowPlacementAsync(preview) || preview.Result == null) return;
+                    geometry = preview.Result;
+                }
                 else geometry = LevelMeshCreation.Primitive(center,float.Parse(CreateSize.Text),(sender as Button)?.Tag as string == "box");
                 string model = _modelFiles[area].FirstOrDefault() ?? throw new Exception("No compiled model source found for this area.");
                 if (!Path.IsPathRooted(model)) model = Path.Combine(_levelPath,model);
@@ -117,198 +130,8 @@ namespace Sm64DecompLevelViewer
             catch (Exception ex) { MessageBox.Show(ex.Message,"Add mesh",MessageBoxButton.OK,MessageBoxImage.Error); }
             finally { if(sender is Button button) button.IsEnabled=true; }
         }
-        public class ColVertexViewModel
-        {
-            public int Index { get; set; }
-            public int X { get; set; }
-            public int Y { get; set; }
-            public int Z { get; set; }
-        }
 
-        public class ColTriangleViewModel
-        {
-            public int Index { get; set; }
-            public int V1 { get; set; }
-            public int V2 { get; set; }
-            public int V3 { get; set; }
-            public string SurfaceType { get; set; } = "SURFACE_DEFAULT";
-            public int? SpecialParam { get; set; }
-        }
-
-        public class WaterBoxViewModel
-        {
-            public int Id { get; set; }
-            public int X1 { get; set; }
-            public int Z1 { get; set; }
-            public int X2 { get; set; }
-            public int Z2 { get; set; }
-            public int Y { get; set; }
-        }
-
-        public class ModelVertexViewModel
-        {
-            public int Index { get; set; }
-            public int X { get; set; }
-            public int Y { get; set; }
-            public int Z { get; set; }
-            public int S { get; set; }
-            public int T { get; set; }
-            public byte NX { get; set; }
-            public byte NY { get; set; }
-            public byte NZ { get; set; }
-            public byte Alpha { get; set; }
-        }
-
-        private static readonly List<string> CollisionSurfaces = new()
-        {
-            "SURFACE_DEFAULT",
-            "SURFACE_BURNING",
-            "SURFACE_0004",
-            "SURFACE_HANGABLE",
-            "SURFACE_SLOW",
-            "SURFACE_DEATH_PLANE",
-            "SURFACE_CLOSE_CAMERA",
-            "SURFACE_WATER",
-            "SURFACE_FLOWING_WATER",
-            "SURFACE_INTANGIBLE",
-            "SURFACE_VERY_SLIPPERY",
-            "SURFACE_SLIPPERY",
-            "SURFACE_NOT_SLIPPERY",
-            "SURFACE_TTM_VINES",
-            "SURFACE_MGR_MUSIC",
-            "SURFACE_INSTANT_WARP_1B",
-            "SURFACE_INSTANT_WARP_1C",
-            "SURFACE_INSTANT_WARP_1D",
-            "SURFACE_INSTANT_WARP_1E",
-            "SURFACE_SHALLOW_QUICKSAND",
-            "SURFACE_DEEP_QUICKSAND",
-            "SURFACE_INSTANT_QUICKSAND",
-            "SURFACE_DEEP_MOVING_QUICKSAND",
-            "SURFACE_SHALLOW_MOVING_QUICKSAND",
-            "SURFACE_QUICKSAND",
-            "SURFACE_MOVING_QUICKSAND",
-            "SURFACE_WALL_MISC",
-            "SURFACE_NOISE_DEFAULT",
-            "SURFACE_NOISE_SLIPPERY",
-            "SURFACE_HORIZONTAL_WIND",
-            "SURFACE_INSTANT_MOVING_QUICKSAND",
-            "SURFACE_ICE",
-            "SURFACE_LOOK_UP_WARP",
-            "SURFACE_HARD",
-            "SURFACE_WARP",
-            "SURFACE_TIMER_START",
-            "SURFACE_TIMER_END",
-            "SURFACE_HARD_SLIPPERY",
-            "SURFACE_HARD_VERY_SLIPPERY",
-            "SURFACE_HARD_NOT_SLIPPERY",
-            "SURFACE_VERTICAL_WIND",
-            "SURFACE_BOSS_FIGHT_CAMERA",
-            "SURFACE_CAMERA_FREE_ROAM",
-            "SURFACE_THI3_WALLKICK",
-            "SURFACE_CAMERA_8_DIR",
-            "SURFACE_CAMERA_MIDDLE",
-            "SURFACE_CAMERA_ROTATE_RIGHT",
-            "SURFACE_CAMERA_ROTATE_LEFT",
-            "SURFACE_CAMERA_BOUNDARY",
-            "SURFACE_NOISE_VERY_SLIPPERY_73",
-            "SURFACE_NOISE_VERY_SLIPPERY_74",
-            "SURFACE_NOISE_VERY_SLIPPERY",
-            "SURFACE_NO_CAM_COLLISION",
-            "SURFACE_NO_CAM_COLLISION_77",
-            "SURFACE_NO_CAM_COL_VERY_SLIPPERY",
-            "SURFACE_NO_CAM_COL_SLIPPERY",
-            "SURFACE_SWITCH",
-            "SURFACE_VANISH_CAP_WALLS",
-            "SURFACE_PAINTING_WOBBLE_A6",
-            "SURFACE_PAINTING_WOBBLE_A7",
-            "SURFACE_PAINTING_WOBBLE_A8",
-            "SURFACE_PAINTING_WOBBLE_A9",
-            "SURFACE_PAINTING_WOBBLE_AA",
-            "SURFACE_PAINTING_WOBBLE_AB",
-            "SURFACE_PAINTING_WOBBLE_AC",
-            "SURFACE_PAINTING_WOBBLE_AD",
-            "SURFACE_PAINTING_WOBBLE_AE",
-            "SURFACE_PAINTING_WOBBLE_AF",
-            "SURFACE_PAINTING_WOBBLE_B0",
-            "SURFACE_PAINTING_WOBBLE_B1",
-            "SURFACE_PAINTING_WOBBLE_B2",
-            "SURFACE_PAINTING_WOBBLE_B3",
-            "SURFACE_PAINTING_WOBBLE_B4",
-            "SURFACE_PAINTING_WOBBLE_B5",
-            "SURFACE_PAINTING_WOBBLE_B6",
-            "SURFACE_PAINTING_WOBBLE_B7",
-            "SURFACE_PAINTING_WOBBLE_B8",
-            "SURFACE_PAINTING_WOBBLE_B9",
-            "SURFACE_PAINTING_WOBBLE_BA",
-            "SURFACE_PAINTING_WOBBLE_BB",
-            "SURFACE_PAINTING_WOBBLE_BC",
-            "SURFACE_PAINTING_WOBBLE_BD",
-            "SURFACE_PAINTING_WOBBLE_BE",
-            "SURFACE_PAINTING_WOBBLE_BF",
-            "SURFACE_PAINTING_WOBBLE_C0",
-            "SURFACE_PAINTING_WOBBLE_C1",
-            "SURFACE_PAINTING_WOBBLE_C2",
-            "SURFACE_PAINTING_WOBBLE_C3",
-            "SURFACE_PAINTING_WOBBLE_C4",
-            "SURFACE_PAINTING_WOBBLE_C5",
-            "SURFACE_PAINTING_WOBBLE_C6",
-            "SURFACE_PAINTING_WOBBLE_C7",
-            "SURFACE_PAINTING_WOBBLE_C8",
-            "SURFACE_PAINTING_WOBBLE_C9",
-            "SURFACE_PAINTING_WOBBLE_CA",
-            "SURFACE_PAINTING_WOBBLE_CB",
-            "SURFACE_PAINTING_WOBBLE_CC",
-            "SURFACE_PAINTING_WOBBLE_CD",
-            "SURFACE_PAINTING_WOBBLE_CE",
-            "SURFACE_PAINTING_WOBBLE_CF",
-            "SURFACE_PAINTING_WOBBLE_D0",
-            "SURFACE_PAINTING_WOBBLE_D1",
-            "SURFACE_PAINTING_WOBBLE_D2",
-            "SURFACE_PAINTING_WARP_D3",
-            "SURFACE_PAINTING_WARP_D4",
-            "SURFACE_PAINTING_WARP_D5",
-            "SURFACE_PAINTING_WARP_D6",
-            "SURFACE_PAINTING_WARP_D7",
-            "SURFACE_PAINTING_WARP_D8",
-            "SURFACE_PAINTING_WARP_D9",
-            "SURFACE_PAINTING_WARP_DA",
-            "SURFACE_PAINTING_WARP_DB",
-            "SURFACE_PAINTING_WARP_DC",
-            "SURFACE_PAINTING_WARP_DD",
-            "SURFACE_PAINTING_WARP_DE",
-            "SURFACE_PAINTING_WARP_DF",
-            "SURFACE_PAINTING_WARP_E0",
-            "SURFACE_PAINTING_WARP_E1",
-            "SURFACE_PAINTING_WARP_E2",
-            "SURFACE_PAINTING_WARP_E3",
-            "SURFACE_PAINTING_WARP_E4",
-            "SURFACE_PAINTING_WARP_E5",
-            "SURFACE_PAINTING_WARP_E6",
-            "SURFACE_PAINTING_WARP_E7",
-            "SURFACE_PAINTING_WARP_E8",
-            "SURFACE_PAINTING_WARP_E9",
-            "SURFACE_PAINTING_WARP_EA",
-            "SURFACE_PAINTING_WARP_EB",
-            "SURFACE_PAINTING_WARP_EC",
-            "SURFACE_PAINTING_WARP_ED",
-            "SURFACE_PAINTING_WARP_EE",
-            "SURFACE_PAINTING_WARP_EF",
-            "SURFACE_PAINTING_WARP_F0",
-            "SURFACE_PAINTING_WARP_F1",
-            "SURFACE_PAINTING_WARP_F2",
-            "SURFACE_PAINTING_WARP_F3",
-            "SURFACE_TTC_PAINTING_1",
-            "SURFACE_TTC_PAINTING_2",
-            "SURFACE_TTC_PAINTING_3",
-            "SURFACE_PAINTING_WARP_F7",
-            "SURFACE_PAINTING_WARP_F8",
-            "SURFACE_PAINTING_WARP_F9",
-            "SURFACE_PAINTING_WARP_FA",
-            "SURFACE_PAINTING_WARP_FB",
-            "SURFACE_PAINTING_WARP_FC",
-            "SURFACE_WOBBLING_WARP",
-            "SURFACE_TRAPDOOR"
-        };
+        private static List<string> CollisionSurfaces => Models.Levels.CollisionSurfaceCatalog.CollisionSurfaces;
 
         private readonly string _projectRoot;
         private readonly string _levelPath;
@@ -652,8 +475,25 @@ namespace Sm64DecompLevelViewer
             StatusBarText.Text = "Collision Triangle deleted.";
         }
 
+        private bool CommitGridEdits()
+        {
+            foreach (var grid in new[] { ColVertexGrid, ColTriangleGrid, VisualVertexGrid, WaterBoxGrid })
+                if (!grid.CommitEdit(DataGridEditingUnit.Cell, true) || !grid.CommitEdit(DataGridEditingUnit.Row, true)) return false;
+            return true;
+        }
+        private bool TransformFits(int target, double sx, double sy, double sz, int dx = 0, int dy = 0, int dz = 0)
+        {
+            IEnumerable<(int X, int Y, int Z)> points = target == 0 ? ColVertices.Select(v => (v.X, v.Y, v.Z))
+                : target == 1 ? VisualVertices.Select(v => (v.X, v.Y, v.Z))
+                : _currentModelVertexArrays.Values.SelectMany(v => v).Select(v => (v.X, v.Y, v.Z));
+            bool valid = Services.Levels.MeshTransforms.Fits(points, sx, sy, sz, dx, dy, dz);
+            if (!valid) MessageBox.Show("The transform would exceed signed 16-bit source coordinates; no vertices were changed", "Mesh transform");
+            return valid;
+        }
+
         private void ApplyTranslation_Click(object sender, RoutedEventArgs e)
         {
+            if (!CommitGridEdits()) { StatusBarText.Text = "Resolve invalid grid values first"; return; }
             if (!int.TryParse(OffsetXText.Text, out int dx) ||
                 !int.TryParse(OffsetYText.Text, out int dy) ||
                 !int.TryParse(OffsetZText.Text, out int dz))
@@ -663,26 +503,17 @@ namespace Sm64DecompLevelViewer
             }
 
             int target = BulkTargetComboBox.SelectedIndex;
+            if (!TransformFits(target, 1, 1, 1, dx, dy, dz)) return;
 
             if (target == 0) // Collision
             {
-                foreach (var v in ColVertices)
-                {
-                    v.X += dx;
-                    v.Y += dy;
-                    v.Z += dz;
-                }
+                Services.Levels.MeshTransforms.Translate(ColVertices, dx, dy, dz);
                 ColVertexGrid.Items.Refresh();
                 StatusBarText.Text = $"Translated collision mesh by ({dx}, {dy}, {dz}).";
             }
             else if (target == 1) // Visual Active
             {
-                foreach (var v in VisualVertices)
-                {
-                    v.X += dx;
-                    v.Y += dy;
-                    v.Z += dz;
-                }
+                Services.Levels.MeshTransforms.Translate(VisualVertices, dx, dy, dz);
                 VisualVertexGrid.Items.Refresh();
                 StatusBarText.Text = $"Translated active visual vertex array by ({dx}, {dy}, {dz}).";
             }
@@ -691,12 +522,7 @@ namespace Sm64DecompLevelViewer
                 foreach (var key in _currentModelVertexArrays.Keys)
                 {
                     var vertices = _currentModelVertexArrays[key];
-                    foreach (var v in vertices)
-                    {
-                        v.X += dx;
-                        v.Y += dy;
-                        v.Z += dz;
-                    }
+                    Services.Levels.MeshTransforms.Translate(vertices, dx, dy, dz);
                 }
                 LoadSelectedVertexArray(); // reload display
                 StatusBarText.Text = $"Translated all visual vertex arrays by ({dx}, {dy}, {dz}).";
@@ -705,35 +531,27 @@ namespace Sm64DecompLevelViewer
 
         private void ApplyScale_Click(object sender, RoutedEventArgs e)
         {
-            if (!double.TryParse(ScaleXText.Text, out double sx) ||
-                !double.TryParse(ScaleYText.Text, out double sy) ||
-                !double.TryParse(ScaleZText.Text, out double sz))
+            if (!CommitGridEdits()) { StatusBarText.Text = "Resolve invalid grid values first"; return; }
+            if (!double.TryParse(ScaleXText.Text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double sx) ||
+                !double.TryParse(ScaleYText.Text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double sy) ||
+                !double.TryParse(ScaleZText.Text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double sz) || !double.IsFinite(sx) || !double.IsFinite(sy) || !double.IsFinite(sz) || Math.Abs(sx) > 1000 || Math.Abs(sy) > 1000 || Math.Abs(sz) > 1000)
             {
                 MessageBox.Show("Please enter valid decimal factors for scale.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
 
             int target = BulkTargetComboBox.SelectedIndex;
+            if (!TransformFits(target, sx, sy, sz)) return;
 
             if (target == 0) // Collision
             {
-                foreach (var v in ColVertices)
-                {
-                    v.X = (int)Math.Round(v.X * sx);
-                    v.Y = (int)Math.Round(v.Y * sy);
-                    v.Z = (int)Math.Round(v.Z * sz);
-                }
+                Services.Levels.MeshTransforms.Scale(ColVertices, sx, sy, sz);
                 ColVertexGrid.Items.Refresh();
                 StatusBarText.Text = $"Scaled collision mesh by ({sx}, {sy}, {sz}).";
             }
             else if (target == 1) // Visual Active
             {
-                foreach (var v in VisualVertices)
-                {
-                    v.X = (int)Math.Round(v.X * sx);
-                    v.Y = (int)Math.Round(v.Y * sy);
-                    v.Z = (int)Math.Round(v.Z * sz);
-                }
+                Services.Levels.MeshTransforms.Scale(VisualVertices, sx, sy, sz);
                 VisualVertexGrid.Items.Refresh();
                 StatusBarText.Text = $"Scaled active visual vertex array by ({sx}, {sy}, {sz}).";
             }
@@ -742,12 +560,7 @@ namespace Sm64DecompLevelViewer
                 foreach (var key in _currentModelVertexArrays.Keys)
                 {
                     var vertices = _currentModelVertexArrays[key];
-                    foreach (var v in vertices)
-                    {
-                        v.X = (int)Math.Round(v.X * sx);
-                        v.Y = (int)Math.Round(v.Y * sy);
-                        v.Z = (int)Math.Round(v.Z * sz);
-                    }
+                    Services.Levels.MeshTransforms.Scale(vertices, sx, sy, sz);
                 }
                 LoadSelectedVertexArray(); // reload display
                 StatusBarText.Text = $"Scaled all visual vertex arrays by ({sx}, {sy}, {sz}).";
@@ -756,6 +569,7 @@ namespace Sm64DecompLevelViewer
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
+            if (!CommitGridEdits()) { StatusBarText.Text = "Resolve invalid grid values before saving"; return; }
             if (AreaComboBox.SelectedItem is not string selectedArea) return;
             if (ColTriangles.Any(t => Math.Min(t.V1,Math.Min(t.V2,t.V3)) < 0 || Math.Max(t.V1,Math.Max(t.V2,t.V3)) >= ColVertices.Count))
             {
@@ -794,7 +608,7 @@ namespace Sm64DecompLevelViewer
                 StatusBarText.Text="Geometry, collision and rooms saved; preview refreshed.";
                 _reloadCallback?.Invoke();
             }
-            catch(Exception ex) { MessageBox.Show("Mesh was not saved: "+ex.Message,"Save mesh",MessageBoxButton.OK,MessageBoxImage.Error); }
+            catch(Exception ex) { StatusBarText.Text = "Mesh was not saved: " + ex.Message; MessageBox.Show("Mesh was not saved: "+ex.Message,"Save mesh",MessageBoxButton.OK,MessageBoxImage.Error); }
         }
         private void CloseButton_Click(object sender, RoutedEventArgs e)
         {
@@ -920,5 +734,10 @@ namespace Sm64DecompLevelViewer
                 return;
             }
         }
+        public class ColVertexViewModel : Models.Levels.ColVertexViewModel { }
+        public class ColTriangleViewModel : Models.Levels.ColTriangleViewModel { }
+        public class WaterBoxViewModel : Models.Levels.WaterBoxViewModel { }
+        public class ModelVertexViewModel : Models.Levels.ModelVertexViewModel { }
+        private (EditableGeometry Terrain, CollisionMesh Ground) PlacementContext(string area, string? excluded = null) => Services.Levels.MeshPlacementContext.Load(_projectRoot, _levelPath, _collisionFiles, _collisionParser, area, excluded);
     }
 }

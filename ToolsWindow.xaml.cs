@@ -9,15 +9,19 @@ namespace Sm64DecompLevelViewer
     public partial class ToolsWindow : Window
     {
         private readonly string _projectRoot;
-        private readonly string? _activeLevelPath;
+        private string? _activeLevelPath;
+        private readonly string? _initialArea;
+        private bool _loadingLevels;
         private readonly Action? _onReloadRequest;
 
-        public ToolsWindow(string projectRoot, string? activeLevelPath = null, Action? onReloadRequest = null)
+        public ToolsWindow(string projectRoot, string? activeLevelPath = null, Action? onReloadRequest = null, string? initialArea = null)
         {
             InitializeComponent();
             _projectRoot = projectRoot;
             _activeLevelPath = activeLevelPath;
             _onReloadRequest = onReloadRequest;
+            _initialArea = initialArea;
+            Loaded += (_, _) => LoadLevelChoices();
 
             if (!string.IsNullOrEmpty(_activeLevelPath))
             {
@@ -29,6 +33,38 @@ namespace Sm64DecompLevelViewer
             }
         }
 
+        private void LoadLevelChoices()
+        {
+            try
+            {
+                _loadingLevels = true;
+                var scanner = new Services.LevelScanner();
+                string scanRoot = Directory.Exists(Path.Combine(_projectRoot, "levels")) ? _projectRoot : Path.Combine(_projectRoot, "howtomake");
+                var levels = scanner.ScanLevels(scanRoot);
+                LevelPicker.ItemsSource = levels;
+                LevelPicker.SelectedItem = levels.FirstOrDefault(l => string.Equals(l.LevelPath, _activeLevelPath, StringComparison.OrdinalIgnoreCase));
+                _loadingLevels = false;
+                UpdateLevelContext();
+            }
+            catch (Exception ex) { _loadingLevels = false; ActiveLevelText.Text = "Level scan failed: " + ex.Message; }
+        }
+        private void LevelPicker_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e) { if (!_loadingLevels && AreaPicker != null) UpdateLevelContext(); }
+        private void UpdateLevelContext()
+        {
+            string? previousArea = AreaPicker.SelectedItem as string ?? _initialArea;
+            var level = LevelPicker.SelectedItem as Models.LevelMetadata;
+            _activeLevelPath = level?.LevelPath;
+            ActiveLevelText.Text = level == null ? "choose a level for level-specific tools" : level.FullName + "  |  " + level.LevelPath;
+            var areas = level == null ? new List<string>() : new Services.CollisionParser().FindCollisionFiles(level.LevelPath).Keys.OrderBy(k => int.TryParse(System.Text.RegularExpressions.Regex.Match(k, @"\d+").Value, out int n) ? n : int.MaxValue).ToList();
+            AreaPicker.ItemsSource = areas;
+            AreaPicker.SelectedItem = previousArea != null && areas.Contains(previousArea) ? previousArea : areas.FirstOrDefault();
+            MeshToolButton.IsEnabled = areas.Count > 0;
+            PaintingToolButton.IsEnabled = level != null && new Services.PaintingService().FindPaintingFile(level.LevelPath) != null;
+        }
+        private void TextEditor_Click(object sender, RoutedEventArgs e) => new TextEditorWindow(_projectRoot) { Owner = this }.Show();
+        private void PatchTools_Click(object sender, RoutedEventArgs e) => new PatchWindow(_projectRoot) { Owner = this }.Show();
+        private void RomTools_Click(object sender, RoutedEventArgs e) => new RomAddressWindow(_projectRoot) { Owner = this }.Show();
+
         private void LevelMeshEditor_Click(object sender, RoutedEventArgs e)
         {
             if (string.IsNullOrEmpty(_activeLevelPath))
@@ -37,22 +73,9 @@ namespace Sm64DecompLevelViewer
                 return;
             }
 
-            var meshEditor = new LevelMeshEditorWindow(_activeLevelPath, "Area 1", _projectRoot, _onReloadRequest);
+            var meshEditor = new LevelMeshEditorWindow(_activeLevelPath, AreaPicker.SelectedItem as string ?? "Area 1", _projectRoot, _onReloadRequest);
             meshEditor.Owner = this;
             meshEditor.Show();
-        }
-
-        private void WarpEditor_Click(object sender, RoutedEventArgs e)
-        {
-            if (string.IsNullOrEmpty(_activeLevelPath))
-            {
-                MessageBox.Show("This tool requires a level to be selected. Please select a level or open it in the level editor first.", "Level Specific Tool", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            var warpEditor = new WarpEditorWindow(_activeLevelPath, _onReloadRequest);
-            warpEditor.Owner = this;
-            warpEditor.Show();
         }
 
         private void PaintingEditor_Click(object sender, RoutedEventArgs e)

@@ -16,6 +16,7 @@ public sealed class LevelActorCatalog
     private readonly Lazy<string> _levelSource;
     private readonly Lazy<VisualMesh> _levelMaterials;
     private readonly Dictionary<string, (VisualMesh Mesh, MarioAnimation? Animation)?> _cache = new();
+    private readonly Dictionary<string, int?> _jointCounts = new();
     public LevelActorCatalog(string root, string? levelDirectory,LevelActorCatalog? sharedCatalog = null)
     {
         _projectRoot = root;
@@ -44,13 +45,29 @@ public sealed class LevelActorCatalog
             { _models[pair.Key]=loaded.Geo; if(loaded.Direct) _directModels.Add(pair.Key); }
         if(sharedCatalog!=null && string.Equals(sharedCatalog._projectRoot,root,StringComparison.OrdinalIgnoreCase))
             foreach(var pair in sharedCatalog._actors) _actors[pair.Key]=pair.Value;
-        else foreach (string directory in Directory.GetDirectories(Path.Combine(root, "actors")))
+        else foreach (string directory in Directory.Exists(Path.Combine(root, "actors")) ? Directory.GetDirectories(Path.Combine(root, "actors")) : Array.Empty<string>())
         {
             string geo = Path.Combine(directory, "geo.inc.c");
             if (!File.Exists(geo)) continue;
             foreach (Match layout in Regex.Matches(File.ReadAllText(geo), @"GeoLayout\s+(\w+)\s*\["))
                 _actors[layout.Groups[1].Value] = Path.GetFileName(directory);
         }
+    }
+    // Inspect the model skeleton without loading its meshes, textures or animation bank.
+    public string? GetActorName(string model) => _models.TryGetValue(model, out string? geo) ? _actors.GetValueOrDefault(geo) : null;
+    public int? GetJointCount(string model)
+    {
+        if (model == "MODEL_NONE") return 0;
+        if (_jointCounts.TryGetValue(model, out var count)) return count;
+        if (!_models.TryGetValue(model, out string? geo)) return _jointCounts[model] = null;
+        if (_directModels.Contains(model)) return _jointCounts[model] = 0;
+        string? file = _actors.TryGetValue(geo, out string? actor)
+            ? Path.Combine(_projectRoot, "actors", actor, "geo.inc.c")
+            : _levelGeos.GetValueOrDefault(geo);
+        if (file == null) return _jointCounts[model] = null;
+        var parser = new GeoLayoutParser();
+        parser.ParseActorGeoLayout(file, geo, actor == null ? _levelGeos.Values.Distinct() : null);
+        return _jointCounts[model] = parser.ParsedJoints.Count;
     }
     private void ResolveLevelMaterials(VisualMesh mesh)
     {
@@ -125,9 +142,7 @@ public sealed class LevelActorCatalog
             }
             var mesh = ActorModelLoader.Load(_projectRoot, actor, geo);
             var parser = new AnimationParser();
-            var animations = parser.ScanActorAnimations(_projectRoot, actor, mesh.Joints.Count);
-            var animation = AnimationParser.SelectDefaultAnimation(animations, actor);
-            if (animation != null && animation.Indices.Length == 0) parser.LoadAnimationData(animation);
+            var animation = parser.LoadDefaultActorAnimation(_projectRoot, actor, mesh.Joints.Count);
             parser.ApplyFrame(mesh, animation, 0);
             return _cache[model] = (mesh, animation);
         }

@@ -41,9 +41,18 @@ namespace Sm64DecompLevelViewer
         public List<int> SelectedModeIds { get; private set; } = new();
         public bool IsSimultaneous { get; private set; } = true;
 
-        public GameLogicModesWindow(List<int> initialSelectedIds, bool initialIsSimultaneous)
+        public int CycleFrames { get; private set; } = 300;
+        private readonly TextBox _cycleFrames = new();
+        public GameLogicModesWindow(List<int> initialSelectedIds, bool initialIsSimultaneous, int cycleFrames = 300)
         {
             InitializeComponent();
+            var cyclePanel = (StackPanel)CycleRadio.Parent;
+            cyclePanel.Children.Add(new TextBlock { Text = "Cycle duration in frames (1-3600)", Margin = new Thickness(0, 8, 0, 0) });
+            _cycleFrames.Text = cycleFrames.ToString();
+            cyclePanel.Children.Add(_cycleFrames);
+            _cycleFrames.IsEnabled = !initialIsSimultaneous;
+            CycleRadio.Checked += (_, _) => _cycleFrames.IsEnabled = true;
+            SimultaneousRadio.Checked += (_, _) => _cycleFrames.IsEnabled = false;
 
             SimultaneousRadio.IsChecked = initialIsSimultaneous;
             CycleRadio.IsChecked = !initialIsSimultaneous;
@@ -81,6 +90,7 @@ namespace Sm64DecompLevelViewer
             }
 
             ModesListBox.ItemsSource = Modes;
+            ChaosControls.AddSearch(this, ModesListBox, item => ((GameLogicModeItem)item).Name + " " + ((GameLogicModeItem)item).Description);
             UpdateStatusText();
         }
 
@@ -119,6 +129,9 @@ namespace Sm64DecompLevelViewer
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
+            if (!int.TryParse(_cycleFrames.Text, out int frames) || frames < 1 || frames > 3600)
+            { MessageBox.Show(this, "Cycle duration must be 1-3600 frames"); return; }
+            CycleFrames = frames;
             SelectedModeIds = Modes.Where(m => m.IsEnabled).Select(m => m.Id).ToList();
             IsSimultaneous = SimultaneousRadio.IsChecked == true;
 

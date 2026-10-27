@@ -139,28 +139,31 @@
                             <ListBox x:Name="M64SelectionListBox" Height="80" SelectionMode="Multiple" Margin="0,4,0,0" Visibility="Collapsed" Background="#252526" Foreground="#E0E0E0" BorderBrush="#3F3F46"/>
                         </StackPanel>
                         
-                        <CheckBox x:Name="TargetSoundsCheck" Content="Sound Bank Instrument Samples (.aiff)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="True"/>
-                        <CheckBox x:Name="ShuffleSoundsCheck" Content="Randomize/Shuffle Sound Samples (Swap audio files)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="ShuffleSoundsCheck_Toggle" Unchecked="ShuffleSoundsCheck_Toggle"/>
+                        <CheckBox x:Name="TargetSoundsCheck" Content="Music / Instrument Sample Corruption (.aiff)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="True"/>
+                        <CheckBox x:Name="ShuffleSoundsCheck" Content="Randomize/Shuffle Sound Samples (Swap and apply effects)" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="ShuffleSoundsCheck_Toggle" Unchecked="ShuffleSoundsCheck_Toggle"/>
                         <!-- Sub-options for shuffling sounds -->
                         <StackPanel x:Name="ShuffleSoundsOptionsPanel" Margin="20,0,0,8" Visibility="Collapsed">
-                            <CheckBox x:Name="ExcludeInstrumentsShuffleCheck" Content="Exclude Instruments (keep instruments clean)" Foreground="#CCCCCC" Margin="0,0,0,6" IsChecked="False"/>
+                            <CheckBox x:Name="ExcludeInstrumentsShuffleCheck" Content="Exclude Music Samples (including instruments)" Foreground="#CCCCCC" Margin="0,0,0,6" IsChecked="False"/>
                             <CheckBox x:Name="ExcludeSfxShuffleCheck" Content="Exclude SFX (keep voices &amp; sound effects clean)" Foreground="#CCCCCC" IsChecked="False"/>
                             <CheckBox x:Name="ShuffleSfxOnlyCheck" Content="Shuffle SFX amongst themselves only" Foreground="#CCCCCC" Margin="0,6,0,0" IsChecked="False"/>
                             <CheckBox x:Name="SfxIdentityShuffleCheck" Content="Shuffle/Swap Sound Identities (Change which sound plays)" Foreground="#CCCCCC" Margin="0,6,0,0" IsChecked="True"/>
                             <CheckBox x:Name="SfxPitchVariationCheck" Content="Apply Random Pitch Variation" Foreground="#CCCCCC" Margin="0,6,0,0" IsChecked="False"/>
-                            <DockPanel Margin="0,6,0,0">
-                                <TextBlock Text="SFX Randomizer Mode:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                <ComboBox x:Name="SfxRandomizerModeComboBox" SelectedIndex="0" Height="24" Width="200" HorizontalAlignment="Left">
-                                    <ComboBoxItem Content="Pure Shuffle (Swap Only)"/>
-                                    <ComboBoxItem Content="High Pitch (Chipmunk)"/>
-                                    <ComboBoxItem Content="Low Pitch (Demonic)"/>
-                                    <ComboBoxItem Content="Chaotic Pitch (Random)"/>
-                                    <ComboBoxItem Content="Reverse Playback (Backwards)"/>
-                                    <ComboBoxItem Content="Glitched Truncation (Shortened)"/>
-                                    <ComboBoxItem Content="Amplify Volume (Make Louder)"/>
-                                    <ComboBoxItem Content="Mute (Silence)"/>
-                                </ComboBox>
-                            </DockPanel>
+                            <TextBlock Text="Sample effects: click to toggle multiple modes" Foreground="#999999" Margin="0,8,0,4"/>
+                            <ListBox x:Name="SfxRandomizerModeListBox" SelectionMode="Multiple" Height="150" Width="330" HorizontalAlignment="Left" Background="#292929" Foreground="White">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ListBoxItem">
+                                                    <CheckBox Content="{TemplateBinding Content}" IsChecked="{Binding IsSelected, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}" Foreground="White" Margin="3"/>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                            </ListBox>
+                            <TextBlock Text="Effects combine in the listed order. No selection = shuffle only. Pitch changes speed within the original sample length." TextWrapping="Wrap" MaxWidth="450" HorizontalAlignment="Left" Foreground="#999999" Margin="0,4,0,0"/>
+
                         </StackPanel>
                         
                         <CheckBox x:Name="ReplaceSfxCheck" Content="Replace Selected SFX with Specific Sound" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="ReplaceSfxCheck_Toggle" Unchecked="ReplaceSfxCheck_Toggle"/>
@@ -170,7 +173,7 @@
                             <TextBlock x:Name="ActiveReplacementsSummaryText" Text="Active replacement rules: 0" Foreground="#999999" Margin="0,2,0,0"/>
                         </StackPanel>
                         
-                        <CheckBox x:Name="RandomizeDlCheck" Content="Display List (F3DEX) Randomizer" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="RandomizeDlCheck_Toggle" Unchecked="RandomizeDlCheck_Toggle"/>
+                        <CheckBox x:Name="RandomizeDlCheck" Content="Display List (Fast3D) Randomizer" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="RandomizeDlCheck_Toggle" Unchecked="RandomizeDlCheck_Toggle"/>
                         <!-- Sub-options for Display List Randomizer -->
                         <StackPanel x:Name="DlRandomizerPanel" Margin="20,0,0,8" Visibility="Collapsed">
                             <DockPanel>
@@ -580,6 +583,7 @@
                 <Button x:Name="AddCurrentToQueueButton" Content="Add to Queue" Click="AddCurrentToQueue_Click"
                         Padding="12,12" Margin="0,0,6,0" Background="#3E3E42" Foreground="White" BorderThickness="0" 
                         FontSize="12" FontWeight="SemiBold" Cursor="Hand"/>
+                <Button Content="Per-tool intensity" Click="IntensityOverrides_Click" Margin="8,0"/>
                 <Button x:Name="ChaosButton" Content="INFLICT CHAOS!" Click="ChaosButton_Click"
                         Padding="20,12" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0" 
                         FontSize="14" FontWeight="Bold" Cursor="Hand"/>

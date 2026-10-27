@@ -17,6 +17,7 @@ namespace Sm64DecompLevelViewer
             public string Name { get; set; }
             public string Description { get; set; }
 
+            public bool IsAvailable => Id == 0;
             public bool IsEnabled
             {
                 get => _isEnabled;
@@ -46,22 +47,23 @@ namespace Sm64DecompLevelViewer
 
             var allPatches = new List<AudioDistortionPatchItem>
             {
-                new AudioDistortionPatchItem { Id = 0, Name = "Long Notes Distortion (A031C1AF)", Description = "Forces the sound script delay duration logic to read from volatile unaligned heap offsets, generating massive note and SFX distortion mimicking GameShark code A031C1AF DDDD." },
-                new AudioDistortionPatchItem { Id = 1, Name = "Wackier Sounds & Music (A031C1BF) [Future]", Description = "[Future Patch] Overwrites stack-frame offsets during audio processing to corrupt sequence registers, producing extremely wacky and unpredictable instrument tones." },
-                new AudioDistortionPatchItem { Id = 2, Name = "Wacky Waveform Instruments (A031C1BA) [Future]", Description = "[Future Patch] Corrupts sound bank channel tables on startup, forcing audio sequence instruments to cycle through unstable, glitchy waveforms." },
-                new AudioDistortionPatchItem { Id = 3, Name = "ADSR Envelope Scrambler [Future]", Description = "[Future Patch] Randomly overrides ADSR volume envelope registers, causing sounds to sustain infinitely, decay instantly, or pulse rapidly." },
-                new AudioDistortionPatchItem { Id = 4, Name = "Vibrato Pitch Bend Chaos [Future]", Description = "[Future Patch] Injects low-frequency pitch bend oscillations directly into active sequence channels, causing continuous vibrato and warbling." },
-                new AudioDistortionPatchItem { Id = 5, Name = "DMA Output Buffer Bitcrusher [Future]", Description = "[Future Patch] Periodically inserts low-amplitude random noise or swaps bytes directly inside the audio synthesis output DMA buffer, generating digital static and bitcrushed sound effects." }
+                new AudioDistortionPatchItem { Id = 0, Name = "Long Notes (Reduced Gate)", Description = "Reduces the silent tail of each note to one quarter, extending sustained notes within their existing delays. Uses the sequence layer duration field. Samples and ADSR envelopes can still end earlier; a zero gate is unchanged." },
+                new AudioDistortionPatchItem { Id = 1, Name = "Wackier Sounds & Music (A031C1BF) [unavailable]", Description = "[unavailable: no source patch implemented] Overwrites stack-frame offsets during audio processing to corrupt sequence registers, producing extremely wacky and unpredictable instrument tones." },
+                new AudioDistortionPatchItem { Id = 2, Name = "Wacky Waveform Instruments (A031C1BA) [unavailable]", Description = "[unavailable: no source patch implemented] Corrupts sound bank channel tables on startup, forcing audio sequence instruments to cycle through unstable, glitchy waveforms." },
+                new AudioDistortionPatchItem { Id = 3, Name = "ADSR Envelope Scrambler [unavailable]", Description = "[unavailable: no source patch implemented] Randomly overrides ADSR volume envelope registers, causing sounds to sustain infinitely, decay instantly, or pulse rapidly." },
+                new AudioDistortionPatchItem { Id = 4, Name = "Vibrato Pitch Bend Chaos [unavailable]", Description = "[unavailable: no source patch implemented] Injects low-frequency pitch bend oscillations directly into active sequence channels, causing continuous vibrato and warbling." },
+                new AudioDistortionPatchItem { Id = 5, Name = "DMA Output Buffer Bitcrusher [unavailable]", Description = "[unavailable: no source patch implemented] Periodically inserts low-amplitude random noise or swaps bytes directly inside the audio synthesis output DMA buffer, generating digital static and bitcrushed sound effects." }
             };
 
             foreach (var item in allPatches)
             {
-                item.IsEnabled = initialSelectedIds.Contains(item.Id);
+                item.IsEnabled = item.IsAvailable && initialSelectedIds.Contains(item.Id);
                 item.PropertyChanged += Item_PropertyChanged;
                 Patches.Add(item);
             }
 
             ModesListBox.ItemsSource = Patches;
+            ChaosControls.AddSearch(this, ModesListBox, item => ((AudioDistortionPatchItem)item).Name + " " + ((AudioDistortionPatchItem)item).Description);
             UpdateStatusText();
         }
 
@@ -76,7 +78,7 @@ namespace Sm64DecompLevelViewer
         private void UpdateStatusText()
         {
             int count = Patches.Count(p => p.IsEnabled);
-            StatusTextBlock.Text = $"{count} of {Patches.Count} patches enabled";
+            StatusTextBlock.Text = $"{count} selected; {Patches.Count(p => p.IsAvailable)} available, {Patches.Count(p => !p.IsAvailable)} unavailable";
         }
 
         private void ModesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -91,7 +93,7 @@ namespace Sm64DecompLevelViewer
         {
             foreach (var item in Patches)
             {
-                item.IsEnabled = true;
+                item.IsEnabled = item.IsAvailable;
             }
         }
 

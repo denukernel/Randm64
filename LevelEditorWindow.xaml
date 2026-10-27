@@ -1,7 +1,7 @@
 <Window x:Class="Sm64DecompLevelViewer.LevelEditorWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="SM64 Level Editor" Height="840" Width="1280" MinHeight="680" MinWidth="1050"
+        Title="SM64 Level Editor" FontFamily="Segoe UI" Height="840" Width="1280" MinHeight="680" MinWidth="1050"
         Background="#1E1E1E" Foreground="#CCCCCC"
         Icon="Assets/icon.png"
         Closing="Window_Closing">
@@ -24,16 +24,26 @@
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="MinWidth" Value="76"/>
+            <Setter Property="MinHeight" Value="64"/>
+            <Setter Property="Margin" Value="2"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="3">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="5" BorderBrush="#71839B" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="{StaticResource ButtonHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="border" Property="BorderThickness" Value="1"/>
+                                <Setter TargetName="border" Property="Background" Value="#343E4D"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#185577"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.3"/>
@@ -106,108 +116,114 @@
             <TabControl Background="Transparent" BorderThickness="0">
                 
                 <TabItem Header="File">
-                    <StackPanel Orientation="Horizontal">
+                    <WrapPanel Margin="8,5">
                         <Button Click="SaveButton_Click" ToolTip="Save Level" Style="{StaticResource RibbonButtonStyle}">
                             <StackPanel>
-                                <TextBlock Text="💾" FontSize="20" HorizontalAlignment="Center"/>
+                                <TextBlock Text="&#xE105;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center"/>
                                 <TextBlock Text="Save" HorizontalAlignment="Center" FontSize="11"/>
                             </StackPanel>
                         </Button>
-                        <Button Click="LogsButton_Click" ToolTip="View Logs" Style="{StaticResource RibbonButtonStyle}">
-                            <StackPanel>
-                                <TextBlock Text="📋" FontSize="20" HorizontalAlignment="Center"/>
-                                <TextBlock Text="Logs" HorizontalAlignment="Center" FontSize="11"/>
-                            </StackPanel>
-                        </Button>
-                    </StackPanel>
+                    </WrapPanel>
                 </TabItem>
                 
-                <TabItem Header="Objects">
-                    <StackPanel Orientation="Horizontal">
-                        <Button Click="AddObject_Click" ToolTip="Add Normal Object" Style="{StaticResource RibbonButtonStyle}">
+                <TabItem Header="Objects" IsEnabled="{Binding IsChecked, ElementName=ActorObjectMode}">
+                    <WrapPanel Margin="8,5">
+                        <Button Click="AddObject_Click" ToolTip="Add normal, macro or special object at the camera target" Style="{StaticResource RibbonButtonStyle}">
                             <StackPanel>
-                                <TextBlock Text="➕" FontSize="20" HorizontalAlignment="Center"/>
+                                <TextBlock Text="&#xE109;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center"/>
                                 <TextBlock Text="Object" HorizontalAlignment="Center" FontSize="11"/>
                             </StackPanel>
                         </Button>
                         <Button Click="PerformCopy" ToolTip="Copy Object" Style="{StaticResource RibbonButtonStyle}">
                             <StackPanel>
-                                <TextBlock Text="📄" FontSize="20" HorizontalAlignment="Center"/>
+                                <TextBlock Text="&#xE8C8;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center"/>
                                 <TextBlock Text="Copy" HorizontalAlignment="Center" FontSize="11"/>
                             </StackPanel>
                         </Button>
                         <Button Click="PerformPaste" ToolTip="Paste Object" Style="{StaticResource RibbonButtonStyle}">
                             <StackPanel>
-                                <TextBlock Text="📋" FontSize="20" HorizontalAlignment="Center"/>
+                                <TextBlock Text="&#xE77F;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center"/>
                                 <TextBlock Text="Paste" HorizontalAlignment="Center" FontSize="11"/>
                             </StackPanel>
                         </Button>
+                        <Button Click="GroundObject_Click" ToolTip="Place the selected object on terrain at its X/Z position" Style="{StaticResource RibbonButtonStyle}">
+                            <StackPanel><TextBlock Text="&#xE74B;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center"/><TextBlock Text="Ground" FontSize="11"/></StackPanel>
+                        </Button>
+                        <Button Click="RestoreRemovedObject_Click" ToolTip="Restore the last removed object, including after saving" Style="{StaticResource RibbonButtonStyle}">
+                            <StackPanel><TextBlock Text="&#xE7A7;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center"/><TextBlock Text="Restore" FontSize="11"/></StackPanel>
+                        </Button>
                         <Button Click="RemoveObject_Click" ToolTip="Delete Selected" Style="{StaticResource RibbonButtonStyle}">
                             <StackPanel>
-                                <TextBlock Text="🗑️" FontSize="20" HorizontalAlignment="Center"/>
+                                <TextBlock Text="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center"/>
                                 <TextBlock Text="Delete" HorizontalAlignment="Center" FontSize="11"/>
                             </StackPanel>
                         </Button>
-                    </StackPanel>
+                    </WrapPanel>
                 </TabItem>
 
                 <TabItem Header="Tools">
-                    <StackPanel Orientation="Horizontal">
+                    <WrapPanel Margin="8,5">
                         <Button Click="ToolsDashboardButton_Click" ToolTip="Open standalone Tools Dashboard Window" Style="{StaticResource RibbonButtonStyle}">
                             <StackPanel>
-                                <TextBlock Text="🛠️" FontSize="20" HorizontalAlignment="Center" Foreground="#007ACC"/>
+                                <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center" Foreground="#007ACC"/>
                                 <TextBlock Text="Dashboard" HorizontalAlignment="Center" FontSize="11"/>
                             </StackPanel>
                         </Button>
                         <Button Click="TestButton_Click" ToolTip="Test Level (Requires Emulator)" Style="{StaticResource RibbonButtonStyle}">
                             <StackPanel>
-                                <TextBlock Text="🚀" FontSize="20" HorizontalAlignment="Center" Foreground="#B5CEA8"/>
-                                <TextBlock Text="Test" HorizontalAlignment="Center" FontSize="11"/>
+                                <TextBlock Text="&#xE768;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center" Foreground="#B5CEA8"/>
+                                <TextBlock Text="Build / test" HorizontalAlignment="Center" FontSize="11"/>
                             </StackPanel>
                         </Button>
                         <Button Click="ActorEditorButton_Click" ToolTip="Actor Viewer &amp; Editor" Style="{StaticResource RibbonButtonStyle}">
                             <StackPanel>
-                                <TextBlock Text="👾" FontSize="20" HorizontalAlignment="Center" Foreground="#CE9178"/>
+                                <TextBlock Text="&#xE77B;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center" Foreground="#CE9178"/>
                                 <TextBlock Text="Actors" HorizontalAlignment="Center" FontSize="11"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Click="LevelMusic_Click" ToolTip="Assign music to this level" Style="{StaticResource RibbonButtonStyle}">
+                            <StackPanel>
+                                <TextBlock Text="&#xE142;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center" Foreground="#4FC9B0"/>
+                                <TextBlock Text="Level music" HorizontalAlignment="Center" FontSize="11"/>
                             </StackPanel>
                         </Button>
                         <Button Click="MusicEditorButton_Click" ToolTip="M64 Music Editor" Style="{StaticResource RibbonButtonStyle}">
                             <StackPanel>
-                                <TextBlock Text="🎵" FontSize="20" HorizontalAlignment="Center" Foreground="#4FC1FF"/>
+                                <TextBlock Text="&#xE8D6;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center" Foreground="#4FC1FF"/>
                                 <TextBlock Text="Music" HorizontalAlignment="Center" FontSize="11"/>
                             </StackPanel>
                         </Button>
-                        <Button Click="LevelMeshEditorButton_Click" ToolTip="Collision &amp; Visual Mesh Editor" Style="{StaticResource RibbonButtonStyle}">
+                        <Button Click="LevelMeshEditorButton_Click" ToolTip="Level mesh viewer (editable tables)" Style="{StaticResource RibbonButtonStyle}">
                             <StackPanel>
-                                <TextBlock Text="📐" FontSize="20" HorizontalAlignment="Center" Foreground="#E080C0"/>
-                                <TextBlock Text="Mesh" HorizontalAlignment="Center" FontSize="11"/>
+                                <TextBlock Text="&#xE7C3;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center" Foreground="#E080C0"/>
+                                <TextBlock Text="Mesh viewer" HorizontalAlignment="Center" FontSize="11"/>
                             </StackPanel>
                         </Button>
                         <Button Click="WarpEditorButton_Click" ToolTip="Warp Nodes Editor" Style="{StaticResource RibbonButtonStyle}">
                             <StackPanel>
-                                <TextBlock Text="🌀" FontSize="20" HorizontalAlignment="Center" Foreground="#35A0D0"/>
+                                <TextBlock Text="&#xE8AB;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center" Foreground="#35A0D0"/>
                                 <TextBlock Text="Warps" HorizontalAlignment="Center" FontSize="11"/>
                             </StackPanel>
                         </Button>
                         <Button Click="PaintingEditorButton_Click" ToolTip="Painting Structures Editor" Style="{StaticResource RibbonButtonStyle}">
                             <StackPanel>
-                                <TextBlock Text="🖼️" FontSize="20" HorizontalAlignment="Center" Foreground="#E6A23C"/>
+                                <TextBlock Text="&#xE91B;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center" Foreground="#E6A23C"/>
                                 <TextBlock Text="Paintings" HorizontalAlignment="Center" FontSize="11"/>
                             </StackPanel>
                         </Button>
                         <Button Click="PatchButton_Click" ToolTip="Apply Source Patch (WSL/Git)" Style="{StaticResource RibbonButtonStyle}">
                             <StackPanel>
-                                <TextBlock Text="🩹" FontSize="20" HorizontalAlignment="Center" Foreground="#E57373"/>
+                                <TextBlock Text="&#xE90F;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center" Foreground="#E57373"/>
                                 <TextBlock Text="Patch" HorizontalAlignment="Center" FontSize="11"/>
                             </StackPanel>
                         </Button>
-                        <Button Click="HelpButton_Click" ToolTip="Editor Help" Style="{StaticResource RibbonButtonStyle}">
+                        <Button Click="HelpButton_Click" ToolTip="Camera, object and mesh controls" Style="{StaticResource RibbonButtonStyle}">
                             <StackPanel>
-                                <TextBlock Text="❓" FontSize="20" HorizontalAlignment="Center" Foreground="#DCDCAA"/>
-                                <TextBlock Text="Help" HorizontalAlignment="Center" FontSize="11"/>
+                                <TextBlock Text="&#xE897;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center" Foreground="#DCDCAA"/>
+                                <TextBlock Text="Controls" HorizontalAlignment="Center" FontSize="11"/>
                             </StackPanel>
                         </Button>
-                    </StackPanel>
+                    </WrapPanel>
                 </TabItem>
             </TabControl>
         </Border>
@@ -223,6 +239,7 @@
             <!-- SIDEBAR -->
             <Border Grid.Column="0" Background="{StaticResource PanelBackground}" BorderBrush="#3F3F46" BorderThickness="0,0,1,0">
                 <Grid>
+                  <Grid x:Name="ObjectModePanel">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/> <!-- Search -->
                         <RowDefinition Height="2*"/>   <!-- Object List -->
@@ -245,7 +262,7 @@
                     </Border>
 
                     <!-- Object/Warp List -->
-                    <TabControl x:Name="SidebarTabControl" Grid.Row="1" Margin="0,5">
+                    <TabControl x:Name="SidebarTabControl" SelectionChanged="IntroTab_Changed" Grid.Row="1" Margin="0,5">
                         <TabItem Header="Objects">
                             <TreeView x:Name="ObjectTreeView" Background="Transparent" BorderThickness="0"
                                       SelectedItemChanged="ObjectTreeView_SelectedItemChanged" Margin="0,5">
@@ -270,6 +287,8 @@
                                 </Grid.RowDefinitions>
                                 
                                 <StackPanel Grid.Row="0" Margin="0,0,0,5">
+                                    <CheckBox x:Name="IntroActorsCheckBox" Content="Preview Peach and Lakitu" IsChecked="True" Checked="IntroPreview_Changed" Unchecked="IntroPreview_Changed" Foreground="White" Margin="0,4"/>
+                                    <Button x:Name="PeachPositionButton" Content="Edit / focus Peach position..." Click="PeachPosition_Click" Margin="0,4"/>
                                     <TextBlock Text="Select Camera Path:" Foreground="#CCCCCC" Margin="0,0,0,3"/>
                                     <ComboBox x:Name="SplineSelector" SelectionChanged="SplineSelector_SelectionChanged">
                                         <ComboBoxItem Content="Intro Camera Path (Position)" Tag="sIntroStartToPipePosition"/>
@@ -493,6 +512,7 @@
                                                 <Grid.RowDefinitions>
                                                     <RowDefinition Height="Auto"/>
                                                     <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
                                                 </Grid.RowDefinitions>
                                                 <TextBlock Text="Model" Grid.Row="0" VerticalAlignment="Center" Margin="0,0,5,5" Foreground="{StaticResource HeaderBrush}"/>
                                                 <Grid Grid.Row="0" Grid.Column="1" Margin="0,0,0,5">
@@ -500,8 +520,8 @@
                                                         <ColumnDefinition Width="*"/>
                                                         <ColumnDefinition Width="Auto"/>
                                                     </Grid.ColumnDefinitions>
-                                                    <TextBox x:Name="ModelTextBox" Background="#333333" Foreground="White" BorderThickness="1" BorderBrush="#3F3F46" TextChanged="Coordinate_TextChanged" VerticalAlignment="Center" Padding="2"/>
-                                                    <Button Grid.Column="1" Content="..." Width="25" Margin="5,0,0,0" Background="#3E3E42" Foreground="White" BorderThickness="0" Click="SelectModelButton_Click"/>
+                                                    <TextBox x:Name="ModelTextBox" IsReadOnly="True" Background="#333333" Foreground="White" BorderThickness="1" BorderBrush="#3F3F46" TextChanged="Coordinate_TextChanged" VerticalAlignment="Center" Padding="2"/>
+                                                    <Button x:Name="SelectModelButton" Grid.Column="1" Content="..." Width="25" Margin="5,0,0,0" Background="#3E3E42" Foreground="White" BorderThickness="0" Click="SelectModelButton_Click"/>
                                                 </Grid>
                                                 
                                                 <TextBlock Text="Behavior" Grid.Row="1" VerticalAlignment="Center" Margin="0,0,5,0" Foreground="{StaticResource HeaderBrush}"/>
@@ -511,8 +531,9 @@
                                                         <ColumnDefinition Width="Auto"/>
                                                     </Grid.ColumnDefinitions>
                                                     <TextBox x:Name="BehaviorTextBox" IsReadOnly="True" Background="#333333" Foreground="White" BorderThickness="1" BorderBrush="#3F3F46" MouseDoubleClick="BehaviorTextBox_MouseDoubleClick" VerticalAlignment="Center" Padding="2"/>
-                                                    <Button Grid.Column="1" Content="..." Width="25" Margin="5,0,0,0" Background="#3E3E42" Foreground="White" BorderThickness="0" Click="SelectBehaviorButton_Click"/>
+                                                    <Button x:Name="SelectBehaviorButton" Grid.Column="1" Content="..." Width="25" Margin="5,0,0,0" Background="#3E3E42" Foreground="White" BorderThickness="0" Click="SelectBehaviorButton_Click"/>
                                                 </Grid>
+                                                <TextBlock x:Name="ModelCompatibilityText" Grid.Row="2" Grid.ColumnSpan="2" TextWrapping="Wrap" Foreground="#E5C07B" Margin="0,6,0,0" Visibility="Collapsed"/>
                                             </Grid>
                                         </Expander>
 
@@ -551,7 +572,8 @@
                                                 <Grid.RowDefinitions>
                                                     <RowDefinition Height="Auto"/>
                                                     <RowDefinition Height="Auto"/>
-                                                </Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+</Grid.RowDefinitions>
 
                                                 <TextBlock Text="X" Margin="0,0,5,5" Foreground="{StaticResource HeaderBrush}"/>
                                                 <TextBox x:Name="PosXTextBox" Grid.Column="1" Background="#333333" Foreground="White" Margin="0,0,5,5" TextChanged="Coordinate_TextChanged" BorderThickness="1" BorderBrush="#3F3F46" Padding="2"/>
@@ -562,6 +584,8 @@
                                                 <TextBox x:Name="PosZTextBox" Grid.Row="1" Grid.Column="1" Background="#333333" Foreground="White" Margin="0,0,5,0" TextChanged="Coordinate_TextChanged" BorderThickness="1" BorderBrush="#3F3F46" Padding="2"/>
                                                 <TextBlock Text="RY" Grid.Row="1" Grid.Column="2" Margin="0,0,5,0" Foreground="{StaticResource HeaderBrush}"/>
                                                 <TextBox x:Name="RotYTextBox" Grid.Row="1" Grid.Column="3" Background="#333333" Foreground="White" TextChanged="Coordinate_TextChanged" BorderThickness="1" BorderBrush="#3F3F46" Padding="2"/>
+                                                <TextBlock Text="RX" Grid.Row="2"/><TextBox x:Name="RotXTextBox" Grid.Row="2" Grid.Column="1" Background="#333333" Foreground="White" TextChanged="Coordinate_TextChanged"/>
+                                                <TextBlock Text="RZ" Grid.Row="2" Grid.Column="2"/><TextBox x:Name="RotZTextBox" Grid.Row="2" Grid.Column="3" Background="#333333" Foreground="White" TextChanged="Coordinate_TextChanged"/>
                                             </Grid>
                                         </Expander>
                                     </StackPanel>
@@ -573,6 +597,74 @@
                             </Grid>
                         </Grid>
                     </Border>
+                  </Grid>
+                  <ScrollViewer x:Name="MeshModePanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" Padding="14">
+                    <StackPanel>
+                      <TextBlock Text="Mesh editor" FontSize="20" Margin="0,0,0,12"/>
+                      <TextBlock Text="Movement target" Margin="0,0,0,5"/>
+                      <ComboBox x:Name="MeshMovementTarget" SelectionChanged="MeshTool_Changed" SelectedIndex="0" Margin="0,0,0,12">
+                        <ComboBoxItem Content="Mesh and collision (matching vertices)"/>
+                        <ComboBoxItem Content="Mesh only; keep collision"/>
+                        <ComboBoxItem Content="Collision only; keep mesh"/>
+                      </ComboBox>
+                      <UniformGrid Columns="4" Margin="0,0,0,12">
+                        <RadioButton x:Name="MeshEditTool" Foreground="White" GroupName="MeshTool" Content="Edit" IsChecked="True" Checked="MeshTool_Changed"/>
+                        <RadioButton x:Name="MeshPaintTool" Foreground="White" GroupName="MeshTool" Content="Paint" Checked="MeshTool_Changed"/>
+                        <RadioButton x:Name="MeshBoxTool" Foreground="White" GroupName="MeshTool" Content="Box" Checked="MeshTool_Changed"/>
+                        <RadioButton x:Name="CollisionTypeTool" Foreground="White" GroupName="MeshTool" Content="Collision" Checked="MeshTool_Changed"/>
+                      </UniformGrid>
+                      <TextBlock x:Name="MeshToolHint" TextWrapping="Wrap" Margin="0,0,0,15"/>
+                      <StackPanel x:Name="MeshEditOptions">
+                        <WrapPanel Margin="0,0,0,10">
+                          <RadioButton x:Name="MeshVertexSelection" Content="Vertices" GroupName="MeshSelection" Foreground="White" IsChecked="True" Checked="MeshTool_Changed" Margin="0,0,16,0"/>
+                          <RadioButton x:Name="MeshFaceSelection" Content="Faces" GroupName="MeshSelection" Foreground="White" Checked="MeshTool_Changed"/>
+                        </WrapPanel>
+                        <TextBlock Text="Drag in the viewport or nudge below" Margin="0,0,0,6"/>
+                        <TextBlock Text="Step in game units"/>
+                        <TextBox x:Name="MeshMoveStep" Text="50" Margin="0,4,0,8"/>
+                        <UniformGrid Columns="3">
+                          <Button Content="X -" Tag="-x" Click="MoveMeshVertex_Click" Margin="2"/>
+                          <Button Content="Y -" Tag="-y" Click="MoveMeshVertex_Click" Margin="2"/>
+                          <Button Content="Z -" Tag="-z" Click="MoveMeshVertex_Click" Margin="2"/>
+                          <Button Content="X +" Tag="x" Click="MoveMeshVertex_Click" Margin="2"/>
+                          <Button Content="Y +" Tag="y" Click="MoveMeshVertex_Click" Margin="2"/>
+                          <Button Content="Z +" Tag="z" Click="MoveMeshVertex_Click" Margin="2"/>
+                        </UniformGrid>
+                      </StackPanel>
+                      <StackPanel x:Name="MeshPaintOptions" Visibility="Collapsed">
+                        <TextBlock Text="Level texture" Margin="0,0,0,6"/>
+                        <ComboBox x:Name="MeshPaintTextureCombo" SelectionChanged="MeshPaintTexture_Changed"/>
+                        <Image x:Name="MeshTexturePreview" Width="96" Height="96" HorizontalAlignment="Left" Margin="0,8" RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                        <TextBlock Text="Click or drag across faces to paint textures; save when ready" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                      </StackPanel>
+                      <StackPanel x:Name="MeshBoxOptions" Visibility="Collapsed">
+                        <TextBlock Text="Box size in game units"/>
+                        <TextBox x:Name="MeshBoxSize" Text="500" Margin="0,6"/>
+                        <CheckBox x:Name="MeshBoxCollision" Content="Include collision" IsChecked="True" Margin="0,6"/>
+                        <Button Content="Place box..." Click="PlaceMeshBox_Click" Padding="10,6" Margin="0,8"/>
+                      </StackPanel>
+                      <StackPanel x:Name="CollisionSurfaceOptions" Visibility="Collapsed">
+                        <TextBlock Text="Collision surface type" Margin="0,0,0,6"/>
+                        <ComboBox x:Name="CollisionSurfaceSelector" DisplayMemberPath="Name" SelectionChanged="CollisionSurface_Changed">
+                          <ComboBox.ItemContainerStyle>
+                            <Style TargetType="ComboBoxItem">
+                              <Setter Property="IsEnabled" Value="{Binding IsSupported}"/>
+                              <Setter Property="ToolTip" Value="{Binding Reason}"/>
+                              <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
+                            </Style>
+                          </ComboBox.ItemContainerStyle>
+                        </ComboBox>
+                        <TextBlock x:Name="CollisionSurfaceHelp" TextWrapping="Wrap" Margin="0,8"/>
+                        <TextBlock Text="Force parameter (decimal or 0x hex)"/>
+                        <TextBox x:Name="CollisionForceText" Text="0" TextChanged="CollisionForce_Changed" Margin="0,6"/>
+                        <TextBlock Text="Click or drag collision faces to apply the type. disabled types lack verified level support." TextWrapping="Wrap" Margin="0,8"/>
+                      </StackPanel>
+                      <TextBlock x:Name="MeshSelectionText" Text="No mesh vertex selected" TextWrapping="Wrap" Margin="0,18"/>
+                      <Button x:Name="MeshSaveButton" Content="Save geometry" Click="SaveMeshSession_Click" Padding="8" Margin="0,0,0,8"/>
+                      <Button Content="Level mesh viewer..." Click="LevelMeshEditorButton_Click" Padding="8"/>
+                      <TextBlock Text="Open the editable tables for detailed geometry, imports and water boxes" TextWrapping="Wrap" Margin="0,8" Opacity="0.7"/>
+                    </StackPanel>
+                  </ScrollViewer>
                 </Grid>
             </Border>
 
@@ -590,9 +682,13 @@
                     <StackPanel>
                         <DockPanel Margin="0,0,0,9">
                             <Button DockPanel.Dock="Right" Content="Frame level" Click="FrameLevel_Click" Padding="10,4" Background="#3E4654" Foreground="White" BorderThickness="0" ToolTip="Fit the entire area in the viewport"/>
-                            <Button DockPanel.Dock="Right" Content="Mesh tools" Click="LevelMeshEditorButton_Click" Padding="10,4" Margin="0,0,8,0" Background="#007ACC" Foreground="White" BorderThickness="0" ToolTip="Add meshes, edit visual vertices and collision in this editor"/>
-                            <TextBlock x:Name="SceneInfoText" Text="Loading level…" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <Button DockPanel.Dock="Right" Content="Level mesh viewer" Click="LevelMeshEditorButton_Click" Padding="10,4" Margin="0,0,8,0" Background="#007ACC" Foreground="White" BorderThickness="0" ToolTip="Editable geometry tables"/>
+                            <Button x:Name="LiveEditingButton" Content="Connect Live Editing" Click="LiveEditing_Click" Margin="8,0" DockPanel.Dock="Right"/><TextBlock x:Name="SceneInfoText" Text="Loading level…" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         </DockPanel>
+                        <WrapPanel Margin="0,0,0,10">
+                            <RadioButton x:Name="ActorObjectMode" Content="Actor/object editor" GroupName="EditMode" IsChecked="True" Checked="EditMode_Changed" Margin="0,0,20,0" Foreground="White"/>
+                            <RadioButton x:Name="LevelMeshMode" Content="Mesh editor" GroupName="EditMode" Checked="EditMode_Changed" Foreground="White"/>
+                        </WrapPanel>
                         <WrapPanel>
                             <CheckBox x:Name="TerrainViewCheckBox" Content="Terrain" IsChecked="True" Checked="ViewSettings_Changed" Unchecked="ViewSettings_Changed"/>
                             <CheckBox x:Name="SkyboxViewCheckBox" Content="Skybox" IsChecked="True" Checked="ViewSettings_Changed" Unchecked="ViewSettings_Changed"/>
@@ -602,7 +698,7 @@
                             <CheckBox x:Name="CollisionViewCheckBox" Content="Collision" IsChecked="False" Checked="ViewSettings_Changed" Unchecked="ViewSettings_Changed" ToolTip="Collision wireframe (C)"/>
                             <CheckBox x:Name="MarkersViewCheckBox" Content="Markers" IsChecked="False" Checked="ViewSettings_Changed" Unchecked="ViewSettings_Changed" ToolTip="Object and invisible trigger markers"/>
                         </WrapPanel>
-                        <TextBlock Text="WASD move · Right-drag orbit · Wheel zoom · Click select · Ctrl-click geometry" Foreground="#9CA9B9" FontSize="11" Margin="0,8,0,0"/>
+                        <TextBlock Text="WASD move · Space/X up/down · Shift fast · Ctrl precise · Middle-drag pan · Right-drag orbit · Wheel zoom" TextWrapping="Wrap" Foreground="#9CA9B9" FontSize="11" Margin="0,8,0,0"/>
                     </StackPanel>
                 </Border>
 
@@ -679,3 +775,5 @@
         </Grid>
     </Grid>
 </Window>
+
+

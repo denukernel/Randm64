@@ -15,12 +15,26 @@ public static class SourceFileTransaction
     internal static void Apply(IReadOnlyDictionary<string,byte[]?> writes,IReadOnlyDictionary<string,byte[]?> expected,bool backups)
     {
         var temporary=new Dictionary<string,string>(); var committed=new List<string>();
+        var createdDirectories=new List<string>();
         try
         {
             foreach(var item in writes)
             {
                 if(!expected.ContainsKey(item.Key)) throw new ArgumentException("Missing source version: "+item.Key);
                 if(item.Value==null) continue;
+                string? parent=Path.GetDirectoryName(item.Key);
+                var missing=new Stack<string>();
+                while(!string.IsNullOrEmpty(parent) && !Directory.Exists(parent))
+                {
+                    missing.Push(parent);
+                    parent=Path.GetDirectoryName(parent);
+                }
+                while(missing.Count>0)
+                {
+                    string directory=missing.Pop();
+                    Directory.CreateDirectory(directory);
+                    createdDirectories.Add(directory);
+                }
                 string temp=item.Key+".randm64-"+Guid.NewGuid().ToString("N")+".tmp";
                 temporary[item.Key]=temp;
                 using var stream=new FileStream(temp,FileMode.CreateNew,FileAccess.Write,FileShare.None);
@@ -49,6 +63,11 @@ public static class SourceFileTransaction
             }
             throw;
         }
-        finally { foreach(string path in temporary.Values) if(File.Exists(path)) File.Delete(path); }
+        finally
+        {
+            foreach(string path in temporary.Values) if(File.Exists(path)) File.Delete(path);
+            foreach(string directory in createdDirectories.AsEnumerable().Reverse())
+                if(Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any()) Directory.Delete(directory);
+        }
     }
 }

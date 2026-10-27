@@ -32,7 +32,9 @@ internal static class ActorSourceReader
         {
             if(row.Length==0) continue;
             string line=row.Groups[1].Value,newline=row.Groups[2].Value;
-            var directive = Regex.Match(line, @"^\s*#\s*(\w+)\s*(.*)");
+            // Most model rows are vertex data, not preprocessor directives.
+            var directive = line.AsSpan().TrimStart().StartsWith("#")
+                ? Regex.Match(line, @"^\s*#\s*(\w+)\s*(.*)") : Match.Empty;
             if (directive.Success)
             {
                 string command = directive.Groups[1].Value, argument = directive.Groups[2].Value.Trim();

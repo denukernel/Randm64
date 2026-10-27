@@ -1,0 +1,50 @@
+<Window x:Class="Sm64DecompLevelViewer.TextEditorWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ Title="Project text editor" Width="1050" Height="700" MinWidth="760" MinHeight="480"
+ Background="#1e1e1e" Foreground="#ededed" WindowStartupLocation="CenterOwner">
+ <Window.Resources>
+  <Style TargetType="Button"><Setter Property="Foreground" Value="White"/><Setter Property="Background" Value="#333840"/><Setter Property="Padding" Value="10,5"/><Setter Property="Margin" Value="3"/></Style>
+  <Style TargetType="TextBox"><Setter Property="Background" Value="#202329"/><Setter Property="Foreground" Value="#ededed"/><Setter Property="CaretBrush" Value="White"/></Style>
+ </Window.Resources>
+ <Grid Margin="12">
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <DockPanel Margin="0,0,0,8">
+   <Button Content="Save  ctrl+s" Click="Save_Click" DockPanel.Dock="Right"/>
+   <Button Content="Reload file" Click="Reload_Click" DockPanel.Dock="Right"/>
+   <TextBlock x:Name="FileLabel" Text="Select a dialog file" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+  </DockPanel>
+  <Grid Grid.Row="1">
+   <Grid.ColumnDefinitions><ColumnDefinition Width="280" MinWidth="160"/><ColumnDefinition Width="5"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+   <DockPanel>
+    <TextBox x:Name="FileSearch" DockPanel.Dock="Top" Margin="0,0,0,6" Padding="6" TextChanged="Filter_Changed" ToolTip="Filter by file name or relative path"/>
+    <ListBox Height="130" DockPanel.Dock="Top" x:Name="Files" Background="#26292f" Foreground="#ededed" SelectionChanged="File_Changed" ScrollViewer.HorizontalScrollBarVisibility="Auto" VirtualizingPanel.IsVirtualizing="True"/>
+    <ListBox x:Name="Dialogs" Background="#26292f" Foreground="White" SelectionChanged="Dialog_Changed"/>
+   </DockPanel>
+   <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="#454952"/>
+   <Grid Grid.Column="2" Margin="7,0,0,0">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="240"/></Grid.RowDefinitions>
+    <DockPanel Margin="0,0,0,6">
+     <Button Content="Find next" Click="Find_Click" DockPanel.Dock="Right"/>
+     <TextBox x:Name="FindText" Padding="6" ToolTip="Find text in the current file"/>
+    </DockPanel>
+    <Grid Grid.Row="2" Margin="0,8,0,0">
+     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+     <StackPanel Orientation="Horizontal"><Button Content="Previous page" Click="PreviousPage_Click"/><TextBlock x:Name="PageLabel" VerticalAlignment="Center"/><Button Content="Next page" Click="NextPage_Click"/><TextBlock Text="SM64 dialog preview" VerticalAlignment="Center" Margin="12,0"/></StackPanel>
+     <Border Grid.Row="1" Background="#507695" ClipToBounds="True">
+      <Viewbox Stretch="Uniform" Margin="8">
+       <Border x:Name="DialogBox" Width="240" Height="80" Background="#CC000000" Padding="10,8">
+        <Grid><Grid x:Name="GlyphHost"/><TextBlock x:Name="DialogPreview" FontFamily="Arial" FontWeight="Bold" FontSize="10" Foreground="White" LineHeight="16" LineStackingStrategy="BlockLineHeight" TextWrapping="NoWrap"/><TextBlock x:Name="PageArrow" Text="▼" FontSize="8" Foreground="White" HorizontalAlignment="Right" VerticalAlignment="Bottom"/></Grid>
+       </Border>
+      </Viewbox>
+     </Border>
+    </Grid>    <TextBox x:Name="Editor" Grid.Row="1" AcceptsReturn="True" AcceptsTab="True" FontFamily="Consolas" FontSize="14" TextWrapping="NoWrap" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" TextChanged="Editor_Changed" SelectionChanged="Editor_SelectionChanged" IsUndoEnabled="True"/>
+   </Grid>
+  </Grid>
+  <TextBlock x:Name="Status" Grid.Row="2" Margin="0,8,0,0" Text="Loading project files..." TextWrapping="Wrap"/>
+ </Grid>
+</Window>
+
+
+
+

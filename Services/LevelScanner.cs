@@ -6,6 +6,19 @@ namespace Sm64DecompLevelViewer.Services;
 public class LevelScanner
 {
     private readonly YamlLevelParser _yamlParser;
+    private static readonly Dictionary<string, string> FriendlyNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["bob"] = "bob-omb battlefield", ["wf"] = "whomps fortress", ["jrb"] = "jolly roger bay",
+        ["ccm"] = "cool cool mountain", ["bbh"] = "big boos haunt", ["hmc"] = "hazy maze cave",
+        ["lll"] = "lethal lava land", ["ssl"] = "shifting sand land", ["ddd"] = "dire dire docks",
+        ["sl"] = "snowmans land", ["wdw"] = "wet-dry world", ["ttm"] = "tall tall mountain",
+        ["thi"] = "tiny-huge island", ["ttc"] = "tick tock clock", ["rr"] = "rainbow ride",
+        ["castle_inside"] = "inside the castle", ["castle_grounds"] = "castle grounds", ["castle_courtyard"] = "castle courtyard",
+        ["bitdw"] = "bowser in the dark world", ["bitfs"] = "bowser in the fire sea", ["bits"] = "bowser in the sky",
+        ["pss"] = "princess secret slide", ["cotmc"] = "cavern of the metal cap", ["totwc"] = "tower of the wing cap",
+        ["vcutm"] = "vanish cap under the moat", ["wmotr"] = "wing mario over the rainbow", ["sa"] = "secret aquarium",
+        ["menu"] = "file select", ["intro"] = "title screen", ["ending"] = "ending"
+    };
 
     // Level categorization based on short names
     private static readonly HashSet<string> CourseLevels = new()
@@ -61,6 +74,17 @@ public class LevelScanner
                 levelMetadata.Category = CategorizeLevel(levelMetadata.ShortName);
                 levels.Add(levelMetadata);
             }
+        }
+
+        // Vanilla and custom decomp trees do not always ship level.yaml metadata.
+        foreach (string directory in Directory.GetDirectories(levelsPath).OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!File.Exists(Path.Combine(directory, "script.c")) || levels.Any(l => string.Equals(Path.GetFullPath(l.LevelPath), Path.GetFullPath(directory), StringComparison.OrdinalIgnoreCase))) continue;
+            string name = Path.GetFileName(directory);
+            string script = File.ReadAllText(Path.Combine(directory, "script.c"));
+            script = System.Text.RegularExpressions.Regex.Replace(script, @"/\*[\s\S]*?\*/|//[^\r\n]*", " ");
+            int areas = System.Text.RegularExpressions.Regex.Matches(script, @"\bAREA\s*\(\s*(\d+)").Select(m => m.Groups[1].Value).Distinct().Count();
+            levels.Add(new LevelMetadata { ShortName = name, FullName = FriendlyNames.GetValueOrDefault(name, name.Replace('_', ' ')), LevelPath = directory, AreaCount = areas, Category = CategorizeLevel(name) });
         }
 
         // Sort levels by category and then by name

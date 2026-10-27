@@ -82,7 +82,7 @@
                 <GroupBox Header="Application Method" BorderBrush="{StaticResource BorderBrush}" Background="{StaticResource PanelBackground}" Foreground="#CCCCCC" Padding="8" Margin="0,0,0,10">
                     <StackPanel>
                         <RadioButton x:Name="SimultaneousRadio" Content="Run Selected Simultaneously" Foreground="White" Margin="0,0,0,6" IsChecked="True"/>
-                        <RadioButton x:Name="CycleRadio" Content="Cycle Randomly (10s Roulette)" Foreground="White"/>
+                        <RadioButton x:Name="CycleRadio" Content="Cycle randomly" Foreground="White"/>
                     </StackPanel>
                 </GroupBox>
 

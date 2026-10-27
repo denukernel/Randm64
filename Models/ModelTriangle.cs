@@ -11,6 +11,14 @@ public class ModelTriangle
     public int V2 { get; set; }
     public int V3 { get; set; }
     public string? TextureName { get; set; }
+    // Texel origin of an image loaded from an offset into the source texture array.
+    public OpenTK.Mathematics.Vector2 TextureOffset { get; set; }
+    public string? SourceDisplayList { get; set; }
+    public int SourceCommandIndex { get; set; } = -1;
+    public int SourceTrianglePart { get; set; }
+    public string? SourceTextureImage { get; set; }
+    public bool SourceTextureEnabled { get; set; }
+    public string? SourceTextureRestore { get; set; }
     public string? ShadeLightSymbol { get; set; }
     public bool BlendTextureWithShade { get; set; }
     public TextureAddressMode TextureAddressS { get; set; }

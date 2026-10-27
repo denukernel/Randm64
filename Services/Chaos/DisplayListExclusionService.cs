@@ -16,7 +16,29 @@ internal static class DisplayListExclusionService
     private static readonly Regex SavedCall = new(@"/\* RANDM64_DL_EXCLUDED ([A-Za-z0-9+/=]+) \*/ (gsDPNoOp\(\)|gsSPEndDisplayList\(\))", RegexOptions.CultureInvariant);
     private sealed record Change(string Path, byte[] Before, byte[] After);
 
+    internal static (ChaosRunPlan Plan, DisplayListExclusionResult Result) Prepare(string root, int level, uint seed, bool includeBranches, CancellationToken token = default)
+    {
+        var plan = ChaosRunPlan.Create(root, token, ["include", "src", "actors", "levels"]);
+        try
+        {
+            plan.SettingsJson = System.Text.Json.JsonSerializer.Serialize(new { Tool = "display-list exclusion", Level = level, Seed = seed, IncludeBranches = includeBranches });
+            var result = ApplyToStage(plan.StageRoot, level, seed, includeBranches, token);
+            plan.Seal(token);
+            return (plan, result);
+        }
+        catch { plan.Dispose(); throw; }
+    }
+
     internal static DisplayListExclusionResult Apply(string root, int level, uint seed, bool includeBranches)
+    {
+        var prepared = Prepare(root, level, seed, includeBranches);
+        using var plan = prepared.Plan;
+        var result = plan.Commit(default);
+        if (result.Status != ChaosRunStatus.Completed) throw new AggregateException(result.Message + "\n" + result.RecoveryPath, new IOException(result.Message));
+        return prepared.Result;
+    }
+
+    internal static DisplayListExclusionResult ApplyToStage(string root, int level, uint seed, bool includeBranches, CancellationToken token = default)
     {
         if (level is < 0 or > 9) throw new ArgumentOutOfRangeException(nameof(level));
         string gbi = Path.Combine(root, "include", "PR", "gbi.h");
@@ -34,6 +56,7 @@ internal static class DisplayListExclusionService
             if (!Directory.Exists(folder)) continue;
             foreach (string path in Directory.EnumerateFiles(folder, "*.c", SearchOption.AllDirectories).OrderBy(p => p, StringComparer.Ordinal))
             {
+                token.ThrowIfCancellationRequested();
                 byte[] before = File.ReadAllBytes(path);
                 string original = Decode(before), clean = Restore(original);
                 var result = Transform(clean, level, seed, includeBranches);

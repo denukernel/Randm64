@@ -11,7 +11,7 @@ internal sealed class M64Corruptor
     private readonly Random _random;
     internal M64Corruptor(Random random) => _random = random;
 
-    internal byte[] Mutate(byte[] source, string region, IEnumerable<int> selectedModes, double intensity, bool alienate = false)
+    internal byte[] Mutate(byte[] source, string region, IEnumerable<int> selectedModes, double intensity, bool alienate = false, M64MutationSettings? settings = null, List<string>? diagnostics = null)
     {
         if (!double.IsFinite(intensity) || intensity < 0 || intensity > 100)
             throw new ArgumentOutOfRangeException(nameof(intensity));
@@ -20,13 +20,26 @@ internal sealed class M64Corruptor
             throw new InvalidDataException("Select at least one M64 corruption mode.");
         if (modes.Any(m => m < 0 || m > 29 || m == 27))
             throw new InvalidDataException("Sequence Pointer Slider is disabled: moving script pointers can crash SM64's audio thread. Deselect it in this preset.");
-        var values = M64CommandScanner.Scan(source, region);
+        settings ??= new M64MutationSettings();
+        settings.Validate();
+        var allValues = M64CommandScanner.Scan(source, region);
+        bool restricted = settings.Channels.Count != 16;
+        if ((restricted || settings.ProtectPercussion || !settings.IncludeSequenceControls) && allValues.Any(v => v.Shared))
+            throw new InvalidDataException("shared M64 operands have ambiguous ownership; targeted mutation was rejected");
+        var percussionChannels = allValues.Where(v => v.Instrument == 127 && v.Channel >= 0).Select(v => v.Channel).ToHashSet();
+        var values = allValues.Where(v =>
+            (v.Channel < 0 ? settings.IncludeSequenceControls : settings.Channels.Contains(v.Channel)) &&
+            !(settings.ProtectPercussion && (v.Instrument == 127 || percussionChannels.Contains(v.Channel)))).ToArray();
         byte[] data = (byte[])source.Clone();
-        if (intensity == 0) return data;
+        if (intensity == 0)
+        {
+            diagnostics?.Add($"{region}: zero intensity; 0 operands changed");
+            return data;
+        }
         double rate = intensity / 100;
         var pitches = values.Where(v => v.Kind == M64ValueKind.Pitch && v.Instrument is >= 0 and < 127 && v.Bank >= 0).ToArray();
         // Keep bank context: an ID valid in a different bank need not be valid here.
-        var programs = values.Where(v => v.Kind == M64ValueKind.Instrument && v.Bank >= 0 && source[v.Offset] < 127)
+        var programs = allValues.Where(v => v.Kind == M64ValueKind.Instrument && v.Bank >= 0 && source[v.Offset] < 127)
             .GroupBy(v => v.Bank).ToDictionary(g => g.Key, g => g.Select(v => source[v.Offset]).Distinct().ToArray());
         bool Choose() => _random.NextDouble() < rate;
         void Set(M64Value value, int number) => data[value.Offset] = (byte)Math.Clamp(number, 0, 255);
@@ -152,9 +165,28 @@ internal sealed class M64Corruptor
                 }
             }
         }
+        // Random low velocities are especially quiet because SM64 squares them.
+        // Keep intentional muting/erasing, but protect other dynamics from attenuation.
+        if (settings.PreventVolumeLoss)
+            foreach (var v in values.Where(v => v.Kind is M64ValueKind.Volume or M64ValueKind.Velocity))
+            {
+                bool intentionalSilence = !alienate && data[v.Offset] == 0 &&
+                    ((v.Kind == M64ValueKind.Volume && v.Channel >= 0 && modes.Contains(7)) ||
+                     (v.Kind == M64ValueKind.Velocity && modes.Contains(23)));
+                if (!intentionalSilence) data[v.Offset] = Math.Max(source[v.Offset], data[v.Offset]);
+            }
+        if (settings.MaxPitchDisplacement is int limit)
+            foreach (var v in values.Where(v => v.Kind == M64ValueKind.Pitch))
+            {
+                int original = source[v.Offset] & 63;
+                Pitch(v, Math.Clamp(data[v.Offset] & 63, Math.Max(0, original - limit), Math.Min(63, original + limit)));
+            }
+        diagnostics?.Add($"{region}: {allValues.Count(v => source[v.Offset] != data[v.Offset])} operands changed; {values.Length} eligible operands");
+        foreach (int mode in modes)
+            if (!values.Any(v => AppliesTo(mode, v))) diagnostics?.Add($"M64 mode {mode}: no applicable targets");
         // A changed operand must never alter instruction decoding or reachability.
         var check = M64CommandScanner.Scan(data, region);
-        if (!values.Select(v => (v.Offset, v.Kind)).SequenceEqual(check.Select(v => (v.Offset, v.Kind))))
+        if (!allValues.Select(v => (v.Offset, v.Kind)).SequenceEqual(check.Select(v => (v.Offset, v.Kind))))
             throw new InvalidDataException("Mutation changed M64 script layout; output rejected.");
         return data;
 
@@ -165,13 +197,31 @@ internal sealed class M64Corruptor
         }
     }
 
-    internal void CorruptFile(string path, IEnumerable<int> modes, double intensity, bool alienate, bool accumulate)
+    internal static bool AppliesTo(int mode, M64Value v) => mode switch
+    {
+        0 or 5 or 6 or 13 or 14 or 15 or 18 or 19 or 24 or 25 or 26 or 29 => v.Kind == M64ValueKind.Pitch && v.Instrument is >= 0 and < 127 && v.Bank >= 0,
+        1 or 21 => v.Kind == M64ValueKind.Tempo,
+        2 => v.Kind == M64ValueKind.Instrument && v.Bank >= 0 && v.Instrument != 127,
+        3 or 11 or 12 or 28 => v.Kind == M64ValueKind.Gate,
+        4 or 16 => v.Kind == M64ValueKind.Velocity,
+        7 => v.Kind == M64ValueKind.Volume && v.Channel >= 0,
+        8 => v.Kind == M64ValueKind.Pan,
+        9 => v.Kind == M64ValueKind.Reverb,
+        10 => v.Kind == M64ValueKind.PitchBend,
+        17 => v.Kind == M64ValueKind.Volume,
+        20 => v.Kind == M64ValueKind.Velocity && v.Instrument == 127,
+        22 => v.Kind is M64ValueKind.Volume or M64ValueKind.Velocity,
+        23 => v.Kind is M64ValueKind.Velocity or M64ValueKind.Gate,
+        _ => false
+    };
+
+    internal void CorruptFile(string path, IEnumerable<int> modes, double intensity, bool alienate, bool accumulate, M64MutationSettings? settings = null, List<string>? diagnostics = null)
     {
         byte[] current = File.ReadAllBytes(path);
         string backup = path + ".bak";
         byte[] source = !accumulate && File.Exists(backup) ? File.ReadAllBytes(backup) : current;
         string region = Path.GetFileName(Path.GetDirectoryName(path))!.ToLowerInvariant();
-        byte[] output = Mutate(source, region, modes, intensity, alienate);
+        byte[] output = Mutate(source, region, modes, intensity, alienate, settings, diagnostics);
         string staged = path + ".chaos-" + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {

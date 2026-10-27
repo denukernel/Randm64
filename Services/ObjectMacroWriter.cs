@@ -51,9 +51,10 @@ internal static class ObjectMacroWriter
     }
     private static void ValidateObject(LevelObject o)
     {
-        foreach(string id in new[]{o.ModelName,o.Behavior,Preset(o)}.Where(s=>!string.IsNullOrEmpty(s)))
+        var identifiers=o.SourceType is ObjectSourceType.Macro or ObjectSourceType.Special ? new[]{Preset(o)} : new[]{o.ModelName,o.Behavior};
+        foreach(string id in identifiers.Where(s=>!string.IsNullOrEmpty(s)))
             if(!Regex.IsMatch(id,@"^[A-Za-z_]\w*$")) throw new InvalidDataException("Invalid object identifier: "+id);
-        if(Math.Abs((long)o.X)>32767 || Math.Abs((long)o.Y)>32767 || Math.Abs((long)o.Z)>32767) throw new InvalidDataException("Object coordinates must fit signed 16-bit values.");
+        if(o.X<short.MinValue || o.X>short.MaxValue || o.Y<short.MinValue || o.Y>short.MaxValue || o.Z<short.MinValue || o.Z>short.MaxValue) throw new InvalidDataException("Object coordinates must fit signed 16-bit values.");
         if((o.SourceType==ObjectSourceType.Normal || o.SourceType==ObjectSourceType.Mario) && o.AreaIndex<1) throw new InvalidDataException("Object destination area is missing.");
     }
     internal static string NewMacro(string source,string path,LevelObject o)
@@ -71,7 +72,7 @@ internal static class ObjectMacroWriter
     }
     internal static int InsertionPoint(string source,List<CSourceCall> calls,LevelObject o)
     {
-        var all=CSourceCalls.Read(source,n=>n is "AREA" or "END_AREA" or "MACRO_OBJECT_END" or "COL_SPECIAL_INIT" or "COL_END");
+        var all=CSourceCalls.Read(source,n=>n is "AREA" or "END_AREA" or "MACRO_OBJECT_END" or "COL_SPECIAL_INIT" or "COL_END" or "COL_WATER_BOX_INIT" or "COL_TRI_STOP");
         if(o.SourceType==ObjectSourceType.Normal)
         {
             var area=all.FirstOrDefault(c=>c.Name=="AREA" && Integer(c.Argument(source,0))==o.AreaIndex) ?? throw new InvalidDataException("Destination area not found: "+o.AreaIndex);
@@ -80,7 +81,13 @@ internal static class ObjectMacroWriter
         if(o.SourceType==ObjectSourceType.Macro) return all.LastOrDefault(c=>c.Name=="MACRO_OBJECT_END")?.Start ?? throw new InvalidDataException("Macro object terminator is missing.");
         if(o.SourceType==ObjectSourceType.Special)
         {
-            var init=all.SingleOrDefault(c=>c.Name=="COL_SPECIAL_INIT") ?? throw new InvalidDataException("A unique COL_SPECIAL_INIT section is required for special objects.");
+            var init=all.SingleOrDefault(c=>c.Name=="COL_SPECIAL_INIT");
+            if(init==null)
+            {
+                var stop=all.SingleOrDefault(c=>c.Name=="COL_TRI_STOP") ?? throw new InvalidDataException("A unique collision triangle section is required for special objects.");
+                return all.FirstOrDefault(c=>c.Start>stop.End && c.Name is "COL_WATER_BOX_INIT" or "COL_END")?.Start
+                    ?? throw new InvalidDataException("Collision terminator is missing.");
+            }
             var last=calls.LastOrDefault(c=>c.Start>init.End && c.Name.StartsWith("SPECIAL_OBJECT",StringComparison.Ordinal));
             int index=last?.End ?? init.End; var mask=CSourceCalls.MaskComments(source);
             while(index<mask.Length && char.IsWhiteSpace(mask[index])) index++;

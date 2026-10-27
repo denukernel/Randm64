@@ -3,223 +3,135 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Data;
 using Sm64DecompLevelViewer.Services;
 
 namespace Sm64DecompLevelViewer
 {
     public partial class WarpEditorWindow : Window
     {
-        public class WarpNodeViewModel
-        {
-            public string MacroType { get; set; } = "WARP_NODE";
-            public string Id { get; set; } = "WARP_NODE_00";
-            public string DestLevel { get; set; } = "LEVEL_CASTLE";
-            public string DestArea { get; set; } = "1";
-            public string DestNode { get; set; } = "WARP_NODE_00";
-            public string Flags { get; set; } = "WARP_NO_CHECKPOINT";
-            public int LineIndex { get; set; } = -1;
-        }
-
-        private static readonly List<string> MacroTypes = new() { "WARP_NODE", "PAINTING_WARP_NODE" };
-
-        private static readonly List<string> SM64Levels = new()
-        {
-            "LEVEL_NONE", "LEVEL_BBH", "LEVEL_CCM", "LEVEL_CASTLE", "LEVEL_HMC",
-            "LEVEL_SSL", "LEVEL_BOB", "LEVEL_SL", "LEVEL_WDW", "LEVEL_JRB",
-            "LEVEL_THI", "LEVEL_TTC", "LEVEL_RR", "LEVEL_CASTLE_GROUNDS",
-            "LEVEL_BITDW", "LEVEL_VCUTM", "LEVEL_BITFS", "LEVEL_SA",
-            "LEVEL_BITS", "LEVEL_LLL", "LEVEL_DDD", "LEVEL_WF",
-            "LEVEL_BOWSER_1", "LEVEL_BOWSER_2", "LEVEL_BOWSER_3", "LEVEL_COTMC",
-            "LEVEL_MC", "LEVEL_WC", "LEVEL_PSS", "LEVEL_TOTWC", "LEVEL_WMETR",
-            "LEVEL_CASTLE_COURTYARD"
-        };
-
-        private static readonly List<string> WarpFlags = new() { "WARP_NO_CHECKPOINT", "WARP_CHECKPOINT" };
-
         private readonly string _scriptPath;
-        private readonly WarpService _warpService = new();
-        private readonly Action _reloadCallback;
-
-        public ObservableCollection<WarpNodeViewModel> Warps { get; } = new();
-
-        public WarpEditorWindow(string levelPath, Action reloadCallback)
+        private readonly Action? _reload;
+        private WarpScriptDocument? _document;
+        private string _saved = "";
+        public ObservableCollection<WarpScriptDocument.Node> Warps { get; } = new();
+        public WarpEditorWindow(string levelPath, Action? reloadCallback, string? initialArea = null)
         {
-            InitializeComponent();
-
-            _scriptPath = Path.Combine(levelPath, "script.c");
-            _reloadCallback = reloadCallback;
-
-            // Bind column sources
-            MacroTypeColumn.ItemsSource = MacroTypes;
-            DestLevelColumn.ItemsSource = SM64Levels;
-            FlagsColumn.ItemsSource = WarpFlags;
-
+            InitializeComponent(); _scriptPath = Path.Combine(levelPath, "script.c"); _reload = reloadCallback;
+            MacroTypeColumn.ItemsSource = new[] { "WARP_NODE", "PAINTING_WARP_NODE" };
+            DestLevelColumn.ItemsSource = Array.Empty<string>();
+            FlagsColumn.ItemsSource = new[] { "WARP_NO_CHECKPOINT", "WARP_CHECKPOINT" };
             WarpGrid.ItemsSource = Warps;
-
-            LoadWarps();
-        }
-
-        private void LoadWarps()
-        {
-            if (!File.Exists(_scriptPath))
-            {
-                MessageBox.Show($"Level script file not found at: {_scriptPath}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                Close();
-                return;
-            }
-
-            var parsedNodes = _warpService.LoadWarps(_scriptPath);
-            Warps.Clear();
-            foreach (var node in parsedNodes)
-            {
-                Warps.Add(new WarpNodeViewModel
-                {
-                    MacroType = node.MacroType,
-                    Id = node.Id,
-                    DestLevel = node.DestLevel,
-                    DestArea = node.DestArea,
-                    DestNode = node.DestNode,
-                    Flags = node.Flags,
-                    LineIndex = node.LineIndex
-                });
-            }
-            StatusBarText.Text = $"Loaded {Warps.Count} warp nodes from level script.";
-        }
-
-        private void AddWarp_Click(object sender, RoutedEventArgs e)
-        {
-            // Guess a next ID name (e.g. WARP_NODE_0B)
-            string nextId = "WARP_NODE_0A";
-            if (Warps.Count > 0)
-            {
-                var lastId = Warps.Last().Id;
-                if (lastId.StartsWith("WARP_NODE_") && lastId.Length == 12)
-                {
-                    string hexStr = lastId.Substring(10);
-                    if (int.TryParse(hexStr, System.Globalization.NumberStyles.HexNumber, null, out int currentVal))
-                    {
-                        nextId = $"WARP_NODE_{currentVal + 1:X2}";
-                    }
-                }
-            }
-
-            var newWarp = new WarpNodeViewModel
-            {
-                MacroType = "WARP_NODE",
-                Id = nextId,
-                DestLevel = "LEVEL_CASTLE",
-                DestArea = "1",
-                DestNode = nextId,
-                Flags = "WARP_NO_CHECKPOINT",
-                LineIndex = -1 // Indicates new node
-            };
-
-            Warps.Add(newWarp);
-            WarpGrid.SelectedItem = newWarp;
-            WarpGrid.ScrollIntoView(newWarp);
-            StatusBarText.Text = $"Added new warp node {newWarp.Id}.";
-        }
-
-        private void DeleteWarp_Click(object sender, RoutedEventArgs e)
-        {
-            if (WarpGrid.SelectedItem is WarpNodeViewModel selected)
-            {
-                // Note: if it's an existing node, we will replace its line in script with an empty string or comment
-                // Let's implement deletion in WarpService
-                Warps.Remove(selected);
-                StatusBarText.Text = $"Deleted warp node {selected.Id}.";
-            }
-            else
-            {
-                MessageBox.Show("Please select a warp node to delete.", "Delete Warp", MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
-        }
-
-        private void SaveButton_Click(object sender, RoutedEventArgs e)
-        {
-            var nodes = Warps.Select(w => new WarpNode
-            {
-                MacroType = w.MacroType,
-                Id = w.Id,
-                DestLevel = w.DestLevel,
-                DestArea = w.DestArea,
-                DestNode = w.DestNode,
-                Flags = w.Flags,
-                LineIndex = w.LineIndex
-            }).ToList();
-
-            // Support deletion by tracking missing line indexes
-            if (File.Exists(_scriptPath))
+            Loaded += (_, _) =>
             {
                 try
                 {
-                    var lines = new List<string>(File.ReadAllLines(_scriptPath));
-                    var parsedNodes = _warpService.LoadWarps(_scriptPath);
-
-                    // Find any line index that was in parsedNodes but is no longer in nodes list (indicating deletion)
-                    var deletedLineIndices = parsedNodes.Select(p => p.LineIndex).Except(nodes.Where(n => n.LineIndex >= 0).Select(n => n.LineIndex)).ToList();
-
-                    // Comment out deleted warp node lines
-                    foreach (int index in deletedLineIndices)
-                    {
-                        if (index >= 0 && index < lines.Count)
-                        {
-                            lines[index] = $"    // {lines[index].Trim()} [Deleted]";
-                        }
-                    }
-
-                    // Save the remaining modifications and new additions
-                    var existingNodes = nodes.Where(n => n.LineIndex >= 0 && n.LineIndex < lines.Count).OrderBy(n => n.LineIndex).ToList();
-                    var newNodes = nodes.Where(n => n.LineIndex < 0).ToList();
-
-                    // Insert new nodes after the last existing warp node
-                    int insertIndex = -1;
-                    if (existingNodes.Count > 0)
-                    {
-                        insertIndex = existingNodes.Max(n => n.LineIndex) + 1;
-                    }
-                    else
-                    {
-                        insertIndex = lines.FindIndex(l => l.Contains("WARP_NODE") || l.Contains("OBJECT("));
-                        if (insertIndex == -1) insertIndex = lines.Count - 1;
-                    }
-
-                    // Update existing lines
-                    foreach (var node in existingNodes)
-                    {
-                        string spaces = lines[node.LineIndex].Substring(0, lines[node.LineIndex].Length - lines[node.LineIndex].TrimStart().Length);
-                        if (string.IsNullOrEmpty(spaces)) spaces = "    ";
-                        lines[node.LineIndex] = $"{spaces}{node.MacroType}({node.Id}, {node.DestLevel}, {node.DestArea}, {node.DestNode}, {node.Flags}),";
-                    }
-
-                    // Insert new nodes
-                    int addedOffset = 0;
-                    foreach (var node in newNodes)
-                    {
-                        string newLine = $"    {node.MacroType}({node.Id}, {node.DestLevel}, {node.DestArea}, {node.DestNode}, {node.Flags}),";
-                        lines.Insert(insertIndex + addedOffset, newLine);
-                        addedOffset++;
-                    }
-
-                    // Write with Unix line endings
-                    string outputContent = string.Join("\n", lines) + "\n";
-                    File.WriteAllText(_scriptPath, outputContent);
-
-                    MessageBox.Show("Warp script changes saved successfully!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
-                    LoadWarps(); // Reload view models with new line indexes
-                    _reloadCallback?.Invoke();
+                    Reload();
+                    string area = Regex.Match(initialArea ?? "", @"\d+").Value;
+                    if (SourceAreaCombo.Items.Contains(area)) SourceAreaCombo.SelectedItem = area;
                 }
-                catch (Exception ex)
+                catch (Exception ex) { MessageBox.Show(ex.Message, "Warp load failed"); Close(); }
+            };
+            Closing += (_, e) =>
+            {
+                try
                 {
-                    MessageBox.Show($"Failed to save changes: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    FlushGrid();
+                    if (Signature() == _saved) return;
+                    var result = MessageBox.Show("Save warp changes before closing?", "Unsaved warps", MessageBoxButton.YesNoCancel);
+                    e.Cancel = result == MessageBoxResult.Cancel || result == MessageBoxResult.Yes && !Save();
                 }
-            }
+                catch(Exception ex) { e.Cancel=true; StatusBarText.Text=ex.Message; }
+            };
         }
-
-        private void CloseButton_Click(object sender, RoutedEventArgs e)
+        private void FlushGrid()
         {
-            Close();
+            if (!WarpGrid.CommitEdit(DataGridEditingUnit.Cell, true) || !WarpGrid.CommitEdit(DataGridEditingUnit.Row, true))
+                throw new InvalidDataException("finish or cancel the invalid grid edit before continuing");
         }
+        private string Signature() => string.Join("\n", Warps.Select(w => $"{w.Offset}|{w.SourceArea}|{w.MacroType}|{w.Id}|{w.DestLevel}|{w.DestArea}|{w.DestNode}|{w.Flags}"));
+        private void Reload()
+        {
+            string? selected = SourceAreaCombo.SelectedItem as string;
+            _document = new WarpScriptDocument(_scriptPath); Warps.Clear();
+            foreach (var node in _document.Nodes) Warps.Add(node);
+            string root=Directory.GetParent(Directory.GetParent(Path.GetDirectoryName(_scriptPath)!)!.FullName)!.FullName;
+            DestLevelColumn.ItemsSource=WarpConnectionChecks.Levels(root).Keys.Concat(Warps.Select(node=>node.DestLevel)).Distinct().OrderBy(value=>value).ToArray();
+            SourceAreaCombo.ItemsSource = _document.Areas;
+            SourceAreaCombo.SelectedItem = selected != null && _document.Areas.Contains(selected) ? selected : _document.Areas.FirstOrDefault();
+            _saved = Signature(); StatusBarText.Text = $"{Warps.Count} nodes across {_document.Areas.Length} source areas; matching warp objects must be placed separately";
+        }
+        private void AreaFilter_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_document == null || ShowAllAreas == null) return;
+            try
+            {
+                FlushGrid();
+                CollectionViewSource.GetDefaultView(Warps).Filter=item=>ShowAllAreas.IsChecked==true || item is WarpScriptDocument.Node node && node.SourceArea==SourceAreaCombo.SelectedItem as string;
+            }
+            catch(Exception ex) { StatusBarText.Text=ex.Message; }
+        }
+        private void DuplicateWarp_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                FlushGrid();
+                if (WarpGrid.SelectedItem is not WarpScriptDocument.Node source) return;
+                var copy=new WarpScriptDocument.Node { SourceArea=source.SourceArea,Id=WarpScriptDocument.NextId(Warps,source.SourceArea),MacroType=source.MacroType,DestLevel=source.DestLevel,DestArea=source.DestArea,DestNode=source.DestNode,Flags=source.Flags };
+                Warps.Add(copy); WarpGrid.SelectedItem=copy; WarpGrid.ScrollIntoView(copy);
+            }
+            catch(Exception ex) { StatusBarText.Text=ex.Message; }
+        }
+        private void ValidateWarps_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                FlushGrid();
+                var problems=WarpConnectionChecks.Inspect(Path.GetDirectoryName(_scriptPath)!,Warps.ToList());
+                MessageBox.Show(problems.Length==0 ? "All destination nodes were found in the current source" : string.Join("\n",problems),"Warp connection report");
+            }
+            catch(Exception ex) { StatusBarText.Text=ex.Message; }
+        }
+        private void AddWarp_Click(object sender, RoutedEventArgs e)
+        {
+            if (SourceAreaCombo.SelectedItem is not string area) { StatusBarText.Text = "Select a source area first"; return; }
+            string id;
+            try { id = WarpScriptDocument.NextId(Warps, area); } catch (Exception ex) { StatusBarText.Text = ex.Message; return; }
+            string levelDirectory=Path.GetDirectoryName(_scriptPath)!;
+            string root=Directory.GetParent(Directory.GetParent(levelDirectory)!.FullName)!.FullName;
+            string? currentLevel=WarpConnectionChecks.Levels(root).FirstOrDefault(pair=>pair.Value==Path.GetFileName(levelDirectory)).Key;
+            var node = new WarpScriptDocument.Node { Id = id, DestNode = Warps.FirstOrDefault(existing=>existing.SourceArea==area)?.Id ?? id, SourceArea = area,
+                DestLevel=currentLevel ?? Warps.FirstOrDefault()?.DestLevel ?? "LEVEL_CASTLE",DestArea=area };
+            Warps.Add(node); WarpGrid.SelectedItem = node; WarpGrid.ScrollIntoView(node);
+        }
+        private void DeleteWarp_Click(object sender, RoutedEventArgs e) { if (WarpGrid.SelectedItem is WarpScriptDocument.Node node) Warps.Remove(node); }
+        private bool Save()
+        {
+            try
+            {
+                FlushGrid();
+                if (_document == null) throw new InvalidOperationException("load a level script before saving");
+                _document.Save(Warps.ToList()); Reload();
+                StatusBarText.Text = "Saved; source areas, unrelated macros and original backup preserved";
+                try { _reload?.Invoke(); } catch (Exception ex) { StatusBarText.Text = "Saved; level refresh failed: " + ex.Message; }
+                return true;
+            }
+            catch (Exception ex) { MessageBox.Show(ex.Message, "Warps were not saved", MessageBoxButton.OK, MessageBoxImage.Error); return false; }
+        }
+        private void SaveButton_Click(object sender, RoutedEventArgs e) => Save();
+        private void Reload_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                FlushGrid();
+                if (Signature() != _saved && MessageBox.Show("Discard unsaved warp edits and reload?", "Reload warps", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+                Reload();
+            }
+            catch (Exception ex) { StatusBarText.Text = ex.Message; }
+        }
+        private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
     }
 }

@@ -1,7 +1,7 @@
 <Window x:Class="Sm64DecompLevelViewer.PatchWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Decomp Patch Manager" Height="500" Width="950"
+        Title="Decomp Patch Manager" Height="650" Width="1150" MinHeight="550" MinWidth="950"
         Background="#1E1E1E" Foreground="White"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
     
@@ -112,15 +112,12 @@
                         <StackPanel Margin="5">
                             <CheckBox x:Name="SkipGoddardCheck" Content="Skip Goddard Face" Foreground="#CCCCCC" Margin="0,0,0,10"/>
                             <CheckBox x:Name="SkipTitleCheck" Content="Skip Title Screen" Foreground="#CCCCCC" Margin="0,0,0,10"/>
-                            <CheckBox x:Name="SkipLakituCheck" Content="Skip Lakitu Intro" Foreground="#CCCCCC" Margin="0,0,0,10"/>
                             <CheckBox x:Name="Start99LivesCheck" Content="Start with 99 Lives" Foreground="#CCCCCC" Margin="0,0,0,10"/>
                             <CheckBox x:Name="StageSelectCheck" Content="Enable Stage Select" Foreground="#CCCCCC" Margin="0,0,0,10"/>
-                            <CheckBox x:Name="AudioProtectionCheck" Content="Audio Protection Guard" Foreground="#CCCCCC" Margin="0,0,0,10" ToolTip="Prevents audio driver crashes, freezes, and muting due to out-of-bounds instrument, bank, or drum parameters."/>
-                            <CheckBox x:Name="SupportNewChannelsCheck" Content="Support New Channels" Foreground="#CCCCCC" Margin="0,0,0,10" ToolTip="Bypasses dynamic channel volume overrides in levels so that custom active channels play without being muted."/>
                         </StackPanel>
                     </ScrollViewer>
                     
-                    <Button Grid.Row="1" Content="⚡ Apply Selected C Patches" Click="ApplyCPatches_Click" Padding="6" Background="#007ACC" Foreground="White" BorderThickness="0" FontWeight="SemiBold" HorizontalAlignment="Stretch"/>
+                    <StackPanel Grid.Row="1"><TextBlock Text="Legacy audio guards, music-dynamics bypass and the Lakitu function rewrite are retired. these templates do not repair audio or add channels." TextWrapping="Wrap" Foreground="#D69D56" Margin="4,8"/><Button Content="Preview selected changes" Click="PreviewCPatches_Click" Padding="6" Margin="0,0,0,6"/><Button Content="Apply selected C patches" Click="ApplyCPatches_Click" Padding="6" Background="#007ACC" Foreground="White" BorderThickness="0" FontWeight="SemiBold" HorizontalAlignment="Stretch"/></StackPanel>
                 </Grid>
             </GroupBox>
 
@@ -145,10 +142,11 @@
                 </Grid>
 
                 <!-- Actions -->
-                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
+                <WrapPanel Grid.Row="1" Margin="0,0,0,10">
                     <Button Content="🚀 Apply via git apply" Click="ApplyGit_Click" Background="#007ACC" FontWeight="Bold" Padding="12,6" Margin="0,0,10,0"/>
+                    <Button Content="Check applicability" Click="CheckPatch_Click" Padding="12,6"/>
                     <Button Content="🛠️ Apply via patch command" Click="ApplyPatchCmd_Click" Padding="12,6"/>
-                </StackPanel>
+                </WrapPanel>
 
                 <!-- Output Log -->
                 <GroupBox Grid.Row="2" Header="Patch Command Log Output" BorderBrush="{StaticResource BorderBrush}" Background="{StaticResource PanelBackground}" Foreground="#CCCCCC" Padding="5">

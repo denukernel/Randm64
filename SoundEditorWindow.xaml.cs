@@ -5,6 +5,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
+using System.Threading.Tasks;
 using Sm64DecompLevelViewer.Services;
 
 namespace Sm64DecompLevelViewer
@@ -15,6 +16,7 @@ namespace Sm64DecompLevelViewer
         private string _samplesDir = string.Empty;
         private System.Media.SoundPlayer? _activePlayer;
         private MemoryStream? _activeStream;
+        private bool _busy;
 
         public class AudioSampleItem
         {
@@ -28,6 +30,7 @@ namespace Sm64DecompLevelViewer
             _projectRoot = projectRoot;
             _samplesDir = Path.Combine(_projectRoot, "sound", "samples");
 
+            Closing += (_, e) => { if (_busy) e.Cancel = true; };
             this.Loaded += SoundEditorWindow_Loaded;
             this.Closed += SoundEditorWindow_Closed;
         }
@@ -55,7 +58,7 @@ namespace Sm64DecompLevelViewer
 
             try
             {
-                var dirs = Directory.GetDirectories(_samplesDir);
+                var dirs = Directory.GetDirectories(_samplesDir).OrderBy(d => d, StringComparer.OrdinalIgnoreCase);
                 foreach (var dir in dirs)
                 {
                     string folderName = Path.GetFileName(dir);
@@ -84,7 +87,10 @@ namespace Sm64DecompLevelViewer
         private void LoadSamples(string category)
         {
             if (SampleListBox == null) return;
+            StopPlayback();
             SampleListBox.Items.Clear();
+            RevertButton.IsEnabled = false;
+            if (SampleInfoText != null) SampleInfoText.Text = "";
 
             string categoryPath = Path.Combine(_samplesDir, category);
             if (!Directory.Exists(categoryPath)) return;
@@ -94,6 +100,7 @@ namespace Sm64DecompLevelViewer
                 var files = Directory.GetFiles(categoryPath, "*.*", SearchOption.TopDirectoryOnly)
                                      .Where(f => f.EndsWith(".aiff", StringComparison.OrdinalIgnoreCase) || 
                                                  f.EndsWith(".aif", StringComparison.OrdinalIgnoreCase))
+                                     .Where(f => string.IsNullOrWhiteSpace(SampleSearch.Text) || Path.GetFileName(f).Contains(SampleSearch.Text.Trim(), StringComparison.OrdinalIgnoreCase))
                                      .OrderBy(f => f);
 
                 foreach (var file in files)
@@ -127,11 +134,13 @@ namespace Sm64DecompLevelViewer
         {
             if (SampleListBox == null || SampleListBox.SelectedItem == null) return;
 
+            StopPlayback();
             if (SampleListBox.SelectedItem is AudioSampleItem item)
             {
                 SelectedSampleTextBlock.Text = item.Name;
                 FilePathTextBlock.Text = item.FilePath.Substring(_projectRoot.Length).TrimStart('\\', '/');
                 StatusTextBlock.Text = $"Selected {item.Name}";
+                RefreshSampleInfo(item.FilePath);
 
                 string backupPath = item.FilePath + ".orig";
                 if (File.Exists(backupPath))
@@ -142,9 +151,35 @@ namespace Sm64DecompLevelViewer
                 else
                 {
                     RevertButton.IsEnabled = false;
-                    RevertButton.ToolTip = "No local backup found. Revert is only available for samples replaced using version 1.4+ of this tool.";
+                    RevertButton.ToolTip = "No original replacement backup exists beside this sample";
                 }
             }
+        }
+
+        private void RefreshSampleInfo(string path)
+        {
+            try { SampleInfoText.Text = SoundSampleInfo.Describe(File.ReadAllBytes(path)); }
+            catch (Exception ex) { SampleInfoText.Text = "Sample metadata unavailable: " + ex.Message; }
+        }
+        private void SampleSearch_Changed(object sender, TextChangedEventArgs e)
+        {
+            if (CategoryListBox?.SelectedItem is string category) LoadSamples(category);
+        }
+        private void ExportSample_Click(object sender, RoutedEventArgs e)
+        {
+            if (SampleListBox.SelectedItem is not AudioSampleItem item) return;
+            var dialog = new SaveFileDialog { Filter = "PCM WAV (*.wav)|*.wav", FileName = Path.GetFileNameWithoutExtension(item.FilePath) + ".wav" };
+            if (dialog.ShowDialog() != true) return;
+            try
+            {
+                if (string.Equals(Path.GetFullPath(dialog.FileName), Path.GetFullPath(item.FilePath), StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("export to a separate WAV file; the original AIFF must be retained");
+                byte[] original = File.ReadAllBytes(item.FilePath);
+                PcmSampleFile.AudioRange(original);
+                File.WriteAllBytes(dialog.FileName, AiffWavTranscoder.ConvertAiffToWav(original));
+                StatusTextBlock.Text = "Raw sample exported at its file rate";
+            }
+            catch (Exception ex) { StatusTextBlock.Text = "Export failed: " + ex.Message; }
         }
 
         private void PlayButton_Click(object sender, RoutedEventArgs e)
@@ -172,6 +207,7 @@ namespace Sm64DecompLevelViewer
                 StatusTextBlock.Text = $"Transcoding and playing {Path.GetFileName(filePath)}...";
 
                 byte[] aiffBytes = AiffWavTranscoder.SafeReadAllBytes(filePath);
+                PcmSampleFile.AudioRange(aiffBytes);
                 byte[] wavBytes = AiffWavTranscoder.ConvertAiffToWav(aiffBytes);
 
                 if (wavBytes.Length == 0)
@@ -210,9 +246,9 @@ namespace Sm64DecompLevelViewer
             catch { }
         }
 
-        private void ReplaceButton_Click(object sender, RoutedEventArgs e)
+        private async void ReplaceButton_Click(object sender, RoutedEventArgs e)
         {
-            if (SampleListBox == null || SampleListBox.SelectedItem == null) return;
+            if (_busy || SampleListBox == null || SampleListBox.SelectedItem == null) return;
 
             if (SampleListBox.SelectedItem is AudioSampleItem item)
             {
@@ -226,38 +262,29 @@ namespace Sm64DecompLevelViewer
                 {
                     try
                     {
-                        StatusTextBlock.Text = "Transcoding WAV to SM64 AIFF format...";
-                        
-                        byte[] wavBytes = File.ReadAllBytes(ofd.FileName);
-                        byte[] aiffBytes = AiffWavTranscoder.ConvertWavToAiff(wavBytes);
-
-                        if (aiffBytes.Length == 0)
+                        StopPlayback(); _busy = true;
+                        if (Content is UIElement panel) panel.IsEnabled = false;
+                        StatusTextBlock.Text = "Validating and converting replacement audio...";
+                        await Task.Run(() =>
                         {
-                            MessageBox.Show("Failed to transcode replacement WAV audio. Make sure it is a standard uncompressed PCM WAV file.", "Transcoding Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                            StatusTextBlock.Text = "Replacement failed: Transcoding error.";
-                            return;
-                        }
+                            if (new FileInfo(ofd.FileName).Length > 32 * 1024 * 1024) throw new InvalidDataException("replacement wav is limited to 32 mib");
+                            byte[] original = File.ReadAllBytes(item.FilePath);
+                            byte[] converted = PcmSampleFile.ReplaceFromWav(original, File.ReadAllBytes(ofd.FileName));
+                            ProjectFileDocument.Commit(item.FilePath, original, converted, ".orig");
+                        });
 
-                        // Create backup before writing if not already backed up
-                        string backupPath = item.FilePath + ".orig";
-                        if (!File.Exists(backupPath))
-                        {
-                            File.Copy(item.FilePath, backupPath, true);
-                        }
-
-                        // Overwrite original file
-                        File.WriteAllBytes(item.FilePath, aiffBytes);
-                        
                         RevertButton.IsEnabled = true;
                         RevertButton.ToolTip = "Restore the original audio sample from the local backup.";
                         MessageBox.Show($"Successfully replaced sample {item.Name} with custom audio!", "Replacement Successful", MessageBoxButton.OK, MessageBoxImage.Information);
                         StatusTextBlock.Text = $"Replaced: {item.Name}";
+                        RefreshSampleInfo(item.FilePath);
                     }
                     catch (Exception ex)
                     {
                         MessageBox.Show($"Error replacing sample: {ex.Message}", "File Write Error", MessageBoxButton.OK, MessageBoxImage.Error);
                         StatusTextBlock.Text = $"Replacement error: {ex.Message}";
                     }
+                    finally { _busy = false; if (Content is UIElement current) current.IsEnabled = true; }
                 }
             }
         }
@@ -279,16 +306,15 @@ namespace Sm64DecompLevelViewer
                 {
                     StatusTextBlock.Text = "Restoring original sound sample...";
                     
-                    // Overwrite customized file with backup
-                    File.Copy(backupPath, item.FilePath, true);
-                    
-                    // Delete backup
-                    File.Delete(backupPath);
-                    
-                    RevertButton.IsEnabled = false;
-                    RevertButton.ToolTip = "No local backup found. Revert is only available for samples replaced using version 1.4+ of this tool.";
+                    StopPlayback();
+                    byte[] current = File.ReadAllBytes(item.FilePath), original = File.ReadAllBytes(backupPath);
+                    PcmSampleFile.AudioRange(original);
+                    ProjectFileDocument.Commit(item.FilePath, current, original, ".orig");
+                    RevertButton.IsEnabled = true;
+                    RevertButton.ToolTip = "The original backup is retained for recovery";
                     MessageBox.Show($"Successfully reverted {item.Name} to the original sound sample!", "Revert Successful", MessageBoxButton.OK, MessageBoxImage.Information);
                     StatusTextBlock.Text = $"Reverted: {item.Name}";
+                    RefreshSampleInfo(item.FilePath);
                     
                     // Play restored sample
                     PlaySample(item.FilePath);

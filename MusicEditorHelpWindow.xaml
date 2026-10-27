@@ -15,9 +15,9 @@
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel>
                 <TextBlock Text="MOUSE CONTROLS" FontWeight="Bold" Foreground="#4EC9B0" Margin="0,0,0,5"/>
-                <TextBlock Text="• Left-Click (empty space): Click to select, or Drag to create box selection." Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,3"/>
-                <TextBlock Text="• Left-Click (no selection): Create a new note at mouse cursor (snapped to grid)." Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,3"/>
-                <TextBlock Text="• Left-Click (with selection): Click empty space to clear current selection." Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,3"/>
+                <TextBlock Text="• Left-Click (empty space): in draw mode, click to add a note. drag to select a group." Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,3"/>
+                <TextBlock Text="• Left-Click (no selection): draw mode uses the snap and new note length controls." Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,3"/>
+                <TextBlock Text="• Left-Click (with selection): select mode clears selection when clicking empty space." Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,3"/>
                 <TextBlock Text="• Left-Drag Note: Move selected notes in time/pitch." Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,3"/>
                 <TextBlock Text="• Left-Drag Note Edge: Resize note duration." Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,3"/>
                 <TextBlock Text="• Right-Click Note: Delete note." Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,3"/>

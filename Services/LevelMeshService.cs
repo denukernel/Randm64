@@ -24,7 +24,7 @@ public class LevelMeshService
         var original=new ModelParser().ParseVertexArrays(source);
         if(!original.TryGetValue(arrayName,out var old)) throw new InvalidDataException("Vertex array not found: "+arrayName);
         if(old.Count!=vertices.Count) throw new InvalidDataException("Changing the vertex count without updating display lists is unsafe. Import a replacement model to change topology.");
-        if(vertices.Any(v=>Math.Abs((long)v.X)>32767 || Math.Abs((long)v.Y)>32767 || Math.Abs((long)v.Z)>32767 || v.S<short.MinValue || v.S>short.MaxValue || v.T<short.MinValue || v.T>short.MaxValue))
+        if(vertices.Any(v=>v.X<short.MinValue || v.X>short.MaxValue || v.Y<short.MinValue || v.Y>short.MaxValue || v.Z<short.MinValue || v.Z>short.MaxValue || v.S<short.MinValue || v.S>short.MaxValue || v.T<short.MinValue || v.T>short.MaxValue))
             throw new InvalidDataException("Visual coordinates or UVs exceed signed 16-bit limits.");
         var match=Regex.Match(CSourceCalls.MaskComments(source),@"\bVtx\s+"+Regex.Escape(arrayName)+@"\[\]\s*=\s*\{");
         if(!match.Success) throw new InvalidDataException("Unable to find vertex array source: "+arrayName);

@@ -14,6 +14,7 @@ public static class CollisionSourceWriter
         if(mesh.Vertices.Count>32767 || mesh.Triangles.Any(t=>Math.Min(t.V1,Math.Min(t.V2,t.V3))<0 || Math.Max(t.V1,Math.Max(t.V2,t.V3))>=mesh.Vertices.Count)) throw new InvalidDataException("Invalid collision vertex count or triangle index.");
         if(mesh.Vertices.Any(v=>Math.Abs((long)v.X)>32767 || Math.Abs((long)v.Y)>32767 || Math.Abs((long)v.Z)>32767)) throw new InvalidDataException("Collision coordinates exceed signed 16-bit limits.");
         ValidateRuntimeBudget(path,mesh);
+        CollisionSurfacePolicy.ValidateChanges(path, mesh);
         string source=File.ReadAllText(path),active=ActorSourceReader.Read(path,preserveOffsets:true);
         CollisionSourceValidation.Validate(active,path);
         var calls=CSourceCalls.Read(active,n=>n.StartsWith("COL_",StringComparison.Ordinal));

@@ -7,6 +7,7 @@ namespace Sm64DecompLevelViewer.Services
     public class AppSettings
     {
         public string LastProjectRoot { get; set; } = string.Empty;
+        public Dictionary<string, string> WslProjectImports { get; set; } = new();
         public string EmulatorPath { get; set; } = string.Empty;
         public float CameraMoveSpeed { get; set; } = 800f;
         public float CameraRotationSpeed { get; set; } = 0.02f;
@@ -22,11 +23,13 @@ namespace Sm64DecompLevelViewer.Services
         public string LastBuildPlatform { get; set; } = string.Empty;
         public string MsysPath { get; set; } = @"C:\msys64";
         public string BuildVersion { get; set; } = "us";
+        public Dictionary<string, string> BaseRomSources { get; set; } = new();
         public string BuildCompiler { get; set; } = "ido";
         public string BuildGrucode { get; set; } = "f3d_old";
         public bool BuildCompare { get; set; } = false;
         public bool BuildNonMatching { get; set; } = false;
-        public int BuildJobs { get; set; } = 8;
+        public int BuildJobs { get; set; } = 0;
+        public Dictionary<string, Build.RepositoryBuildRecord> RepositoryBuildRecords { get; set; } = new();
         public string GitRepositoryUrl { get; set; } = "https://github.com/n64decomp/sm64.git";
         public bool AutoRunEmulator { get; set; } = true;
         public string LastSelectedM64Path { get; set; } = string.Empty;

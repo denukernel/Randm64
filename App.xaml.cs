@@ -58,6 +58,7 @@ namespace Sm64DecompLevelViewer
 
         protected override void OnExit(ExitEventArgs e)
         {
+            Services.Build.WslBuildSessions.StopAll();
             if (_mutex != null)
             {
                 try

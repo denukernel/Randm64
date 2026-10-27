@@ -94,11 +94,14 @@ namespace Sm64DecompLevelViewer
         {
             if (StatusTextBlock == null || GitRevertCheck == null) return;
             int backupsCount = Backups.Count(b => b.IsEnabled);
-            StatusTextBlock.Text = $"{backupsCount} recovery groups selected, Git clean: {(GitRevertCheck.IsChecked == true ? "YES" : "NO")}";
+            StatusTextBlock.Text = GitRevertCheck.IsChecked == true ? "full repository reset selected" :
+                Backups.Count == 0 ? "no recovery backups found; full reset is available above" :
+                $"{backupsCount} recovery groups selected";
         }
 
         private void GitRevertCheck_Toggle(object sender, RoutedEventArgs e)
         {
+            if (BackupsListBox != null) BackupsListBox.IsEnabled = GitRevertCheck.IsChecked != true;
             UpdateStatusText();
         }
 

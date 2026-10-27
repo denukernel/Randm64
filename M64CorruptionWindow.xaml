@@ -51,6 +51,23 @@
         <StackPanel Grid.Row="0" Margin="0,0,0,12">
             <TextBlock Text="M64 Corruption Modes Configuration" FontSize="18" FontWeight="Bold" Foreground="#E57373"/>
             <TextBlock Text="Select which corruption modes are active. When sequences are randomized/corrupted, the engine applies your enabled modes in a stable order. Unsupported scripts are left unchanged." FontSize="11" Foreground="#999999" TextWrapping="Wrap" Margin="0,4,0,0"/>
+            <StackPanel x:Name="PreviewPanel" Margin="0,8,0,0">
+                <DockPanel>
+                    <Button Content="Choose Preview Sequence" Click="ChoosePreview_Click" Height="26"/>
+                    <TextBlock x:Name="PreviewSequenceText" Text="Choose a sequence to audition" Margin="8,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
+                <WrapPanel VerticalAlignment="Center">
+                    <TextBlock Text="Intensity %" VerticalAlignment="Center"/>
+                    <TextBox x:Name="PreviewIntensity" Width="40" Margin="4"/>
+                    <TextBlock Text="Seed" VerticalAlignment="Center"/>
+                    <TextBox x:Name="PreviewSeed" Width="85" Margin="4"/>
+                    <CheckBox x:Name="PreviewMidi" Content="MIDI" Foreground="White" VerticalAlignment="Center" Margin="4"/>
+                    <Button Content="Original" Click="PreviewOriginal_Click" Height="26" Width="65"/>
+                    <Button Content="Corrupted" Click="PreviewCorrupted_Click" Height="26" Width="75"/>
+                    <Button Content="Stop" Click="StopPreview_Click" Height="26" Width="45"/>
+                </WrapPanel>
+                <TextBlock x:Name="PreviewStatus" Text="Preview only. Uses the original backup when available; no files are changed." FontSize="11" TextWrapping="Wrap"/>
+            </StackPanel>
         </StackPanel>
 
         <!-- Main Workspace -->

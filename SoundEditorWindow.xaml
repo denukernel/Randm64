@@ -1,7 +1,7 @@
 <Window x:Class="Sm64DecompLevelViewer.SoundEditorWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="SM64 Sound &amp; SFX Editor" Height="550" Width="850"
+        Title="SM64 Sound &amp; SFX Editor" Height="720" Width="1100" MinHeight="600" MinWidth="900"
         WindowStartupLocation="CenterOwner" Background="#1E1E1E" Foreground="White">
     <Grid Margin="12">
         <Grid.RowDefinitions>
@@ -14,7 +14,9 @@
         <Border Grid.Row="0" Margin="0,0,0,12" BorderThickness="0,0,0,1" BorderBrush="#3F3F46" Padding="0,0,0,8">
             <StackPanel>
                 <TextBlock Text="🔊 SM64 Sound &amp; SFX Editor" FontSize="18" FontWeight="Bold" Foreground="#D45B0A"/>
-                <TextBlock Text="Browse sound banks, preview audio samples, and replace them with custom WAV files." FontSize="11" Foreground="#CCCCCC" Margin="0,2,0,0"/>
+                <TextBlock Text="Browse extracted sample folders, inspect file metadata, preview and replace PCM samples." FontSize="11" Foreground="#CCCCCC" Margin="0,2,0,0"/>
+                <TextBlock Text="Filter sample filenames in this folder:" Foreground="#CCCCCC" Margin="0,8,0,0"/>
+                <TextBox x:Name="SampleSearch" TextChanged="SampleSearch_Changed" Margin="0,8,0,0" Padding="5" ToolTip="Filter sample filenames in the selected folder"/>
             </StackPanel>
         </Border>
 
@@ -53,22 +55,24 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     
-                    <StackPanel Grid.Row="0">
+                    <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto"><StackPanel>
                         <TextBlock Text="Selected Sample:" FontSize="11" Foreground="#CCCCCC"/>
                         <TextBlock x:Name="SelectedSampleTextBlock" Text="None selected" FontSize="14" FontWeight="Bold" TextWrapping="Wrap" Margin="0,4,0,15" Foreground="#FF8C00"/>
 
                         <TextBlock Text="File Path:" FontSize="11" Foreground="#CCCCCC"/>
                         <TextBlock x:Name="FilePathTextBlock" Text="-" FontSize="10" TextWrapping="Wrap" Margin="0,2,0,15" Foreground="#999999"/>
 
+                        <TextBlock x:Name="SampleInfoText" TextWrapping="Wrap" Foreground="#B5CEA8" Margin="0,0,0,8"/>
                         <Border Background="#2D2D30" CornerRadius="4" Padding="8" Margin="0,5,0,0">
-                            <TextBlock Text="Note: Replacing a sample requires importing a standard WAV file (16-bit PCM format is recommended). The editor will automatically handle the conversion back to the big-endian AIFF format used in SM64 decomp." FontSize="10" TextWrapping="Wrap" Foreground="#CCCCCC"/>
+                            <TextBlock Text="Replacement accepts mono or stereo 16-bit PCM WAV, mixes stereo to mono and resamples to the original file rate. looped samples must preserve the frame count after conversion. the first .orig backup is retained. rebuild the ROM to hear changes in game." FontSize="10" TextWrapping="Wrap" Foreground="#CCCCCC"/>
                         </Border>
-                    </StackPanel>
+                    </StackPanel></ScrollViewer>
 
                     <!-- Actions -->
                     <StackPanel Grid.Row="1" Orientation="Vertical">
                         <Button Click="PlayButton_Click" Content="▶ Play Sound" Margin="0,4" Background="#107C41" Foreground="White" FontWeight="Bold" BorderThickness="0" Padding="12,8" Cursor="Hand"/>
                         <Button Click="StopButton_Click" Content="■ Stop Playback" Margin="0,4" Background="#D13438" Foreground="White" BorderThickness="0" Padding="12,8" Cursor="Hand"/>
+                        <Button Click="ExportSample_Click" Content="Export raw WAV..." Margin="0,4" Padding="10,6"/>
                         <Button Click="ReplaceButton_Click" Content="💾 Replace Sample..." Margin="0,4" Background="#007ACC" Foreground="White" FontWeight="Bold" BorderThickness="0" Padding="12,8" Cursor="Hand"/>
                         <Button x:Name="RevertButton" Click="RevertButton_Click" Content="🔄 Revert to Original" Margin="0,4" Background="#8A4A00" Foreground="White" FontWeight="Bold" BorderThickness="0" Padding="12,8" Cursor="Hand" IsEnabled="False"/>
                     </StackPanel>

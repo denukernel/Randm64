@@ -6,6 +6,14 @@ namespace Sm64DecompLevelViewer.Services;
 
 public class ObjectParser
 {
+    private static int ParseInteger(string value, int fallback = 0)
+    {
+        value = CSourceCalls.MaskComments(value).Trim();
+        bool negative = value.StartsWith("-");
+        string digits = negative ? value[1..] : value;
+        if (digits.StartsWith("0x", StringComparison.OrdinalIgnoreCase) && int.TryParse(digits[2..], System.Globalization.NumberStyles.HexNumber, null, out int hex)) return negative ? -hex : hex;
+        return int.TryParse(value, out int number) ? number : fallback;
+    }
     private static readonly Regex ObjectPattern = new Regex(
         @"OBJECT(?:_WITH_ACTS)?(?:\s|/\*.*?\*/)*\((?:\s|/\*.*?\*/)*([^,]*?(?:\([^)]*?\)[^,]*?)?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,]*?(?:\([^)]*?\)[^,]*?)?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,]*?(?:\([^)]*?\)[^,]*?)?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,]*?(?:\([^)]*?\)[^,]*?)?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,]*?(?:\([^)]*?\)[^,]*?)?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,]*?(?:\([^)]*?\)[^,]*?)?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,]*?(?:\([^)]*?\)[^,]*?)?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,]*?(?:\([^)]*?\)[^,]*?)?)(?:\s|/\*.*?\*/)*,(?:\s|/\*.*?\*/)*([^,)]*?(?:\([^)]*?\)[^,)]*?)?)(?:\s|/\*.*?\*/)*(?:,(?:\s|/\*.*?\*/)*([^)]+?)(?:\s|/\*.*?\*/)*)?\)[\s,]*",
         RegexOptions.Compiled
@@ -112,7 +120,7 @@ public class ObjectParser
                 {
                     if(call.Arguments.Count!=(call.Name=="OBJECT" ? 9 : 10)) continue;
                     string Arg(int i)=>call.Argument(currentContent,i);
-                    int Number(int i)=>int.TryParse(Arg(i),out int value) ? value : 0;
+                    int Number(int i)=>ParseInteger(Arg(i));
                     string parameters=Arg(7);
                     uint.TryParse(parameters.StartsWith("0x",StringComparison.OrdinalIgnoreCase) ? parameters[2..] : parameters,
                         parameters.StartsWith("0x",StringComparison.OrdinalIgnoreCase) ? System.Globalization.NumberStyles.HexNumber : System.Globalization.NumberStyles.Integer,
@@ -162,27 +170,19 @@ public class ObjectParser
             ParseContent(contentToParse, parseOffset, targetArea, new HashSet<string>());
 
             // Mario Position (filtered by area if specified)
-            var marioMatches = MarioPosPattern.Matches(content);
-            foreach (Match match in marioMatches)
+            string activeMarioSource = ActorSourceReader.Read(filePath, preserveOffsets: true, sourceText: content);
+            foreach (var call in CSourceCalls.Read(activeMarioSource, n => n == "MARIO_POS"))
             {
-                int marioArea = int.TryParse(match.Groups[1].Value, out int ma) ? ma : -1;
-                if (targetArea == -1 || marioArea == targetArea)
+                if (call.Arguments.Count != 5) continue;
+                int marioArea = ParseInteger(call.Argument(activeMarioSource, 0), -1);
+                if (targetArea != -1 && marioArea != targetArea) continue;
+                objects.Add(new LevelObject
                 {
-                    objects.Add(new LevelObject
-                    {
-                        ModelName = "MODEL_MARIO",
-                        X = int.TryParse(match.Groups[3].Value, out int mx) ? mx : 0,
-                        Y = int.TryParse(match.Groups[4].Value, out int my) ? my : 0,
-                        Z = int.TryParse(match.Groups[5].Value, out int mz) ? mz : 0,
-                        RY = int.TryParse(match.Groups[2].Value, out int mry) ? mry : 0,
-                        Behavior = "bhvMario",
-                        SourceFile = filePath,
-                        SourceIndex = match.Index,
-                        SourceLength = match.Length,
-                        SourceType = ObjectSourceType.Mario,
-                        AreaIndex = marioArea
-                    });
-                }
+                    ModelName = "MODEL_MARIO", Behavior = "bhvMario", SourceType = ObjectSourceType.Mario,
+                    AreaIndex = marioArea, RY = ParseInteger(call.Argument(activeMarioSource, 1)),
+                    X = ParseInteger(call.Argument(activeMarioSource, 2)), Y = ParseInteger(call.Argument(activeMarioSource, 3)), Z = ParseInteger(call.Argument(activeMarioSource, 4)),
+                    SourceFile = filePath, SourceIndex = call.Start, SourceLength = call.End - call.Start
+                });
             }
         }
         catch (Exception ex)

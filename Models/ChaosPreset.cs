@@ -4,6 +4,9 @@ namespace Sm64DecompLevelViewer
 {
     public class ChaosPreset
     {
+        public Dictionary<string, double> IntensityOverrides { get; set; } = new();
+        public Services.Chaos.M64MutationSettings MusicSettings { get; set; } = new();
+        public int GameLogicCycleFrames { get; set; } = 300;
         public string PresetName { get; set; } = string.Empty;
         public double Intensity { get; set; } = 10;
         public int TargetLevelIndex { get; set; } = 0;
@@ -24,6 +27,7 @@ namespace Sm64DecompLevelViewer
         public bool ShuffleSfxOnly { get; set; } = false;
         public bool SfxIdentityShuffle { get; set; } = true;
         public bool SfxPitchVariation { get; set; } = false;
+        public List<int>? ActiveSfxModes { get; set; }
         public int SfxRandomizerMode { get; set; } = 0;
 
         public bool ReplaceSfx { get; set; } = false;

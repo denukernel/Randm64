@@ -52,7 +52,7 @@ internal static class ImportedMeshWriter
             source.AppendLine($"const Gfx {name}[] = {{\n    gsDPPipeSync(),\n    gsSPClearGeometryMode(G_LIGHTING),");
             if(material.Pixels!=null)
             {
-                string Address(Models.TextureAddressMode mode)=>mode==Models.TextureAddressMode.Clamp ? "G_TX_CLAMP" : mode==Models.TextureAddressMode.Mirror ? "G_TX_WRAP | G_TX_MIRROR" : "G_TX_WRAP";
+                string Address(Sm64DecompLevelViewer.Models.TextureAddressMode mode)=>mode==Sm64DecompLevelViewer.Models.TextureAddressMode.Clamp ? "G_TX_CLAMP" : mode==Sm64DecompLevelViewer.Models.TextureAddressMode.Mirror ? "G_TX_WRAP | G_TX_MIRROR" : "G_TX_WRAP";
                 source.AppendLine($"    gsDPSetCombineMode(G_CC_MODULATEIA, G_CC_MODULATEIA),\n    gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON),\n    gsDPLoadTextureBlock({name}_texture, G_IM_FMT_RGBA, G_IM_SIZ_16b, {material.Width}, {material.Height}, 0, {Address(material.WrapS)}, {Address(material.WrapT)}, {(int)Math.Log2(material.Width)}, {(int)Math.Log2(material.Height)}, G_TX_NOLOD, G_TX_NOLOD),");
             }
             else source.AppendLine("    gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_OFF),\n    gsDPSetCombineMode(G_CC_SHADE, G_CC_SHADE),");

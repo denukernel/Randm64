@@ -35,7 +35,7 @@ public class LevelSaver
             }
         }
     }
-    public bool SaveLevel(List<LevelObject> objects,string? collisionPath=null)
+    public bool SaveLevel(List<LevelObject> objects,string? collisionPath=null,Func<LevelObject,string?>? modelValidation=null,SourceEditPlan? additionalSources=null)
     {
         LastError=null;
         try
@@ -54,6 +54,7 @@ public class LevelSaver
                 string path=group.Key;
                 byte[] bytes=File.ReadAllBytes(path); string source=File.ReadAllText(path);
                 var calls=CSourceCalls.Read(source,ObjectCall); var edits=new List<Edit>();
+                bool needsSpecialSection=CSourceCalls.Read(source,n=>n=="COL_SPECIAL_INIT").Count==0;
                 var locations=new Dictionary<LevelObject,(int Start,int End)>();
                 foreach(var o in group)
                 {
@@ -61,8 +62,16 @@ public class LevelSaver
                     {
                         if(!o.IsDeleted)
                         {
+                            if(o.SourceType==ObjectSourceType.Normal && modelValidation?.Invoke(o) is { } problem)
+                                throw new InvalidDataException(problem);
                             int insertion=ObjectMacroWriter.InsertionPoint(source,calls,o);
-                            edits.Add(new Edit(o,insertion,insertion,"\n    "+ObjectMacroWriter.NewMacro(source,path,o)+","));
+                            string prefix="\n    ";
+                            if(o.SourceType==ObjectSourceType.Special && needsSpecialSection)
+                            {
+                                prefix+="COL_SPECIAL_INIT(0),\n    ";
+                                needsSpecialSection=false;
+                            }
+                            edits.Add(new Edit(o,insertion,insertion,prefix+ObjectMacroWriter.NewMacro(source,path,o)+","));
                         }
                         continue;
                     }
@@ -87,6 +96,8 @@ public class LevelSaver
                     }
                     else
                     {
+                        if(o.SourceType==ObjectSourceType.Normal && (o.ModelName!=old.State.Model || o.Behavior!=old.State.Behavior)
+                            && modelValidation?.Invoke(o) is { } problem) throw new InvalidDataException(problem);
                         string replacement=ObjectMacroWriter.Rewrite(source,path,call,o,old.State);
                         if(replacement!=call.Text(source)) edits.Add(new Edit(o,call.Start,call.End,replacement));
                     }
@@ -117,6 +128,19 @@ public class LevelSaver
                     projected=MappedIndex(projected,counts,null);
                     var final=finalCalls.FirstOrDefault(c=>c.Start==projected && Kind(c,o)) ?? throw new InvalidDataException("Unable to validate staged object source: "+path);
                     updates.Add((o,final.Start,final.End-final.Start,final.Text(result),false));
+                }
+            }
+            if(additionalSources!=null)
+            {
+                foreach(var item in additionalSources.Writes)
+                {
+                    if(writes.ContainsKey(item.Key)) throw new InvalidDataException("Additional source edits overlap object edits: "+item.Key);
+                    writes[item.Key]=item.Value;
+                }
+                foreach(var item in additionalSources.ExpectedVersions)
+                {
+                    if(expected.ContainsKey(item.Key)) throw new InvalidDataException("Additional source versions overlap object edits: "+item.Key);
+                    expected[item.Key]=item.Value;
                 }
             }
             SourceFileTransaction.Commit(writes,expected);
