@@ -17,7 +17,7 @@ public static class LevelSceneLoader
         var root = Regex.Match(script, @"\bAREA\s*\(\s*" + area + @"\s*,\s*(\w+)");
         var geo = new GeoLayoutParser();
         var transforms = geo.ParseActorGeoLayout(geoPath, root.Success ? root.Groups[1].Value : null,
-            Directory.GetFiles(levelDirectory, "geo.inc.c", SearchOption.AllDirectories));
+            Directory.GetFiles(levelDirectory, "geo.inc.c", SearchOption.AllDirectories), includeAllRooms: true);
         if (geo.DisplayListInstances.Count == 0) throw new InvalidDataException("The selected area has no visual display lists.");
         var files = GetModelSourceFiles(levelDirectory);
         string source = string.Join("\n", files.Select(path => ActorSourceReader.Read(path)));

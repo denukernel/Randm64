@@ -284,7 +284,7 @@ public class GeoLayoutParser
         public List<ActorNode> Children = new();
     }
 
-    public Dictionary<string, Matrix4> ParseActorGeoLayout(string filePath, string? rootLayout = null, IEnumerable<string>? additionalFiles = null)
+    public Dictionary<string, Matrix4> ParseActorGeoLayout(string filePath, string? rootLayout = null, IEnumerable<string>? additionalFiles = null, bool includeAllRooms = false)
     {
         var transforms = new Dictionary<string, Matrix4>();
         ParsedJoints.Clear();
@@ -379,8 +379,19 @@ public class GeoLayoutParser
                         VisitLayout(a[^1], parent, parentJoint, calls, billboard);
                         break;
                     case "SWITCH_CASE":
-                        // Preview the ordinary actor state: cap on, open eyes, closed hands.
-                        VisitNodes(node.Children.Take(1), parent, parentJoint, calls, billboard);
+                        // Room visibility depends on the player location. Editor
+                        // overviews need all rooms; actor previews retain one state.
+                        if (includeAllRooms && a.Length > 1 && a[1] == "geo_switch_area")
+                        {
+                            int first = DisplayListInstances.Count;
+                            VisitNodes(node.Children, parent, parentJoint, calls, billboard);
+                            // Room branches repeat shared walls and exterior geometry.
+                            var unique = DisplayListInstances.Skip(first)
+                                .DistinctBy(instance => (instance.DisplayListName, instance.Transform, instance.JointIndex)).ToList();
+                            DisplayListInstances.RemoveRange(first, DisplayListInstances.Count - first);
+                            DisplayListInstances.AddRange(unique);
+                        }
+                        else VisitNodes(node.Children.Take(1), parent, parentJoint, calls, billboard);
                         continue;
                     case "RENDER_RANGE":
                         if (Number(0) > 0) continue; // Select the near/high-detail LOD once.
