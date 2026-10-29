@@ -9,9 +9,16 @@ internal sealed class MusicPlaybackCoordinator
     public List<ActivePlayingNote> ActiveNotes { get; } = new();
     private List<ActivePlayingNote> _activePlayingNotesList => ActiveNotes;
     private HashSet<int> _activeMidiNotes => _voices.ActiveMidiNotes;
+    private long? _timelineFrame;
+    private double _timelineSeconds;
+    internal void BeginSampleTimeline(double tick, M64TempoMap tempoMap)
+    {
+        _timelineFrame = _samplePlayer?.CurrentFrame;
+        _timelineSeconds = tempoMap.TickToSeconds(tick);
+    }
     public MusicPlaybackCoordinator(MidiPlayer midi, MusicVoiceCoordinator voices, MusicInstrumentResolver resolver, Func<SampleSynthPlayer?> samples)
     { _midiPlayer = midi; _voices = voices; _instrumentResolver = resolver; _getSamples = samples; }
-    public void Advance(List<M64Track> tracks, M64TempoMap tempoMap, string sequencePath, double currentTick, double nextTick, bool forceMidi, Func<byte, bool> isAudible, Func<byte, byte, byte> channelVolume)
+    public void Advance(List<M64Track> tracks, M64TempoMap tempoMap, string sequencePath, double currentTick, double nextTick, bool forceMidi, Func<byte, bool> isAudible, Func<byte, byte, byte> channelVolume, double? scheduleEndTick = null)
     {
             // 1. Process active notes for note-offs
             for (int i = _activePlayingNotesList.Count - 1; i >= 0; i--)
@@ -41,13 +48,18 @@ internal sealed class MusicPlaybackCoordinator
 
                 bool shouldPlay = isAudible(targetChannel);
 
-                foreach (var note in M64PreviewSchedule.GetNotes(track.Notes, currentTick, nextTick, includeSustained: true, includeAtCursor: nextTick == currentTick))
+                double horizon = _timelineFrame.HasValue ? tempoMap.Advance(nextTick, 0.2) : nextTick;
+                if (scheduleEndTick.HasValue) horizon = Math.Min(horizon, scheduleEndTick.Value);
+                foreach (var note in M64PreviewSchedule.GetNotes(track.Notes, currentTick, horizon, includeSustained: true, includeAtCursor: horizon == currentTick))
                 {
                     if (shouldPlay && note.Velocity > 0 && !_activePlayingNotesList.Any(v => ReferenceEquals(v.Source, note) && v.Channel == targetChannel))
                     {
 
                         double tuning = 0.0;
                         string samplePath = forceMidi ? null : _instrumentResolver.GetSamplePathForInstrument(sequencePath, note.Instrument, note.Pitch, out tuning);
+                        // MIDI has no sample-frame scheduler; keep it on the current timer interval.
+                        if (string.IsNullOrEmpty(samplePath) && note.StartTick >= nextTick && nextTick != currentTick) continue;
+                        if (string.IsNullOrEmpty(samplePath) && nextTick == currentTick && note.StartTick > currentTick) continue;
                         byte previewVolume = channelVolume(targetChannel, note.ChannelVolume);
                         if (!string.IsNullOrEmpty(samplePath))
                         {
@@ -58,7 +70,9 @@ internal sealed class MusicPlaybackCoordinator
                                         - Math.Max(note.StartTick, currentTick)), note.Reverb,
                                 track.GetPitchFrames(Math.Max(note.StartTick, currentTick),
                                     note.StartTick + Sm64NoteTiming.GetDurationTicks(note.DurationTicks, note.Gate, note.CommandType),
-                                    tempoMap, 44100));
+                                    tempoMap, 44100),
+                                _timelineFrame.HasValue ? _timelineFrame.Value + SampleSynthPlayer.SecondsToFrames(
+                                    tempoMap.TickToSeconds(Math.Max(note.StartTick, currentTick)) - _timelineSeconds) : null);
                         }
                         else
                         {

@@ -39,10 +39,10 @@ public partial class LevelEditorWindow
         MeshPaintOptions.Visibility = paint ? Visibility.Visible : Visibility.Collapsed;
         MeshBoxOptions.Visibility = box ? Visibility.Visible : Visibility.Collapsed;
         CollisionSurfaceOptions.Visibility = collision ? Visibility.Visible : Visibility.Collapsed;
-        MeshToolHint.Text = collision ? "change collision behavior without changing textures. unsupported surface types and force values are blocked."
-            : paint ? "paint textures onto faces. edits preview immediately and stay in memory until save."
-            : box ? "create a box, then move, rotate or scale it in the placement preview before confirming."
-            : "drag vertices or faces. hold x, y or z to constrain an axis; shift snaps to 50 units; escape cancels the drag.";
+        MeshToolHint.Text = collision ? "Change collision behavior without changing textures. Unsupported surface types and force values are blocked."
+            : paint ? "Paint textures onto faces. Edits preview immediately and stay in memory until Save."
+            : box ? "Create a box, then move, rotate or scale it in the placement preview before confirming."
+            : "Drag vertices or faces. Hold X, Y, or Z to constrain an axis; Shift snaps to 50 units; Escape cancels the drag.";
         if (_renderer != null)
         {
             _renderer.MeshEditingEnabled = IsMeshMode;
@@ -135,10 +135,10 @@ public partial class LevelEditorWindow
         bool valid = text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
             ? int.TryParse(text[2..], System.Globalization.NumberStyles.HexNumber, null, out int force)
             : int.TryParse(text, out force);
-        string help = choice?.Reason ?? "select a supported collision type";
+        string help = choice?.Reason ?? "Select a supported collision type";
         if (choice != null && choice.IsSupported)
         {
-            try { _meshSession?.SurfacePolicy?.Validate(choice.Name, forceSurface ? valid ? force : null : null); if (forceSurface) help = "flowing water and moving sand require a speed index of 0 to 3 in the high byte; the low byte is direction"; }
+            try { _meshSession?.SurfacePolicy?.Validate(choice.Name, forceSurface ? valid ? force : null : null); if (forceSurface) help = "Flowing water and moving sand require a speed index of 0 to 3 in the high byte; the low byte is direction"; }
             catch (Exception ex) { valid = false; help = ex.Message; }
         }
         if (_renderer != null)
@@ -156,7 +156,7 @@ public partial class LevelEditorWindow
         if (MeshDockRow.Height.Value > 0 && _embeddedMeshEditor != null)
         {
             bool saved = _embeddedMeshEditor.SaveTableChanges();
-            MeshSelectionText.Text = saved ? "mesh tables saved" : "mesh tables were not saved; check the viewer status";
+            MeshSelectionText.Text = saved ? "Mesh Tables Saved" : "Mesh tables were not saved; check the viewer status";
             return saved;
         }
         if (_meshSession == null || _renderer == null) return true;

@@ -61,7 +61,7 @@ namespace Sm64DecompLevelViewer
                 : null;
             string? warning = MainTabControl.SelectedIndex <= 0 && BehaviorListBox.SelectedItem is string selected
                 ? _behaviorCompatibility.ModelWarning(selected, NormalModelTextBox.Text.Trim()) : null;
-            BehaviorStatus.Text = problem ?? warning ?? "no known model or behavior conflicts";
+            BehaviorStatus.Text = problem ?? warning ?? "No known model or behavior conflicts";
             AddObjectButton.IsEnabled = problem == null;
         }
 

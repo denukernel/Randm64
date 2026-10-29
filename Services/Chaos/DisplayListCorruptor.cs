@@ -115,6 +115,14 @@ internal sealed class DisplayListCorruptor
                             break;
                     }
 
+                    // Vtx positions and texture coordinates are signed 16-bit fields.
+                    // Preserve the same low bits that the compiler previously kept
+                    // when it warned about an overflowing integer initializer.
+                    x = unchecked((short)x);
+                    y = unchecked((short)y);
+                    z = unchecked((short)z);
+                    u = unchecked((short)u);
+                    v = unchecked((short)v);
                     return $"{{{{{{{x}, {y}, {z}}}, {flag}, {{{u}, {v}}}, {{{r}, {g}, {b}, {a}}}}}}}";
                 });
 

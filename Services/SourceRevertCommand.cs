@@ -24,7 +24,7 @@ public static class SourceRevertCommand
         // the selected directory is the repository root before any destructive command.
         info.ArgumentList.Add("set -eu; cd -- \"$1\"; " +
             "test \"$(git rev-parse --show-toplevel)\" = \"$(pwd -P)\" || { echo \"select the repository root to revert source\" >&2; exit 1; }; " +
-            "git checkout -f; git clean -fd -e 'baserom.*'; " +
+            "git checkout -f; git clean -fd -e 'baserom.*' -e '*.bak'; " +
             "echo 'source reset complete; extracting US assets'; python3 extract_assets.py us");
         info.ArgumentList.Add("randm64-revert");
         info.ArgumentList.Add(project.LinuxPath);

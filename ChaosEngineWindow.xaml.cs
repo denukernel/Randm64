@@ -69,14 +69,16 @@ namespace Sm64DecompLevelViewer
             _presetsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Randm64", "Settings", "ChaosPresets");
             Directory.CreateDirectory(_presetsDir);
 
-            LoadProjectLevelsAndM64s();
-            LoadPresetsList();
-
-            string defaultPath = Path.Combine(_presetsDir, "_default_settings.json");
-            if (File.Exists(defaultPath))
+            ChaosButton.IsEnabled = false;
+            Loaded += async (_, _) =>
             {
-                LoadPresetFromFile(defaultPath);
-            }
+                await LoadProjectLevelsAndM64sAsync();
+                if (!IsLoaded) return;
+                LoadPresetsList();
+                string defaultPath = Path.Combine(_presetsDir, "_default_settings.json");
+                if (File.Exists(defaultPath)) LoadPresetFromFile(defaultPath);
+                ChaosButton.IsEnabled = true;
+            };
         }
 
         private async void ChaosButton_Click(object sender, RoutedEventArgs e)
@@ -517,40 +519,27 @@ namespace Sm64DecompLevelViewer
             }
         }
 
-        private void LoadProjectLevelsAndM64s()
+        private async Task LoadProjectLevelsAndM64sAsync()
         {
             try
             {
-                // Load levels
-                string levelsDir = Path.Combine(_projectRoot, "levels");
-                if (!Directory.Exists(levelsDir)) levelsDir = Path.Combine(_projectRoot, "howtomake", "levels");
-
-                if (Directory.Exists(levelsDir))
+                var (levels, sequences) = await Task.Run(() =>
                 {
-                    var dirs = Directory.GetDirectories(levelsDir);
-                    foreach (var dir in dirs)
-                    {
-                        string name = Path.GetFileName(dir);
-                        if (name.StartsWith(".") || name == "src" || name == "include" || name == "bin") continue;
-
-                        var item = new System.Windows.Controls.ComboBoxItem { Content = name };
-                        LevelSelectionComboBox.Items.Add(item);
-                    }
-                }
-
-                // Load M64 files
-                string seqDir = Path.Combine(_projectRoot, "sound", "sequences");
-                if (Directory.Exists(seqDir))
+                    string levelsDir = Path.Combine(_projectRoot, "levels");
+                    if (!Directory.Exists(levelsDir)) levelsDir = Path.Combine(_projectRoot, "howtomake", "levels");
+                    string[] levels = Directory.Exists(levelsDir) ? Directory.GetDirectories(levelsDir)
+                        .Select(Path.GetFileName).Where(name => name != null && !name.StartsWith(".") && name != "src" && name != "include" && name != "bin").ToArray()! : [];
+                    string seqDir = Path.Combine(_projectRoot, "sound", "sequences");
+                    string[] sequences = Directory.Exists(seqDir) ? Directory.GetFiles(seqDir, "*.m64", SearchOption.AllDirectories)
+                        .Where(file => !Path.GetFileName(file).Contains("00_sound_player") && !Path.GetFileName(file).Contains("sfx")).ToArray() : [];
+                    return (levels, sequences);
+                });
+                if (!IsLoaded) return;
+                foreach (string name in levels)
+                    LevelSelectionComboBox.Items.Add(new ComboBoxItem { Content = name });
+                foreach (string file in sequences)
                 {
-                    var m64Files = Directory.GetFiles(seqDir, "*.m64", SearchOption.AllDirectories);
-                    foreach (var file in m64Files)
-                    {
-                        string name = Path.GetFileName(file);
-                        if (name.Contains("00_sound_player") || name.Contains("sfx")) continue;
-
-                        var item = new System.Windows.Controls.ListBoxItem { Content = name, Tag = file };
-                        M64SelectionListBox.Items.Add(item);
-                    }
+                    M64SelectionListBox.Items.Add(new ListBoxItem { Content = Path.GetFileName(file), Tag = file });
                 }
             }
             catch (Exception ex)

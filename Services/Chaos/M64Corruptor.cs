@@ -220,8 +220,11 @@ internal sealed class M64Corruptor
         byte[] current = File.ReadAllBytes(path);
         string backup = path + ".bak";
         byte[] source = !accumulate && File.Exists(backup) ? File.ReadAllBytes(backup) : current;
+        Audio.M64Integrity.RequireNonZero(path, current);
+        Audio.M64Integrity.RequireNonZero(File.Exists(backup) && !accumulate ? backup : path, source);
         string region = Path.GetFileName(Path.GetDirectoryName(path))!.ToLowerInvariant();
         byte[] output = Mutate(source, region, modes, intensity, alienate, settings, diagnostics);
+        Audio.M64Integrity.RequireNonZero(path, output);
         string staged = path + ".chaos-" + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {

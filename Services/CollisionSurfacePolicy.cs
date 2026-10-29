@@ -61,35 +61,35 @@ public sealed class CollisionSurfacePolicy
         }
         sandSpeedCount = Count(Path.Combine(projectRoot, "src", "game", "mario_step.c"), "sMovingSandSpeeds");
         waterSpeedCount = Count(Path.Combine(projectRoot, "src", "game", "mario_actions_submerged.c"), "sWaterCurrentSpeeds");
-        Choices = definitions.Keys.OrderBy(n => n).Select(n => new CollisionSurfaceChoice(n, Reason(n) == null, Reason(n) ?? "supported in this area")).ToArray();
+        Choices = definitions.Keys.OrderBy(n => n).Select(n => new CollisionSurfaceChoice(n, Reason(n) == null, Reason(n) ?? "Supported in this area")).ToArray();
     }
 
     private static int? Number(string value) => int.TryParse(value, out int n) ? n : value.StartsWith("0x", StringComparison.OrdinalIgnoreCase) && int.TryParse(value[2..], System.Globalization.NumberStyles.HexNumber, null, out n) ? n : null;
     private bool Warp(string name, int id) => warpNodes.Contains(name) || warpNodes.Any(n => Number(n) == id);
     private string? Reason(string name)
     {
-        if (!definitions.ContainsKey(name)) return "surface is not defined by this game build";
-        if (definitions[name] >= 0x40 && definitions[name] < 0x65) return "this value is a terrain command rather than a collision surface";
+        if (!definitions.ContainsKey(name)) return "Surface is not defined by this game build";
+        if (definitions[name] >= 0x40 && definitions[name] < 0x65) return "This value is a terrain command rather than a collision surface";
         if (General.Contains(name)) return null;
-        if (name is "SURFACE_DEATH_PLANE" or "SURFACE_VERTICAL_WIND") return Warp("WARP_NODE_DEATH", 0xF1) ? null : "this area has no death warp node";
-        if (name == "SURFACE_WARP") return Warp("WARP_NODE_WARP_FLOOR", 0xF3) ? null : "this area has no floor warp node";
-        if (name == "SURFACE_LOOK_UP_WARP") return Warp("WARP_NODE_TOTWC", 0xF2) ? null : "this area has no look-up warp node";
+        if (name is "SURFACE_DEATH_PLANE" or "SURFACE_VERTICAL_WIND") return Warp("WARP_NODE_DEATH", 0xF1) ? null : "This area has no death warp node";
+        if (name == "SURFACE_WARP") return Warp("WARP_NODE_WARP_FLOOR", 0xF3) ? null : "This area has no floor warp node";
+        if (name == "SURFACE_LOOK_UP_WARP") return Warp("WARP_NODE_TOTWC", 0xF2) ? null : "This area has no look-up warp node";
         if (name.StartsWith("SURFACE_INSTANT_WARP_") && definitions.TryGetValue(name, out int value))
-            return instantWarps.Contains(value - 0x1B) ? null : "this instant warp index or destination area is not configured";
-        if (name is "SURFACE_TIMER_START" or "SURFACE_TIMER_END") return level == "pss" ? null : "slide timer surfaces require the secret slide setup";
-        if (name == "SURFACE_MGR_MUSIC") return "merry-go-round music requires its level behavior setup; keep existing configured surfaces";
-        return "requires level-specific painting or behavior data; keep existing configured surfaces";
+            return instantWarps.Contains(value - 0x1B) ? null : "This instant warp index or destination area is not configured";
+        if (name is "SURFACE_TIMER_START" or "SURFACE_TIMER_END") return level == "pss" ? null : "Slide timer surfaces require the secret slide setup";
+        if (name == "SURFACE_MGR_MUSIC") return "Merry-go-round music requires its level behavior setup; keep existing configured surfaces";
+        return "Requires level-specific painting or behavior data; keep existing configured surfaces";
     }
 
     public void Validate(string name, int? force)
     {
         string? reason = Reason(name);
         if (reason != null) throw new InvalidDataException(name + ": " + reason);
-        if (!CollisionSourceValidation.HasForce(name)) { if (force.HasValue) throw new InvalidDataException("this surface does not use a force parameter"); return; }
-        if (!force.HasValue || force < short.MinValue || force > short.MaxValue) throw new InvalidDataException("force must fit signed 16-bit collision data");
+        if (!CollisionSourceValidation.HasForce(name)) { if (force.HasValue) throw new InvalidDataException("This surface does not use a force parameter"); return; }
+        if (!force.HasValue || force < short.MinValue || force > short.MaxValue) throw new InvalidDataException("Force must fit signed 16-bit collision data");
         int count = name == "SURFACE_FLOWING_WATER" ? waterSpeedCount : name.Contains("MOVING_QUICKSAND") ? sandSpeedCount : 0;
         if (count > 0 && (force < 0 || (force.Value >> 8) >= count))
-            throw new InvalidDataException($"force high byte must be 0 through {count - 1}; the game indexes its speed table without a bounds check");
+            throw new InvalidDataException($"Force high byte must be 0 through {count - 1}; the game indexes its speed table without a bounds check");
     }
 
     public static CollisionSurfacePolicy ForPath(string collisionPath)
@@ -104,7 +104,7 @@ public sealed class CollisionSurfacePolicy
 
     public static void ValidateChanges(string path, CollisionMesh mesh)
     {
-        var old = new CollisionParser().ParseCollisionFile(path, "", "nonpersistent") ?? throw new InvalidDataException("cannot read the collision baseline");
+        var old = new CollisionParser().ParseCollisionFile(path, "", "nonpersistent") ?? throw new InvalidDataException("Cannot read the collision baseline");
         var policy = ForPath(path);
         for (int i = 0; i < mesh.Triangles.Count; i++)
         {

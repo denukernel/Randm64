@@ -70,7 +70,7 @@ namespace Sm64DecompLevelViewer
             try
             {
                 _map.ParseMapFile(mapPath);
-                if (_symbols.Count == 0 && _segments.Count == 0) throw new InvalidDataException("no recognized linker symbols or segments");
+                if (_symbols.Count == 0 && _segments.Count == 0) throw new InvalidDataException("No recognized linker symbols or segments");
                 RebuildDisplayEntries();
                 ActiveMapLabel.Text = $"Compiled map: {mapPath}; unresolved and compressed symbol offsets are omitted";
             }

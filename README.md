@@ -71,6 +71,20 @@ The main window, Level Editor, Actor Editor, and Music Editor below are desktop 
 
 </details>
 
+## System Requirements
+
+These hardware tiers are estimates, not tested minimums or performance guarantees. Larger projects, high-resolution assets, Chaos operations, and game builds can require more memory and storage. Performance also depends on the selected decomp repository and build settings.
+
+| Component | Minimum | Recommended | High End |
+| --- | --- | --- | --- |
+| Operating system | Windows 10 or 11, 64-bit | Windows 10 or 11, 64-bit | Windows 10 or 11, 64-bit |
+| Processor | 2-core CPU, e.g. [Intel Core i3-6100](https://www.intel.com/content/www/us/en/products/sku/90729/intel-core-i36100-processor-3m-cache-3-70-ghz/specifications.html) | 4-core or faster CPU, e.g. [Intel Core i5-8400](https://www.intel.com/content/www/us/en/products/sku/126687/intel-core-i58400-processor-9m-cache-up-to-4-00-ghz/specifications.html) | 8-core or faster CPU, e.g. [AMD Ryzen 7 5700X](https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen/ryzen-5000-series/amd-ryzen-7-5700x.html) |
+| Memory | 4 GB RAM | 8 GB RAM | 16 GB RAM or more |
+| Graphics | OpenGL 3.3 core-capable GPU, e.g. Intel HD Graphics 530 | OpenGL 3.3-capable GPU, e.g. Intel UHD Graphics 630 | OpenGL 3.3-capable dedicated GPU, e.g. [NVIDIA GeForce RTX 3060](https://www.nvidia.com/en-us/geforce/graphics-cards/30-series/rtx-3060-3060ti/) |
+| Storage | 10 GB free | 20 GB free on an SSD | 40 GB or more free on an SSD |
+
+The storage estimates include room for a decomp project, extracted assets, build output, and backups; actual needs vary by project. A working graphics driver is required for the 3D editors. Game builds need the toolchain required by the selected repository, generally through WSL or a supported MSYS2 setup. Framework-dependent releases also need the .NET 8 Desktop Runtime; building Randm64 from source needs the .NET 8 SDK or a compatible newer SDK.
+
 ## Getting Started
 
 1. Install the .NET 8 Desktop Runtime to run Randm64, or the .NET 8 SDK to build it.
@@ -96,17 +110,19 @@ You can also open `Randm64.csproj` in Visual Studio with the .NET desktop develo
 
 ## Live Editing With KernelN64
 
-The initial bridge supports position, pitch, yaw, and roll edits for existing normal spawned objects in the active SM64 decomp build. It requires a KernelN64 build that includes the live editing bridge.
+The initial bridge supports position, pitch, yaw, and roll edits for existing normal spawned objects and position/yaw edits for existing macro objects, including wooden signposts, in the active SM64 decomp build. Existing special objects, including castle grounds trees, support position edits; presets with a yaw field also support yaw. It requires a KernelN64 build that includes live editing protocol version 3. Update both applications together and restart KernelN64 after installing the new build.
 
 1. Build the SM64 project and load that exact `.z64` ROM in KernelN64.
 2. Enter the same level and area that you opened in Randm64.
-3. Select an existing normal object in the Level Editor.
+3. Select an existing normal, macro, or supported special object in the Level Editor.
 4. Click **Connect Live Editing** and choose the corresponding build ROM. Its `.map` file must be beside it.
 5. Edit the transform. Click **Disconnect Live Editing** to end the session.
 
+If KernelN64 is not running, live editing shows a waiting status and retries automatically. Open the updated KernelN64 build, load the selected ROM, and enter the selected level and area. Use **Stop Live Editing** to cancel waiting.
+
 The bridge checks the running ROM hash, level, area, and original spawn record. Missing or ambiguous objects stop the session. Communication stays on the local machine through port `64640`, and memory writes run on the emulated CPU thread.
 
-Macro objects, special objects, Mario, new objects, and live geometry or collision editing are not supported by this version. Behaviors can overwrite transforms during gameplay. Save source edits and rebuild for persistent changes. Offline bridge checks pass; gameplay validation is still outstanding.
+Macro objects use their original packed spawn record, preset, behavior, and parameters for matching. Dialog IDs remain unchanged. Pitch and roll for macro and special objects, custom special layouts with unknown extra fields, Mario, new objects, and live geometry or collision editing are not supported. Unresolved macro parameter expressions are shown as unavailable instead of guessed. Special objects are matched by preset behavior, model, area, parent, parameters, and expected transform. Each successful update advances the expected transform only after acknowledgment. Ambiguous or externally moved objects are rejected; reload the area and reconnect to restore a source-based match. Behaviors can overwrite transforms during gameplay. Save source edits and rebuild for persistent changes. Offline bridge checks pass; gameplay validation is still outstanding.
 
 ## Project Builds and Recovery
 

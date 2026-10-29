@@ -173,7 +173,7 @@ namespace Sm64DecompLevelViewer
             try
             {
                 if (string.Equals(Path.GetFullPath(dialog.FileName), Path.GetFullPath(item.FilePath), StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException("export to a separate WAV file; the original AIFF must be retained");
+                    throw new InvalidOperationException("Export to a separate WAV file; the original AIFF must be retained");
                 byte[] original = File.ReadAllBytes(item.FilePath);
                 PcmSampleFile.AudioRange(original);
                 File.WriteAllBytes(dialog.FileName, AiffWavTranscoder.ConvertAiffToWav(original));
@@ -267,7 +267,7 @@ namespace Sm64DecompLevelViewer
                         StatusTextBlock.Text = "Validating and converting replacement audio...";
                         await Task.Run(() =>
                         {
-                            if (new FileInfo(ofd.FileName).Length > 32 * 1024 * 1024) throw new InvalidDataException("replacement wav is limited to 32 mib");
+                            if (new FileInfo(ofd.FileName).Length > 32 * 1024 * 1024) throw new InvalidDataException("Replacement WAV is limited to 32 MiB");
                             byte[] original = File.ReadAllBytes(item.FilePath);
                             byte[] converted = PcmSampleFile.ReplaceFromWav(original, File.ReadAllBytes(ofd.FileName));
                             ProjectFileDocument.Commit(item.FilePath, original, converted, ".orig");

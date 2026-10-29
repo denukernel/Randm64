@@ -31,6 +31,8 @@ internal sealed class ChaosRunPlan : IDisposable
     private readonly Dictionary<string, string> _inputs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _externalInputs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _outputs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _validatedPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _pendingInputs = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<ChaosStagedChange> _changes = new();
     private bool _retain;
     private bool _finished;
@@ -51,7 +53,7 @@ internal sealed class ChaosRunPlan : IDisposable
         Directory.CreateDirectory(StageRoot);
     }
 
-    internal static ChaosRunPlan Create(string root, CancellationToken token, IEnumerable<string>? trees = null)
+    internal static ChaosRunPlan Create(string root, CancellationToken token, IEnumerable<string>? trees = null, IProgress<ChaosProgress>? progress = null)
     {
         var plan = new ChaosRunPlan(root);
         try
@@ -60,10 +62,29 @@ internal sealed class ChaosRunPlan : IDisposable
             string[] supported = ["include", "src", "actors", "levels", "leveleditor", "sound", "textures", "assets", "text"];
             foreach (string tree in (trees ?? supported).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal))
             {
-                if (!supported.Contains(tree, StringComparer.OrdinalIgnoreCase)) throw new IOException("unsupported chaos source tree: " + tree);
-                string path = Path.Combine(plan._root, tree);
+                string path = Path.GetFullPath(Path.Combine(plan._root, tree));
+                string relative = Path.GetRelativePath(plan._root, path);
+                ValidateRelative(relative);
+                string top = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
+                if (!supported.Contains(top, StringComparer.OrdinalIgnoreCase)) throw new IOException("unsupported chaos source tree: " + tree);
                 if (Directory.Exists(path)) plan.CopyTree(path, token);
+                else if (File.Exists(path)) plan.CopyFile(path, token);
             }
+            var inputs = plan._pendingInputs.OrderBy(p => p.Key, StringComparer.Ordinal).ToArray();
+            var hashes = new string[inputs.Length];
+            int copied = 0;
+            Parallel.For(0, inputs.Length, new ParallelOptions { CancellationToken = token, MaxDegreeOfParallelism = 4 }, i =>
+            {
+                string staged = Path.Combine(plan.StageRoot, inputs[i].Key);
+                Directory.CreateDirectory(Path.GetDirectoryName(staged)!);
+                File.Copy(inputs[i].Value, staged);
+                hashes[i] = Hash(staged);
+                int count = Interlocked.Increment(ref copied);
+                if ((count & 63) == 0 || count == inputs.Length)
+                    progress?.Report(new ChaosProgress($"Copying source inputs: {count}/{inputs.Length} files", null));
+            });
+            for (int i = 0; i < inputs.Length; i++) plan._inputs.Add(inputs[i].Key, hashes[i]);
+            plan._pendingInputs.Clear();
             return plan;
         }
         catch { plan.Dispose(); throw; }
@@ -72,21 +93,34 @@ internal sealed class ChaosRunPlan : IDisposable
     private void CopyTree(string directory, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
-            throw new IOException($"linked source directory is unsupported: {directory}");
+        ValidateSourcePath(directory);
         Directory.CreateDirectory(Path.Combine(StageRoot, Path.GetRelativePath(_root, directory)));
         foreach (string path in Directory.EnumerateFiles(directory).Order(StringComparer.Ordinal))
         {
-            token.ThrowIfCancellationRequested();
-            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
-                throw new IOException($"linked source file is unsupported: {path}");
-            string relative = Path.GetRelativePath(_root, path);
-            string staged = Path.Combine(StageRoot, relative);
-            File.Copy(path, staged);
-            _inputs.Add(relative, Hash(staged));
+            CopyFile(path, token);
         }
         foreach (string child in Directory.EnumerateDirectories(directory).Order(StringComparer.Ordinal))
             if (!new[] { ".git", ".vs", ".agents", ".codex", "bin", "obj", "build" }.Contains(Path.GetFileName(child), StringComparer.OrdinalIgnoreCase)) CopyTree(child, token);
+    }
+
+    private void CopyFile(string path, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        string relative = Path.GetRelativePath(_root, path);
+        if (_pendingInputs.ContainsKey(relative)) return;
+        ValidateSourcePath(path);
+        _pendingInputs.Add(relative, path);
+    }
+
+    private void ValidateSourcePath(string path)
+    {
+        for (string? parent = path; parent != null && !string.Equals(parent, _root, StringComparison.OrdinalIgnoreCase); parent = Path.GetDirectoryName(parent))
+        {
+            if (_validatedPaths.Contains(parent)) break;
+            if ((File.GetAttributes(parent) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException($"linked source path is unsupported: {parent}");
+            _validatedPaths.Add(parent);
+        }
     }
 
     internal string Target(string path)
@@ -123,6 +157,8 @@ internal sealed class ChaosRunPlan : IDisposable
         {
             token.ThrowIfCancellationRequested();
             string relative = Path.GetRelativePath(StageRoot, path);
+            if (relative.EndsWith(".m64", StringComparison.OrdinalIgnoreCase))
+                Audio.M64Integrity.RequireNonZero(relative, File.ReadAllBytes(path));
             string hash = Hash(path);
             _outputs.Add(relative, hash);
             _inputs.TryGetValue(relative, out string? before);
@@ -144,11 +180,19 @@ internal sealed class ChaosRunPlan : IDisposable
         {
             token.ThrowIfCancellationRequested();
             // Check every captured input, including backups and unmodified dependencies.
-            foreach (var input in _inputs)
-                if (!File.Exists(Live(input.Key)) || Hash(Live(input.Key)) != input.Value)
-                    throw new IOException($"source changed after preparation: {input.Key}");
+            var inputs = _inputs.ToArray();
+            var unchanged = new bool[inputs.Length];
+            Parallel.For(0, inputs.Length, new ParallelOptions { CancellationToken = token, MaxDegreeOfParallelism = 4 }, i =>
+            {
+                string path = Live(inputs[i].Key);
+                unchanged[i] = File.Exists(path) && Hash(path) == inputs[i].Value;
+            });
+            for (int i = 0; i < inputs.Length; i++)
+                if (!unchanged[i]) throw new IOException($"source changed after preparation: {inputs[i].Key}");
             foreach (var input in _externalInputs)
                 if (!File.Exists(input.Key) || Hash(input.Key) != input.Value) throw new IOException("replacement source changed: " + input.Key);
+            WriteReport("committing");
+            using var journal = new FileStream(Path.Combine(_work, "intent.jsonl"), FileMode.Create, FileAccess.Write, FileShare.Read);
             foreach (var change in _changes)
             {
                 token.ThrowIfCancellationRequested();
@@ -170,7 +214,9 @@ internal sealed class ChaosRunPlan : IDisposable
                 for (string? d = directory; d != null && !Directory.Exists(d); d = Path.GetDirectoryName(d)) missing.Push(d);
                 while (missing.TryPop(out var d)) { Directory.CreateDirectory(d); createdDirectories.Add(d); }
                 // Journal intent before replacement so interrupted runs retain the recovery location.
-                WriteReport("committing", applied.Select(c => c.RelativePath).Append(change.RelativePath));
+                byte[] intent = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(change.RelativePath) + "\n");
+                journal.Write(intent);
+                journal.Flush(flushToDisk: true);
                 Replace(Path.Combine(StageRoot, change.RelativePath), live);
                 applied.Add(change);
                 Checkpoint?.Invoke("after-write", applied.Count);
@@ -220,6 +266,7 @@ internal sealed class ChaosRunPlan : IDisposable
     {
         byte[] data = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { EngineVersion, Root = _root, Status = status, Error = _error,
             Settings = JsonSerializer.Deserialize<JsonElement>(SettingsJson), Inputs = _inputs, ExternalInputs = _externalInputs,
+            IntentJournal = status is "committing" or "recovery-required" ? "intent.jsonl" : null,
             Changes = _changes, Applied = applied?.ToArray(), Diagnostics }, new JsonSerializerOptions { WriteIndented = true }));
         string temporary = Path.Combine(_work, "run.json.next");
         using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))

@@ -160,7 +160,7 @@ public partial class LevelEditorWindow
                 if (newBehavior == _selectedObject.Behavior) return;
                 if (_modelRules.PairRejection(newBehavior, _selectedObject.ModelName) is { } problem)
                 {
-                    MessageBox.Show(problem, "incompatible model and behavior");
+                    MessageBox.Show(problem, "Incompatible Model and Behavior");
                     return;
                 }
 
@@ -269,7 +269,7 @@ public partial class LevelEditorWindow
                 string model = dialog.SelectedModel ?? "MODEL_NONE";
                 if (_modelRules.Rejection(_selectedObject, model) is { } reason)
                 {
-                    MessageBox.Show(reason, "model cannot be changed");
+                    MessageBox.Show(reason, "Model Cannot Be Changed");
                     return;
                 }
                 _selectedObject.ModelName = model;
@@ -341,7 +341,7 @@ public partial class LevelEditorWindow
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message, "cannot place object on terrain", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(ex.Message, "Cannot Place Object on Terrain", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
         private void AddObject_Click(object sender, RoutedEventArgs e)
@@ -425,7 +425,7 @@ public partial class LevelEditorWindow
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message, "cannot add object", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(ex.Message, "Cannot Add Object", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return false;
             }
         }

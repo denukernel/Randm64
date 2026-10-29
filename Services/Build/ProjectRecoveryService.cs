@@ -225,6 +225,17 @@ internal sealed class ProjectRecoveryService
                         await Task.Run(() => process.WaitForExit());
                         checkoutSuccess = process.ExitCode == 0;
                     }
+                    if (checkoutSuccess)
+                    {
+                        string sound = Path.Combine(_projectRoot, "sound");
+                        var soundBackups = Directory.Exists(sound)
+                            ? Services.LevelSourceRecovery.FindChoices(sound)
+                                .Where(path => path.EndsWith(".m64.bak", StringComparison.OrdinalIgnoreCase)
+                                    || path.EndsWith(".aiff.bak", StringComparison.OrdinalIgnoreCase)).ToList()
+                            : new List<string>();
+                        int restored = await Task.Run(() => Services.LevelSourceRecovery.Restore(_projectRoot, soundBackups));
+                        ReportLog($"> restored {restored} music and sample backups.\n");
+                    }
                 }
 
                 if (checkoutSuccess)

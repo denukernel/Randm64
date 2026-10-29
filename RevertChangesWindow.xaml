@@ -89,8 +89,8 @@
                     </ListBox>
 
                     <DockPanel Grid.Row="1">
-                        <Button Content="Select All Backups" Click="SelectAll_Click" Margin="0,0,5,0" Height="24"/>
-                        <Button Content="Deselect All Backups" Click="DeselectAll_Click" Height="24"/>
+                        <Button x:Name="SelectAllButton" Content="Select All Backups" Click="SelectAll_Click" Margin="0,0,5,0" Height="24"/>
+                        <Button x:Name="DeselectAllButton" Content="Deselect All Backups" Click="DeselectAll_Click" Height="24"/>
                     </DockPanel>
                 </Grid>
             </GroupBox>
@@ -99,7 +99,7 @@
         <!-- Bottom Controls -->
         <DockPanel Grid.Row="2">
             <Button Content="Cancel" Click="CancelButton_Click" Width="80" Height="26" DockPanel.Dock="Right"/>
-            <Button Content="Revert Selected" Click="RevertButton_Click" Width="120" Height="26" DockPanel.Dock="Right" Background="#007ACC" FontWeight="Bold" Margin="0,0,10,0"/>
+            <Button x:Name="RevertButton" Content="Revert Selected" Click="RevertButton_Click" Width="120" Height="26" DockPanel.Dock="Right" Background="#007ACC" FontWeight="Bold" Margin="0,0,10,0"/>
             <TextBlock x:Name="StatusTextBlock" Text="Scanning for backups..." Foreground="#999999" VerticalAlignment="Center"/>
         </DockPanel>
     </Grid>

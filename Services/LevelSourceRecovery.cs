@@ -2,6 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Runtime.ExceptionServices;
 
 namespace Sm64DecompLevelViewer.Services;
 
@@ -24,7 +25,7 @@ public static class LevelSourceRecovery
             if(dir.Parent.Name.Equals("levels",StringComparison.OrdinalIgnoreCase)) return dir.FullName;
         return null;
     }
-    private static string SafePath(string root,string relative)
+    private static string SafePath(string root,string relative,HashSet<string>? checkedDirectories=null)
     {
         string path=Path.GetFullPath(Path.Combine(root,relative));
         if(Path.IsPathRooted(relative) || !path.StartsWith(Path.GetFullPath(root)+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase))
@@ -32,7 +33,11 @@ public static class LevelSourceRecovery
         if(File.Exists(path) && (File.GetAttributes(path)&FileAttributes.ReparsePoint)!=0) throw new InvalidDataException("Recovery cannot follow file links: "+path);
         // Refuse link traversal as well as '..' traversal.
         for(var dir=new DirectoryInfo(Path.GetDirectoryName(path)!);dir!=null && dir.FullName.Length>=root.Length;dir=dir.Parent)
+        {
+            if(checkedDirectories?.Contains(dir.FullName)==true) break;
             if(dir.Exists && (dir.Attributes&FileAttributes.ReparsePoint)!=0) throw new InvalidDataException("Recovery cannot follow directory links: "+dir.FullName);
+            checkedDirectories?.Add(dir.FullName);
+        }
         return path;
     }
     private static Baseline Read(string path)
@@ -91,16 +96,18 @@ public static class LevelSourceRecovery
     {
         root=Path.GetFullPath(root);
         var changes=new Dictionary<string,byte[]?>(StringComparer.OrdinalIgnoreCase);
+        var backupReads=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
         var levels=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var checkedDirectories=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach(string choice in selected)
         {
-            SafePath(root,Path.GetRelativePath(root,choice));
+            SafePath(root,Path.GetRelativePath(root,choice),checkedDirectories);
             if(!File.Exists(choice)) throw new FileNotFoundException("Recovery source is missing.",choice);
             if(!IsManifest(choice) && !IsSourceBackup(choice)) throw new InvalidDataException("Not a source recovery record: "+choice);
             string? level=LevelDirectory(choice);
             if(level!=null) { levels.Add(level); continue; }
             if(!choice.EndsWith(".bak",StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Not a source backup: "+choice);
-            changes[choice[..^4]]=File.ReadAllBytes(choice); changes[choice]=null;
+            changes[choice[..^4]]=null; backupReads[choice[..^4]]=choice; changes[choice]=null;
         }
         foreach(string level in levels)
         {
@@ -109,7 +116,7 @@ public static class LevelSourceRecovery
             {
                 foreach(var item in Read(manifest).Files)
                 {
-                    string path=SafePath(level,item.Key);
+                    string path=SafePath(level,item.Key,checkedDirectories);
                     if(IsManifest(path) || path.EndsWith(".bak",StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Invalid baseline target: "+path);
                     changes[path]=item.Value;
                     if(File.Exists(path+".bak")) changes[path+".bak"]=null;
@@ -120,16 +127,23 @@ public static class LevelSourceRecovery
             // keep unknown assets rather than deleting files whose ownership is unavailable.
             foreach(string backup in Directory.GetFiles(level,"*.bak",SearchOption.AllDirectories).Where(IsSourceBackup))
             {
-                string path=SafePath(level,Path.GetRelativePath(level,backup[..^4]));
-                if(!changes.ContainsKey(path)) changes[path]=File.ReadAllBytes(backup);
+                string path=SafePath(level,Path.GetRelativePath(level,backup[..^4]),checkedDirectories);
+                if(!changes.ContainsKey(path)) { changes[path]=null; backupReads[path]=backup; }
                 changes[backup]=null;
             }
         }
+        var reads=backupReads.ToArray();
+        var bytes=new byte[reads.Length][];
+        try { Parallel.For(0,reads.Length,new ParallelOptions { MaxDegreeOfParallelism=4 },i=>bytes[i]=File.ReadAllBytes(reads[i].Value)); }
+        catch(AggregateException ex) { ExceptionDispatchInfo.Capture(ex.Flatten().InnerExceptions[0]).Throw(); throw; }
+        for(int i=0;i<reads.Length;i++) changes[reads[i].Key]=bytes[i];
         foreach(var item in changes.Where(p=>p.Value!=null && Path.GetFileName(p.Key).Equals("collision.inc.c",StringComparison.OrdinalIgnoreCase)))
         {
             using var reader=new StreamReader(new MemoryStream(item.Value!),Encoding.UTF8,true);
             CollisionSourceValidation.Validate(ActorSourceReader.Read(item.Key,sourceText:reader.ReadToEnd()),item.Key);
         }
+        foreach(var item in changes.Where(p=>p.Value!=null && p.Key.EndsWith(".m64",StringComparison.OrdinalIgnoreCase)))
+            Audio.M64Integrity.RequireNonZero(item.Key,item.Value!);
         return changes;
     }
     public static int ValidateRestore(string root,IEnumerable<string> selected)=>PrepareRestore(root,selected).Count(p=>p.Value!=null);
@@ -137,10 +151,15 @@ public static class LevelSourceRecovery
     {
         var changes=PrepareRestore(root,selected);
         if(changes.Count==0) return 0;
-        var expected=changes.Keys.ToDictionary(p=>p,p=>File.Exists(p) ? File.ReadAllBytes(p) : null,StringComparer.OrdinalIgnoreCase);
+        var paths=changes.Keys.ToArray();
+        var versions=new byte[]?[paths.Length];
+        try { Parallel.For(0,paths.Length,new ParallelOptions { MaxDegreeOfParallelism=4 },i=>versions[i]=File.Exists(paths[i]) ? File.ReadAllBytes(paths[i]) : null); }
+        catch(AggregateException ex) { ExceptionDispatchInfo.Capture(ex.Flatten().InnerExceptions[0]).Throw(); throw; }
+        var expected=new Dictionary<string,byte[]?>(StringComparer.OrdinalIgnoreCase);
+        for(int i=0;i<paths.Length;i++) expected.Add(paths[i],versions[i]);
         // Restore and retire recovery records in one rollback-capable operation. Never consume
         // backups on failure and never create a backup of the broken version during recovery.
-        SourceFileTransaction.Apply(changes,expected,false);
+        SourceFileTransaction.Apply(changes,expected,false,parallelPreparation:true);
         return changes.Count(p=>p.Value!=null);
     }
 }

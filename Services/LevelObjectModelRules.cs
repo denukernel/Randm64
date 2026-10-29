@@ -20,16 +20,16 @@ public sealed class LevelObjectModelRules
 
     public static string? RecordRestriction(LevelObject obj) => obj.SourceType switch
     {
-        ObjectSourceType.Mario => "mario uses the level mario definition; the spawn record cannot change its model or behavior",
-        ObjectSourceType.Macro or ObjectSourceType.Special => "this model is defined by its preset; change the preset or convert to a standard object",
-        _ => obj.Behavior == "bhvMario" ? "the mario behavior requires the mario model" : null
+        ObjectSourceType.Mario => "Mario uses the level Mario definition; the spawn record cannot change its model or behavior",
+        ObjectSourceType.Macro or ObjectSourceType.Special => "This model is defined by its preset; change the preset or convert to a standard object",
+        _ => obj.Behavior == "bhvMario" ? "The Mario behavior requires the Mario model" : null
     };
 
     public string? Restriction(LevelObject obj)
     {
         if (RecordRestriction(obj) is { } reason) return reason;
         return SetsModel(obj.Behavior, new HashSet<string>(StringComparer.Ordinal))
-            ? "this behavior sets its own model in the game" : null;
+            ? "This behavior sets its own model in the game" : null;
     }
 
     private bool SetsModel(string behavior, HashSet<string> visited)

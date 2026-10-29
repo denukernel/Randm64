@@ -54,7 +54,7 @@ namespace Sm64DecompLevelViewer
             string? previousArea = AreaPicker.SelectedItem as string ?? _initialArea;
             var level = LevelPicker.SelectedItem as Models.LevelMetadata;
             _activeLevelPath = level?.LevelPath;
-            ActiveLevelText.Text = level == null ? "choose a level for level-specific tools" : level.FullName + "  |  " + level.LevelPath;
+            ActiveLevelText.Text = level == null ? "Choose a level for level-specific tools" : level.FullName + "  |  " + level.LevelPath;
             var areas = level == null ? new List<string>() : new Services.CollisionParser().FindCollisionFiles(level.LevelPath).Keys.OrderBy(k => int.TryParse(System.Text.RegularExpressions.Regex.Match(k, @"\d+").Value, out int n) ? n : int.MaxValue).ToList();
             AreaPicker.ItemsSource = areas;
             AreaPicker.SelectedItem = previousArea != null && areas.Contains(previousArea) ? previousArea : areas.FirstOrDefault();

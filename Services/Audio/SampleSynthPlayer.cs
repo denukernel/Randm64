@@ -73,6 +73,8 @@ namespace Sm64DecompLevelViewer.Services
             public double ReverbSend;
             public bool IsFinished;
             public bool IsStopping;
+            public bool Started;
+            public long StartFrame;
             public int Layer = -1;
             public AiffLoop? Loop;
             public int LoopsRemaining;
@@ -110,6 +112,10 @@ namespace Sm64DecompLevelViewer.Services
         private readonly List<Voice> _activeVoices = new();
         private readonly Dictionary<byte, byte> _channelVolumeOverrides = new();
         private readonly Sm64Reverb _reverb = new(SAMPLE_RATE);
+        private long _renderedFrames;
+
+        internal long CurrentFrame { get { lock (_lock) return _renderedFrames; } }
+        internal static long SecondsToFrames(double seconds) => (long)Math.Round(seconds * SAMPLE_RATE);
 
         private AudioBuffer[] _buffers;
         private IntPtr _hWaveOut = IntPtr.Zero;
@@ -248,6 +254,16 @@ namespace Sm64DecompLevelViewer.Services
                     foreach (var voice in _activeVoices)
                     {
                         if (voice.IsFinished) continue;
+                        if (!voice.Started)
+                        {
+                            if (voice.IsStopping) { voice.IsFinished = true; continue; }
+                            if (_renderedFrames + f < voice.StartFrame) continue;
+                            voice.Started = true;
+                            foreach (var previous in _activeVoices)
+                                if (previous != voice && previous.Started && !previous.IsFinished && previous.Channel == voice.Channel &&
+                                    (voice.Layer >= 0 ? previous.Layer == voice.Layer : previous.Layer == -1 && previous.Pitch == voice.Pitch))
+                                    previous.IsStopping = true;
+                        }
                         while (voice.NextPitchFrame < voice.PitchFrames.Count &&
                             voice.PitchFrames[voice.NextPitchFrame].Frame <= voice.ElapsedFrames)
                             voice.PitchScale = voice.PitchFrames[voice.NextPitchFrame++].Scale;
@@ -316,6 +332,7 @@ namespace Sm64DecompLevelViewer.Services
                     outBuffer[f * 2 + 1] = (short)(Math.Clamp(mixedR * 0.25 + wet.Right, -1, 1) * 32767);
                 }
                 _activeVoices.RemoveAll(v => v.IsFinished);
+                _renderedFrames += framesToMix;
             }
         }
 
@@ -323,7 +340,8 @@ namespace Sm64DecompLevelViewer.Services
 
         public void PlayNote(byte channel, byte pitch, string samplePath, byte velocity, byte channelVolume,
             byte channelPan, double tuning = 0, Sm64Instrument? instrument = null, int layer = -1,
-            double? durationSeconds = null, byte reverb = 0, IReadOnlyList<M64PitchFrame>? pitchFrames = null)
+            double? durationSeconds = null, byte reverb = 0, IReadOnlyList<M64PitchFrame>? pitchFrames = null,
+            long? startFrame = null)
         {
             // Start in caller order. Per-note Task.Run allowed note-offs to overtake
             // note-ons and produced stuck notes and inconsistent chord attacks.
@@ -351,11 +369,9 @@ namespace Sm64DecompLevelViewer.Services
             };
             lock (_lock)
             {
+                voice.StartFrame = startFrame ?? _renderedFrames;
                 if (_channelVolumeOverrides.TryGetValue(channel, out byte overrideVolume))
                     voice.ChannelGain = voice.TargetChannelGain = overrideVolume / 127.0;
-                foreach (var previous in _activeVoices)
-                    if (previous.Channel == channel && (layer >= 0 ? previous.Layer == layer : previous.Layer == -1 && previous.Pitch == pitch))
-                        previous.IsStopping = true;
                 _activeVoices.Add(voice);
             }
         }

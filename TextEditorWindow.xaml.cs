@@ -97,7 +97,7 @@ public partial class TextEditorWindow : Window
         Editor.IsReadOnly = _entry == null || !_entry.Editable;
         Editor.IsUndoEnabled = false; Editor.IsUndoEnabled = true;
         _loading = false; _page = 0; UpdatePreview();
-        Status.Text = _entry == null ? "no dialogs found" : _entry.Editable ? "editing " + _entry.Id + (_entry.Macros.Count > 0 ? " | keep macro markers unchanged: " + string.Join("; ", _entry.Macros.Select((m, i) => $"[[macro:{i}]] = {m.Trim()}")) : "") : "macro expression: read-only preview; literal portions shown";
+        Status.Text = _entry == null ? "No dialogs found" : _entry.Editable ? "Editing " + _entry.Id + (_entry.Macros.Count > 0 ? " | Keep macro markers unchanged: " + string.Join("; ", _entry.Macros.Select((m, i) => $"[[macro:{i}]] = {m.Trim()}")) : "") : "Macro expression: read-only preview; literal portions shown";
     }
     private void Editor_Changed(object sender, TextChangedEventArgs e)
     {

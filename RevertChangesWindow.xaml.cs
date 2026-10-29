@@ -38,6 +38,7 @@ namespace Sm64DecompLevelViewer
         }
 
         private readonly string _projectRoot;
+        private bool _updatingSelection;
         public ObservableCollection<BackupItem> Backups { get; } = new();
 
         public List<string> SelectedBackupFiles { get; private set; } = new();
@@ -49,24 +50,28 @@ namespace Sm64DecompLevelViewer
             _projectRoot = projectRoot;
 
             BackupsListBox.ItemsSource = Backups;
-            ScanForBackups();
+            RevertButton.IsEnabled = false;
+            SelectAllButton.IsEnabled = false;
+            DeselectAllButton.IsEnabled = false;
+            Loaded += async (_, _) => await ScanForBackupsAsync();
         }
 
-        private void ScanForBackups()
+        private async System.Threading.Tasks.Task ScanForBackupsAsync()
         {
             Backups.Clear();
             try
             {
                 if (Directory.Exists(_projectRoot))
                 {
-                    var bakFiles = Services.LevelSourceRecovery.FindChoices(_projectRoot);
-                    foreach (var file in bakFiles)
+                    var items = await System.Threading.Tasks.Task.Run(() => Services.LevelSourceRecovery.FindChoices(_projectRoot)
+                        .Select(file => (File: file, Description: Services.LevelSourceRecovery.Describe(_projectRoot, file).Replace("\\", "/"))).ToArray());
+                    if (!IsLoaded) return;
+                    foreach (var entry in items)
                     {
-                        string rel = Services.LevelSourceRecovery.Describe(_projectRoot, file).Replace("\\", "/");
                         var item = new BackupItem
                         {
-                            FullPath = file,
-                            RelativePath = rel,
+                            FullPath = entry.File,
+                            RelativePath = entry.Description,
                             IsEnabled = true
                         };
                         item.PropertyChanged += Item_PropertyChanged;
@@ -76,15 +81,19 @@ namespace Sm64DecompLevelViewer
             }
             catch (Exception ex)
             {
+                if (!IsLoaded) return;
                 MessageBox.Show($"Error scanning backups: {ex.Message}", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
 
+            RevertButton.IsEnabled = true;
+            SelectAllButton.IsEnabled = true;
+            DeselectAllButton.IsEnabled = true;
             UpdateStatusText();
         }
 
         private void Item_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(BackupItem.IsEnabled))
+            if (!_updatingSelection && e.PropertyName == nameof(BackupItem.IsEnabled))
             {
                 UpdateStatusText();
             }
@@ -94,8 +103,8 @@ namespace Sm64DecompLevelViewer
         {
             if (StatusTextBlock == null || GitRevertCheck == null) return;
             int backupsCount = Backups.Count(b => b.IsEnabled);
-            StatusTextBlock.Text = GitRevertCheck.IsChecked == true ? "full repository reset selected" :
-                Backups.Count == 0 ? "no recovery backups found; full reset is available above" :
+            StatusTextBlock.Text = GitRevertCheck.IsChecked == true ? "Full repository reset selected" :
+                Backups.Count == 0 ? "No recovery backups found; full reset is available above" :
                 $"{backupsCount} recovery groups selected";
         }
 
@@ -107,13 +116,17 @@ namespace Sm64DecompLevelViewer
 
         private void SelectAll_Click(object sender, RoutedEventArgs e)
         {
-            foreach (var b in Backups) b.IsEnabled = true;
+            _updatingSelection = true;
+            try { foreach (var b in Backups) b.IsEnabled = true; }
+            finally { _updatingSelection = false; }
             UpdateStatusText();
         }
 
         private void DeselectAll_Click(object sender, RoutedEventArgs e)
         {
-            foreach (var b in Backups) b.IsEnabled = false;
+            _updatingSelection = true;
+            try { foreach (var b in Backups) b.IsEnabled = false; }
+            finally { _updatingSelection = false; }
             UpdateStatusText();
         }
 

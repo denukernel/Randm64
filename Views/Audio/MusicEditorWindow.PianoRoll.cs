@@ -207,7 +207,7 @@ public partial class MusicEditorWindow
                 StrokeThickness = isSelected ? 2 : 1,
                 RadiusX = 2.5,
                 RadiusY = 2.5,
-                ToolTip = $"pitch {note.Pitch} | tick {note.StartTick} | length {note.DurationTicks} | velocity {note.Velocity}",
+                ToolTip = $"Pitch {note.Pitch} | Tick {note.StartTick} | Length {note.DurationTicks} | Velocity {note.Velocity}",
                 Tag = note
             };
 

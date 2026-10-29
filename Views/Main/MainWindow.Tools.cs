@@ -239,7 +239,7 @@ public partial class MainWindow
     }
     private void TextEditorMain_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath)) { StatusText.Text = "select a project folder first"; return; }
+        if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath)) { StatusText.Text = "Select a project folder first"; return; }
         new TextEditorWindow(_projectRootPath) { Owner = this }.Show();
     }
     private void View3DButton_Click(object sender, RoutedEventArgs e)

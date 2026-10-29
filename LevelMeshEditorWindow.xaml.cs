@@ -112,7 +112,7 @@ namespace Sm64DecompLevelViewer
                     geometry = LevelMeshCreation.Primitive(OpenTK.Mathematics.Vector3.Zero, float.Parse(CreateSize.Text), true);
                     var context = PlacementContext(area);
                     var preview = new ModelImportPreviewWindow(geometry, "box", _placementOrigin?.Invoke() ?? center, 1, context.Terrain, context.Ground)
-                    { Owner = Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive), Title = "Place box", ConfirmationText = "add box" };
+                    { Owner = Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive), Title = "Place box", ConfirmationText = "Add Box" };
                     if (!await ShowPlacementAsync(preview) || preview.Result == null) return;
                     geometry = preview.Result;
                 }

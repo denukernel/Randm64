@@ -37,6 +37,7 @@ internal sealed class BuildWorkflow
             var profile = RepositoryBuildProfile.Load(_projectRoot);
             string? error = profile.Validate(_settings);
             if (error != null) throw new InvalidOperationException(error);
+            Audio.M64Integrity.ValidateBuildInputs(_projectRoot, _settings.BuildVersion);
             string artifact = profile.ArtifactPath(_settings);
             bool pc = _settings.BuildTargetPlatform == "PC";
             _report(new BuildProgress(Title: "BUILDING " + profile.Name, Status: "Preparing build..."));

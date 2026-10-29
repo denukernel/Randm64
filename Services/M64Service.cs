@@ -8,6 +8,8 @@ public class M64Service
     public byte Tempo { get => _parser.Tempo; set => _parser.Tempo = value; }
     public M64TempoMap TempoMap => _parser.TempoMap;
     public int LoopStartTick { get => _parser.LoopStartTick; set => _parser.LoopStartTick = value; }
+    public bool HasSequenceLoop => _parser.HasSequenceLoop;
+    public int SequenceEndTick => _parser.SequenceEndTick;
     public List<string> LoadWarnings => _parser.LoadWarnings;
     public int GetChannelLayerCount(byte ch) => _parser.GetChannelLayerCount(ch);
     public List<M64Track> LoadM64(string filePath) => _parser.LoadM64(filePath);

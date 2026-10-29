@@ -127,7 +127,7 @@ namespace Sm64DecompLevelViewer
             _instrumentResolver = new MusicInstrumentResolver(_projectRoot, _soundBank, _sequenceBankCache);
             _playback = new MusicPlaybackCoordinator(_midiPlayer, _voices, _instrumentResolver, () => _samplePlayer);
 
-            _playbackTimer.Interval = TimeSpan.FromMilliseconds(20);
+            _playbackTimer.Interval = TimeSpan.FromMilliseconds(5);
             _playbackTimer.Tick += PlaybackTimer_Tick;
 
             _auditionTimer.Tick += (_, _) => StopAudition();
@@ -192,7 +192,7 @@ namespace Sm64DecompLevelViewer
             if (_m64Service.LoadWarnings.Any(w => w.Contains("infinite") || w.Contains("loop")))
             {
                 hasCrashWarnings = true;
-                crashReasons.Add("infinite loop/recursion in sequence scripts");
+                crashReasons.Add("Infinite loop/recursion in sequence scripts");
             }
 
             if (hasCrashWarnings)
@@ -232,32 +232,38 @@ namespace Sm64DecompLevelViewer
 
         private readonly List<SequenceSelectItem> _scannedSequences = new();
 
-        private void ScanSoundSequences()
+        private bool RefreshSequenceList()
         {
             _scannedSequences.Clear();
-            string soundDir = System.IO.Path.Combine(_projectRoot, "sound");
-
-            if (!Directory.Exists(soundDir))
+            string sequenceDir = System.IO.Path.Combine(_projectRoot, "sound", "sequences");
+            if (!Directory.Exists(sequenceDir))
             {
-                return;
+                StatusBarText.Text = $"Sequence folder not found: {sequenceDir}";
+                return false;
             }
+            try
+            {
+                foreach (string file in Directory.GetFiles(sequenceDir, "*.m64", SearchOption.AllDirectories).OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+                {
+                    string parent = System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(file) ?? "");
+                    _scannedSequences.Add(new SequenceSelectItem { DisplayName = $"{System.IO.Path.GetFileName(file)} ({parent})", FilePath = file });
+                }
+                if (_scannedSequences.Count == 0) StatusBarText.Text = $"No .m64 sequences found in {sequenceDir}";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                StatusBarText.Text = $"Could not scan {sequenceDir}: {ex.Message}";
+                return false;
+            }
+        }
+
+        private void ScanSoundSequences()
+        {
+            if (!RefreshSequenceList()) return;
 
             try
             {
-                var files = Directory.GetFiles(soundDir, "*.m64", SearchOption.AllDirectories);
-                foreach (var file in files)
-                {
-                    string relativePath = file.Substring(soundDir.Length).TrimStart('\\', '/');
-                    string fileName = System.IO.Path.GetFileName(file);
-                    string parentFolder = System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(file) ?? "");
-
-                    _scannedSequences.Add(new SequenceSelectItem
-                    {
-                        DisplayName = $"{fileName} ({parentFolder})",
-                        FilePath = file
-                    });
-                }
-
                 if (_scannedSequences.Count > 0)
                 {
                     var settingsService = new Sm64DecompLevelViewer.Services.SettingsService();
@@ -306,6 +312,7 @@ namespace Sm64DecompLevelViewer
 
         private void SequenceSelectButton_Click(object sender, RoutedEventArgs e)
         {
+            if (!RefreshSequenceList()) return;
             var selectWindow = new SequenceSelectionWindow(_scannedSequences, _activeM64Path) { Owner = this };
             if (selectWindow.ShowDialog() == true && selectWindow.SelectedItem != null)
             {
@@ -695,7 +702,7 @@ namespace Sm64DecompLevelViewer
                     }
             ResetPreviewVoices();
             _isPlaying = true;
-            _maxSongTick = M64PreviewSchedule.GetEndTick(_sequenceTracks);
+            _maxSongTick = M64PreviewSchedule.GetTransportEndTick(_sequenceTracks, _m64Service.SequenceEndTick, _m64Service.HasSequenceLoop);
             if (_playheadTick >= _maxSongTick) _playheadTick = 0;
             PrimePreviewAtPlayhead();
             _playbackClock.Restart();
@@ -769,7 +776,7 @@ namespace Sm64DecompLevelViewer
             _playbackClock.Restart();
             // Resume after UI stalls without fast-forwarding a whole phrase.
             dt = Math.Clamp(dt, 0, 0.05);
-            _maxSongTick = M64PreviewSchedule.GetEndTick(_sequenceTracks);
+            _maxSongTick = M64PreviewSchedule.GetTransportEndTick(_sequenceTracks, _m64Service.SequenceEndTick, _m64Service.HasSequenceLoop);
             double nextTick = Math.Min(_maxSongTick, _m64Service.TempoMap.Advance(_playheadTick, dt));
 
             UpdatePreview(nextTick);
@@ -779,20 +786,33 @@ namespace Sm64DecompLevelViewer
         {
             // Queue the cursor interval synchronously, even when no time has elapsed.
             // A normal half-open timer interval must still exclude its right boundary.
+            _playback.BeginSampleTimeline(_playheadTick, _m64Service.TempoMap);
             UpdatePreview(_playheadTick);
         }
 
         private void UpdatePreview(double nextTick)
         {
-            _maxSongTick = M64PreviewSchedule.GetEndTick(_sequenceTracks);
+            _maxSongTick = M64PreviewSchedule.GetTransportEndTick(_sequenceTracks, _m64Service.SequenceEndTick, _m64Service.HasSequenceLoop);
             _playback.Advance(_sequenceTracks, _m64Service.TempoMap, _activeM64Path,
-                _playheadTick, nextTick, UseSm64InstrumentsCheckBox?.IsChecked != true, IsChannelAudible, GetPreviewChannelVolume);
+                _playheadTick, nextTick, UseSm64InstrumentsCheckBox?.IsChecked != true, IsChannelAudible, GetPreviewChannelVolume, _maxSongTick);
             _playheadTick = nextTick;
             Canvas.SetLeft(TimelineCursor, _playheadTick * (BEAT_WIDTH / _ticksPerBeat));
 
-            // Auto loop back at the end of the music
+            // Only loop sequences whose script actually loops. Leave sample voices
+            // and reverb running at a one-shot ending so their tails can decay.
             if (_playheadTick >= _maxSongTick)
             {
+                if (!_m64Service.HasSequenceLoop)
+                {
+                    _isPlaying = false;
+                    _playbackTimer.Stop();
+                    _playbackClock.Stop();
+                    foreach (var note in _activePlayingNotesList.Where(n => !n.UsesSamples).ToList())
+                        _voices.ReleaseVoice(note);
+                    _activePlayingNotesList.Clear();
+                    PlayPauseButton.Content = "▶ Play";
+                    return;
+                }
                 _playheadTick = _loopStartTick < _maxSongTick ? _loopStartTick : 0;
                 ResetPreviewVoices();
                 PrimePreviewAtPlayhead();

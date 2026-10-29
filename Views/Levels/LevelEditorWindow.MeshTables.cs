@@ -361,7 +361,7 @@ public partial class LevelEditorWindow
                     if (IsMeshMode) EnsureMeshViewer();
                     else LevelMeshEditorButton_Click(this,new RoutedEventArgs());
                     _embeddedMeshEditor?.SelectSourceVertex(source.SourceArrayName,source.SourceArrayIndex);
-                    MeshSelectionText.Text = $"vertex {source.SourceArrayIndex} selected";
+                    MeshSelectionText.Text = $"Vertex {source.SourceArrayIndex} selected";
                     return;
                 }
             }

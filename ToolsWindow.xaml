@@ -65,7 +65,7 @@
             <Button x:Name="MeshToolButton" IsEnabled="False" Click="LevelMeshEditor_Click" ToolTip="Edit level vertices, geometry, and collision meshes.">
                 <StackPanel>
                     <TextBlock Text="📐" FontSize="20" HorizontalAlignment="Center"/>
-                    <TextBlock Text="Level mesh viewer" Margin="0,5,0,0" FontWeight="SemiBold"/>
+                    <TextBlock Text="Level Mesh Viewer" Margin="0,5,0,0" FontWeight="SemiBold"/>
                 </StackPanel>
             </Button>
             
@@ -122,7 +122,7 @@
             
             <Button Click="TextEditor_Click" Content="Text and dialogue editor" ToolTip="Edit dialogue, menus and source files with search, conflict detection and backups."/>
             <Button Click="PatchTools_Click" Content="Git / WSL patches" ToolTip="Check and apply patches to the selected project."/>
-            <Button Click="RomTools_Click" Content="Rom address finder" ToolTip="Inspect compiled map addresses and original reference ranges."/>
+            <Button Click="RomTools_Click" Content="ROM Address Finder" ToolTip="Inspect compiled map addresses and original reference ranges."/>
             <Button Click="OpenProjectFolder_Click" ToolTip="Open project folder in Windows Explorer.">
                 <StackPanel>
                     <TextBlock Text="📁" FontSize="20" HorizontalAlignment="Center"/>

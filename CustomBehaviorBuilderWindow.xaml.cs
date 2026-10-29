@@ -19,7 +19,7 @@ public partial class CustomBehaviorBuilderWindow : Window
     private SourceEditPlan Prepare()
     {
         int interactions = new[] { IntSolid, IntDamage, IntCollectible }.Count(box => box.IsChecked == true);
-        if (interactions > 1) throw new InvalidDataException("select one interaction; interaction types cannot be combined by this template");
+        if (interactions > 1) throw new InvalidDataException("Select one interaction; interaction types cannot be combined by this template");
         string action = AiPatrol.IsChecked == true ? "patrol" : AiChase.IsChecked == true ? "chase" : AiJump.IsChecked == true ? "jump" : AiSpin.IsChecked == true ? "spin" : AiFloat.IsChecked == true ? "float" : "passive";
         string interaction = IntDamage.IsChecked == true ? "damage" : IntCollectible.IsChecked == true ? "coin" : IntSolid.IsChecked == true ? "solid" : "none";
         return CustomBehaviorGenerator.Prepare(_projectRoot, BehaviorNameTextBox.Text.Trim(), ActorModelComboBox.SelectedItem as string ?? "MODEL_NONE", action, interaction);

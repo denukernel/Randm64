@@ -81,9 +81,9 @@ public sealed class BehaviorCompatibility
         ? models.OrderBy(value => value).FirstOrDefault(Loaded) : null;
     public string? Rejection(string behavior, string model)
     {
-        if (!scripts.ContainsKey(behavior)) return "this behavior has no definition in the active source";
-        if (!Loaded(model)) return "the selected model is not loaded by this level";
-        if (behavior == "bhvMario") return "the mario behavior requires the player spawn record; use the level mario spawn instead of a standard object";
+        if (!scripts.ContainsKey(behavior)) return "This behavior has no definition in the active source";
+        if (!Loaded(model)) return "The selected model is not loaded by this level";
+        if (behavior == "bhvMario") return "The Mario behavior requires the player spawn record; use the level Mario spawn instead of a standard object";
         return Dependencies(behavior, new HashSet<string>(StringComparer.Ordinal));
     }
     public string? ModelWarning(string behavior, string model)
@@ -149,7 +149,7 @@ public sealed class BehaviorCompatibility
             for (int index = 0; index < call.Arguments.Count; index++)
             {
                 string argument = call.Argument(source, index);
-                if (Regex.IsMatch(argument, @"^MODEL_\w+$") && !Loaded(argument)) return "this behavior requires a model that is not loaded: " + argument;
+                if (Regex.IsMatch(argument, @"^MODEL_\w+$") && !Loaded(argument)) return "This behavior requires a model that is not loaded: " + argument;
                 if (scripts.ContainsKey(argument))
                 {
                     string? problem = Dependencies(argument, visited);

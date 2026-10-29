@@ -78,7 +78,7 @@ namespace Sm64DecompLevelViewer
                     _modelRules = await _modelRulesTask;
                     if (!_isClosing && _selectedObject != null) UpdatePropertyGrid(_selectedObject);
                 }
-                catch (Exception ex) { SelectModelButton.ToolTip = "model compatibility could not be loaded: " + ex.Message; }
+                catch (Exception ex) { SelectModelButton.ToolTip = "Model compatibility could not be loaded: " + ex.Message; }
             };
             SceneInfoText.Text = $"Area {areaIndex}  ·  {visualMesh?.TriangleCount ?? 0:N0} triangles  ·  {objects.Count:N0} objects";
             SkyboxViewCheckBox.IsEnabled = visualMesh?.SkyboxBin != null;
@@ -381,7 +381,7 @@ namespace Sm64DecompLevelViewer
         {
             if (IsMeshMode) { await SaveMeshSessionAsync(); return; }
             try { _modelRules ??= await _modelRulesTask; }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "model compatibility could not be checked"); return; }
+            catch (Exception ex) { MessageBox.Show(ex.Message, "Model Compatibility Could Not Be Checked"); return; }
             if (SaveObjectChanges(out string? saveError))
             {
                 MessageBox.Show("Level saved successfully!", "Saved", MessageBoxButton.OK, MessageBoxImage.Information);

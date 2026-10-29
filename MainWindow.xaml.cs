@@ -198,7 +198,7 @@ public partial class MainWindow : Window
             {
                 StatusText.Text = "No levels found";
                 MessageBox.Show(
-                    "no level metadata or level scripts were found in the selected project",
+                    "No level metadata or level scripts were found in the selected project",
                     "No Levels Found",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
@@ -341,7 +341,7 @@ public partial class MainWindow : Window
         _currentVisualMesh = null;
         View3DButton.IsEnabled = false;
         if (level == null || !_collisionFiles.TryGetValue(areaName, out var collisionFilePath)) return;
-        CollisionStatsText.Text = "loading level geometry...";
+        CollisionStatsText.Text = "Loading level geometry...";
         await _meshLoadGate.WaitAsync();
         try
         {

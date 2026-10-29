@@ -193,7 +193,7 @@
                                 <TextBlock Text="Music" HorizontalAlignment="Center" FontSize="11"/>
                             </StackPanel>
                         </Button>
-                        <Button Click="LevelMeshEditorButton_Click" ToolTip="Level mesh viewer (editable tables)" Style="{StaticResource RibbonButtonStyle}">
+                        <Button Click="LevelMeshEditorButton_Click" ToolTip="Level Mesh Viewer (editable tables)" Style="{StaticResource RibbonButtonStyle}">
                             <StackPanel>
                                 <TextBlock Text="&#xE7C3;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center" Foreground="#E080C0"/>
                                 <TextBlock Text="Mesh viewer" HorizontalAlignment="Center" FontSize="11"/>
@@ -661,7 +661,7 @@
                       </StackPanel>
                       <TextBlock x:Name="MeshSelectionText" Text="No mesh vertex selected" TextWrapping="Wrap" Margin="0,18"/>
                       <Button x:Name="MeshSaveButton" Content="Save geometry" Click="SaveMeshSession_Click" Padding="8" Margin="0,0,0,8"/>
-                      <Button Content="Level mesh viewer..." Click="LevelMeshEditorButton_Click" Padding="8"/>
+                      <Button Content="Level Mesh Viewer..." Click="LevelMeshEditorButton_Click" Padding="8"/>
                       <TextBlock Text="Open the editable tables for detailed geometry, imports and water boxes" TextWrapping="Wrap" Margin="0,8" Opacity="0.7"/>
                     </StackPanel>
                   </ScrollViewer>
@@ -682,9 +682,10 @@
                     <StackPanel>
                         <DockPanel Margin="0,0,0,9">
                             <Button DockPanel.Dock="Right" Content="Frame level" Click="FrameLevel_Click" Padding="10,4" Background="#3E4654" Foreground="White" BorderThickness="0" ToolTip="Fit the entire area in the viewport"/>
-                            <Button DockPanel.Dock="Right" Content="Level mesh viewer" Click="LevelMeshEditorButton_Click" Padding="10,4" Margin="0,0,8,0" Background="#007ACC" Foreground="White" BorderThickness="0" ToolTip="Editable geometry tables"/>
+                            <Button DockPanel.Dock="Right" Content="Level Mesh Viewer" Click="LevelMeshEditorButton_Click" Padding="10,4" Margin="0,0,8,0" Background="#007ACC" Foreground="White" BorderThickness="0" ToolTip="Editable geometry tables"/>
                             <Button x:Name="LiveEditingButton" Content="Connect Live Editing" Click="LiveEditing_Click" Margin="8,0" DockPanel.Dock="Right"/><TextBlock x:Name="SceneInfoText" Text="Loading level…" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         </DockPanel>
+                        <TextBlock x:Name="LiveEditingStatusText" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,0,0,6"/>
                         <WrapPanel Margin="0,0,0,10">
                             <RadioButton x:Name="ActorObjectMode" Content="Actor/object editor" GroupName="EditMode" IsChecked="True" Checked="EditMode_Changed" Margin="0,0,20,0" Foreground="White"/>
                             <RadioButton x:Name="LevelMeshMode" Content="Mesh editor" GroupName="EditMode" Checked="EditMode_Changed" Foreground="White"/>

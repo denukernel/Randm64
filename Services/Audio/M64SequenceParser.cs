@@ -11,6 +11,8 @@ namespace Sm64DecompLevelViewer.Services.Audio
         public byte Tempo { get; set; } = 100;
         public M64TempoMap TempoMap { get; } = new(100);
         public int LoopStartTick { get; set; } = 0;
+        public bool HasSequenceLoop { get; private set; }
+        public int SequenceEndTick { get; private set; }
 
         private M64SequenceSaver? _sequenceSaver;
         private bool _loadFailed;
@@ -51,6 +53,8 @@ namespace Sm64DecompLevelViewer.Services.Audio
             _loadFailed = true;
             Tempo = 120; // SM64 sequence-player default, before seq_settempo.
             TempoMap.Reset(Tempo);
+            HasSequenceLoop = false;
+            SequenceEndTick = 0;
 
             LoadWarnings.Clear();
             _originalHeader = null;
@@ -93,6 +97,7 @@ namespace Sm64DecompLevelViewer.Services.Audio
                     if (visitedSeqOffsets.TryGetValue(pos, out int firstVisitTick))
                     {
                         LoopStartTick = firstVisitTick;
+                        HasSequenceLoop = seqTick > firstVisitTick;
                         break;
                     }
                     visitedSeqOffsets[pos] = seqTick;
@@ -136,6 +141,7 @@ namespace Sm64DecompLevelViewer.Services.Audio
                 }
 
                 saveEndTick = seqTick;
+                SequenceEndTick = seqTick;
                 Tempo = (byte)Math.Clamp(TempoMap.GetTempoAt(0), 1, 255);
 
                 // Parse segments grouped by channel index

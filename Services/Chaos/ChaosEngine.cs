@@ -14,7 +14,7 @@ internal sealed class ChaosEngine
         return await Task.Run(() =>
         {
             progress.Report(new ChaosProgress("copying source inputs into staging", 0));
-            var plan = ChaosRunPlan.Create(_projectRoot, token, SourceTrees(options));
+            var plan = ChaosRunPlan.Create(_projectRoot, token, SourceTrees(options), progress);
             try
             {
                 plan.SettingsJson = System.Text.Json.JsonSerializer.Serialize(options);
@@ -64,19 +64,39 @@ internal sealed class ChaosEngine
         if (result.Status != ChaosRunStatus.Completed) throw new IOException(result.Message);
     }
 
-    private IEnumerable<string> SourceTrees(ChaosOptions o)
+    internal IEnumerable<string> SourceTrees(ChaosOptions o)
     {
         yield return "include";
         yield return "src";
-        if (o.TargetModels || o.RandomizeDl || o.RandomizeCollision || o.RandomizeSkybox || o.DlExclusion)
+        if (o.RandomizeSkybox || o.DlExclusion || ((o.TargetModels || o.RandomizeDl || o.RandomizeCollision) && o.SelectedLevel == "All Levels"))
         { yield return "levels"; yield return "leveleditor"; }
-        if (o.TargetModels || o.RandomizeDl || o.RandomizeMarioColors || o.RandomizeTextures || o.DlExclusion) yield return "actors";
-        if (o.TargetMusic || o.TargetSounds || o.ShuffleSounds) yield return "sound";
+        else if (o.TargetModels || o.RandomizeDl || o.RandomizeCollision)
+        { yield return Path.Combine("levels", o.SelectedLevel); yield return Path.Combine("leveleditor", "levels", o.SelectedLevel); }
+        if (o.RandomizeTextures || o.DlExclusion || ((o.TargetModels || o.RandomizeDl) && o.SelectedLevel == "All Levels")) yield return "actors";
+        else if (o.RandomizeMarioColors) yield return Path.Combine("actors", "mario");
+        if (o.TargetSounds || o.ShuffleSounds) yield return "sound";
+        else if (o.TargetMusic)
+        {
+            if (o.SelectSpecificM64)
+                foreach (string file in o.SelectedM64Files)
+                {
+                    string relative = Path.GetRelativePath(_projectRoot, file);
+                    yield return relative;
+                    yield return relative + ".bak";
+                }
+            else yield return Path.Combine("sound", "sequences");
+        }
         if (o.RandomizeTextures) yield return "textures";
         if (o.GlitchAnimations) yield return "assets";
         if (o.RandomizeText) yield return "text";
         foreach (var target in (o.ReplaceSfx ? o.SfxReplacementRules : new()).Concat(o.ReplaceTexturesCustom ? o.TextureReplacementRules : new()))
             yield return Path.GetRelativePath(_projectRoot, target.TargetPath).Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
+        foreach (string file in _queue.FilesModified)
+        {
+            string relative = Path.GetRelativePath(_projectRoot, file);
+            yield return relative;
+            yield return relative + ".bak";
+        }
     }
 
     private static void Validate(ChaosOptions o)

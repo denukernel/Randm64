@@ -26,7 +26,7 @@ public sealed class LevelMusicWindow : Window
         bindings.SelectionChanged+=(_,_)=>
         {
             if(bindings.SelectedItem is not LevelMusicBinding binding) return;
-            current.Text="Current: "+(binding.Expression ?? "no area music command; save adds one");
+            current.Text="Current: "+(binding.Expression ?? "No area music command; Save adds one");
             sequences.SelectedItem=service.Resolve(binding.Expression) ?? service.Sequences.FirstOrDefault();
         };
         save.Click+=(_,_)=>

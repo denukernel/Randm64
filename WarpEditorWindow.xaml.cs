@@ -50,7 +50,7 @@ namespace Sm64DecompLevelViewer
         private void FlushGrid()
         {
             if (!WarpGrid.CommitEdit(DataGridEditingUnit.Cell, true) || !WarpGrid.CommitEdit(DataGridEditingUnit.Row, true))
-                throw new InvalidDataException("finish or cancel the invalid grid edit before continuing");
+                throw new InvalidDataException("Finish or cancel the invalid grid edit before continuing");
         }
         private string Signature() => string.Join("\n", Warps.Select(w => $"{w.Offset}|{w.SourceArea}|{w.MacroType}|{w.Id}|{w.DestLevel}|{w.DestArea}|{w.DestNode}|{w.Flags}"));
         private void Reload()
@@ -113,7 +113,7 @@ namespace Sm64DecompLevelViewer
             try
             {
                 FlushGrid();
-                if (_document == null) throw new InvalidOperationException("load a level script before saving");
+                if (_document == null) throw new InvalidOperationException("Load a level script before saving");
                 _document.Save(Warps.ToList()); Reload();
                 StatusBarText.Text = "Saved; source areas, unrelated macros and original backup preserved";
                 try { _reload?.Invoke(); } catch (Exception ex) { StatusBarText.Text = "Saved; level refresh failed: " + ex.Message; }

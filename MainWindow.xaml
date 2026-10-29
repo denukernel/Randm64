@@ -232,7 +232,7 @@
 
                             <!-- Category: Level Modding -->
                             <TextBlock Text="Level Modding Tools" FontSize="12" FontWeight="SemiBold" Foreground="#888888" Margin="0,0,0,6"/>
-                            <Button x:Name="MeshMainToolButton" IsEnabled="False" Content="📐 level mesh viewer" Click="LevelMeshEditorMain_Click" Padding="6" Margin="0,0,0,6" Background="#2D2D30" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch" Foreground="#eeeeee"/>
+                            <Button x:Name="MeshMainToolButton" IsEnabled="False" Content="📐 Level Mesh Viewer" Click="LevelMeshEditorMain_Click" Padding="6" Margin="0,0,0,6" Background="#2D2D30" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch" Foreground="#eeeeee"/>
                             <Button x:Name="PaintingMainToolButton" IsEnabled="False" Content="🖼️ Castle Painting Editor" Click="PaintingEditorMain_Click" Padding="6" Margin="0,0,0,6" Background="#2D2D30" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch" Foreground="#eeeeee"/>
                             <Button Content="🧩 Custom Behavior Builder" Click="BehaviorBuilderButton_Click" Padding="6" Margin="0,0,0,12" Background="#2D2D30" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch" Foreground="#eeeeee"/>
 
