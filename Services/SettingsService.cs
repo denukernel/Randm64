@@ -27,6 +27,7 @@ namespace Sm64DecompLevelViewer.Services
         public string BuildCompiler { get; set; } = "ido";
         public string BuildGrucode { get; set; } = "f3d_old";
         public bool BuildCompare { get; set; } = false;
+        public bool BuildCorruptorRom { get; set; } = false;
         public bool BuildNonMatching { get; set; } = false;
         public int BuildJobs { get; set; } = 0;
         public Dictionary<string, Build.RepositoryBuildRecord> RepositoryBuildRecords { get; set; } = new();

@@ -99,7 +99,17 @@ namespace Sm64DecompLevelViewer
                 new M64CorruptionModeItem { Id = 26, Name = "Pitch Flatten (Monotone)", Description = "Flattens all note pitches in each channel to a single note, making every instrument play in a monotone, straight-line drone.", IsNew = true },
                 new M64CorruptionModeItem { Id = 27, Name = "Sequence Pointer Slider (Disabled)", Description = "Unavailable: swapping pointers across script contexts can crash the SM64 audio thread. Old presets containing this mode must be edited before running.", IsNew = true },
                 new M64CorruptionModeItem { Id = 28, Name = "Full Note Gate", Description = "Sets existing gates to zero for full note duration. Preserves sound-bank release settings; does not create infinite sustain.", IsNew = true },
-                new M64CorruptionModeItem { Id = 29, Name = "M64 Sparta Remix Mode", Description = "Replaces notes sequentially with the relative semitone offsets 0, 0, 1, 1, -2, -2, 1, 1, 0, 12, 0, 12, 1, 13, 1, 13, -2, 10, -2, 10, 1, 13, 1, 13, looping the melody sequence.", IsNew = true }
+                new M64CorruptionModeItem { Id = 29, Name = "M64 Sparta Remix Mode", Description = "Replaces notes sequentially with the relative semitone offsets 0, 0, 1, 1, -2, -2, 1, 1, 0, 12, 0, 12, 1, 13, 1, 13, -2, 10, -2, 10, 1, 13, 1, 13, looping the melody sequence.", IsNew = true },
+                new M64CorruptionModeItem { Id = 30, Name = "Retrograde Notes and Dynamics", Description = "Reverses selected melodic pitches and velocity values within each channel in script order. Timing and samples are not reversed.", IsNew = true },
+                new M64CorruptionModeItem { Id = 31, Name = "Melody Mirror", Description = "Inverts melodic intervals around the first pitch in each channel, clamped to the encoded range.", IsNew = true },
+                new M64CorruptionModeItem { Id = 32, Name = "Alternating Fifths", Description = "Raises every other melodic pitch by seven semitones.", IsNew = true },
+                new M64CorruptionModeItem { Id = 33, Name = "Chromatic Staircase", Description = "Adds a repeating rising chromatic offset to pitches in each channel.", IsNew = true },
+                new M64CorruptionModeItem { Id = 34, Name = "Pentatonic Scale Lock", Description = "Moves melodic pitches to the nearest note of a C major pentatonic scale.", IsNew = true },
+                new M64CorruptionModeItem { Id = 35, Name = "Stereo Mirror", Description = "Mirrors existing pan commands between left and right.", IsNew = true },
+                new M64CorruptionModeItem { Id = 36, Name = "Double Tempo", Description = "Doubles existing tempo commands, clamped to 48 through 240 BPM.", IsNew = true },
+                new M64CorruptionModeItem { Id = 37, Name = "Half Tempo", Description = "Halves existing tempo commands, clamped to 48 through 240 BPM.", IsNew = true },
+                new M64CorruptionModeItem { Id = 38, Name = "Minor Third Harmony (+3)", Description = "Duplicates selected notes at the same time, three semitones higher. Uses additional layers or channels; unsupported sequences are rejected without changing the file.", IsNew = true },
+                new M64CorruptionModeItem { Id = 39, Name = "Minor Third Harmony (-3)", Description = "Duplicates selected notes at the same time, three semitones lower. Uses additional layers or channels; notes below pitch 3 and unsupported sequences are rejected without changing the file.", IsNew = true }
             };
 
             foreach (var item in allModes)
@@ -156,7 +166,7 @@ namespace Sm64DecompLevelViewer
                     if (!int.TryParse(PreviewSeed.Text, out int seed)) throw new InvalidOperationException("Preview seed must be an integer.");
                     var result = M64ModePreview.Create(data,
                         Path.GetFileName(Path.GetDirectoryName(_previewPath))!.ToLowerInvariant(),
-                        Modes.Where(m => m.IsEnabled).Select(m => m.Id), intensity, seed, _musicEditor.Read());
+                        Modes.Where(m => m.IsEnabled).Select(m => m.Id), intensity, seed, _musicEditor.Read(), HarmonyBuilder.Apply);
                     data = result.Data;
                     effectSummary = $"{result.ChangedBytes} bytes changed. ";
                     if (result.ModesWithoutTargets.Length > 0)

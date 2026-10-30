@@ -23,10 +23,14 @@ namespace Sm64DecompLevelViewer
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
+        private static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
+
         private const int SW_RESTORE = 9;
 
         protected override void OnStartup(StartupEventArgs e)
         {
+            SetCurrentProcessExplicitAppUserModelID("Randm64.Randm64.Desktop.1");
             const string mutexName = "Randm64_Unique_Application_Mutex";
             _mutex = new Mutex(true, mutexName, out bool isNewInstance);
 

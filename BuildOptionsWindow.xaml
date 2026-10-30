@@ -257,6 +257,7 @@
                         <!-- CHECKBOXES -->
                         <StackPanel Grid.Row="7" Grid.Column="1" Margin="0,5,0,0">
                             <CheckBox x:Name="CompareCheckBox" Content="Compare ROM hash (COMPARE=1)"/>
+                            <CheckBox x:Name="CorruptorRomCheckBox" Content="Also build a 24 MiB ROM for corruptors" ToolTip="Builds a separate ROM with literal MIO0 asset data and a build-specific range report."/>
                             <CheckBox x:Name="NonMatchingCheckBox" Content="Build non-matching (NON_MATCHING=1)"/>
                             <CheckBox x:Name="ExtendRomCheckBox" Content="Extend ROM to 24MB (Uncompressed MIO0)" Visibility="Collapsed"/>
                         </StackPanel>

@@ -174,13 +174,14 @@
                         </StackPanel>
                         
                         <CheckBox x:Name="RandomizeDlCheck" Content="Display List (Fast3D) Randomizer" Foreground="#CCCCCC" Margin="0,0,0,8" IsChecked="False" Checked="RandomizeDlCheck_Toggle" Unchecked="RandomizeDlCheck_Toggle"/>
+                        <TextBlock Text="Targets the selected level; shared actors are included with All Levels. Triangle modes edit literal static commands. Flat UVs affect matching vertices across the selected targets." TextWrapping="Wrap" Foreground="#999999" Margin="20,0,0,8"/>
                         <!-- Sub-options for Display List Randomizer -->
                         <StackPanel x:Name="DlRandomizerPanel" Margin="20,0,0,8" Visibility="Collapsed">
                             <DockPanel>
                                 <TextBlock Text="Mode:" Foreground="#999999" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                 <ComboBox x:Name="DlRandomizerModeComboBox" SelectedIndex="0" Height="24" Width="200" HorizontalAlignment="Left">
                                     <ComboBoxItem Content="Rainbow World (Vertex Colors)"/>
-                                    <ComboBoxItem Content="Faceless Mario (No UVs)"/>
+                                    <ComboBoxItem Content="Faceless / Flat UVs"/>
                                     <ComboBoxItem Content="Normal Inversion"/>
                                     <ComboBoxItem Content="Texture Scrambler (UV Size)"/>
                                     <ComboBoxItem Content="Polygon Exploder"/>
@@ -188,6 +189,11 @@
                                     <ComboBoxItem Content="UV Swap"/>
                                     <ComboBoxItem Content="Scale Distortion"/>
                                     <ComboBoxItem Content="Faceless Mario V2 (Castle Glow &amp; Crystal Water)"/>
+                                    <ComboBoxItem Content="Triangle Dropout"/>
+                                    <ComboBoxItem Content="Triangle Winding Shuffle"/>
+                                    <ComboBoxItem Content="UV Mirror"/>
+                                    <ComboBoxItem Content="UV Quantization"/>
+                                    <ComboBoxItem Content="Faceless / Textureless (Moderate, Castle Grounds)" ToolTip="Camera responsive ground mapping, red/gray castle, and reflective signposts and cannons. Targets castle grounds and these shared actors regardless of level selection. Apply to clean materials; rebuild the ROM."/>
                                 </ComboBox>
                             </DockPanel>
                         </StackPanel>

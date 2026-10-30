@@ -5,6 +5,8 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Data;
 using System.Text.RegularExpressions;
+using System.Runtime.InteropServices;
+using System.Windows.Interop;
 using Sm64DecompLevelViewer.Models;
 using Sm64DecompLevelViewer.Services;
 using Sm64DecompLevelViewer.Rendering;
@@ -16,6 +18,32 @@ namespace Sm64DecompLevelViewer;
 
 public partial class MainWindow : Window
 {
+    private const int WmGetIcon = 0x007F;
+    private const int GclpHicon = -14;
+    private const int GclpHiconSm = -34;
+    private IntPtr _classIcon;
+    private IntPtr _classSmallIcon;
+    private IntPtr _previousClassIcon;
+    private IntPtr _previousClassSmallIcon;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr CopyIcon(IntPtr icon);
+
+    [DllImport("user32.dll")]
+    private static extern bool DestroyIcon(IntPtr icon);
+
+    [DllImport("user32.dll", EntryPoint = "SetClassLongPtrW")]
+    private static extern IntPtr SetClassLongPtr64(IntPtr window, int index, IntPtr value);
+
+    [DllImport("user32.dll", EntryPoint = "SetClassLongW")]
+    private static extern IntPtr SetClassLong32(IntPtr window, int index, IntPtr value);
+
+    private static IntPtr SetClassIcon(IntPtr window, int index, IntPtr value) =>
+        IntPtr.Size == 8 ? SetClassLongPtr64(window, index, value) : SetClassLong32(window, index, value);
+
     private List<LevelMetadata> _levels = new();
     private readonly LevelScanner _levelScanner;
     private readonly CollisionParser _collisionParser;
@@ -55,6 +83,13 @@ public partial class MainWindow : Window
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        var windowHandle = new WindowInteropHelper(this).Handle;
+        _classIcon = CopyIcon(SendMessage(windowHandle, WmGetIcon, new IntPtr(1), IntPtr.Zero));
+        _classSmallIcon = CopyIcon(SendMessage(windowHandle, WmGetIcon, IntPtr.Zero, IntPtr.Zero));
+        if (_classIcon != IntPtr.Zero)
+            _previousClassIcon = SetClassIcon(windowHandle, GclpHicon, _classIcon);
+        if (_classSmallIcon != IntPtr.Zero)
+            _previousClassSmallIcon = SetClassIcon(windowHandle, GclpHiconSm, _classSmallIcon);
         StatusText.Text = "Please select an SM64 Project Folder to start";
         this.Closing += MainWindow_Closing;
 
@@ -81,6 +116,19 @@ public partial class MainWindow : Window
 
     private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        var windowHandle = new WindowInteropHelper(this).Handle;
+        if (_classIcon != IntPtr.Zero)
+        {
+            SetClassIcon(windowHandle, GclpHicon, _previousClassIcon);
+            DestroyIcon(_classIcon);
+            _classIcon = IntPtr.Zero;
+        }
+        if (_classSmallIcon != IntPtr.Zero)
+        {
+            SetClassIcon(windowHandle, GclpHiconSm, _previousClassSmallIcon);
+            DestroyIcon(_classSmallIcon);
+            _classSmallIcon = IntPtr.Zero;
+        }
         _meshLoadVersion++;
         try
         {

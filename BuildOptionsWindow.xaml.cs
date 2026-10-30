@@ -139,6 +139,8 @@ namespace Sm64DecompLevelViewer
             GrucodeComboBox.IsEnabled = !pc && _profile.Microcodes.Length > 1;
             CompareCheckBox.IsChecked = _draft.BuildCompare;
             CompareCheckBox.IsEnabled = !pc && _profile.Has("COMPARE");
+            CorruptorRomCheckBox.IsChecked = _draft.BuildCorruptorRom;
+            CorruptorRomCheckBox.IsEnabled = !pc;
             NonMatchingCheckBox.IsChecked = _draft.BuildNonMatching;
             NonMatchingCheckBox.IsEnabled = !_profile.RequiresNonMatching(_draft) && _profile.Has("NON_MATCHING");
             EmulatorPathTextBox.IsEnabled = BrowseEmulatorButton.IsEnabled = !pc;
@@ -234,6 +236,7 @@ namespace Sm64DecompLevelViewer
             _draft.BuildCompiler = GetComboBoxValue(CompilerComboBox);
             _draft.BuildGrucode = GrucodeComboBox.SelectedItem == null ? "" : GetComboBoxValue(GrucodeComboBox);
             _draft.BuildCompare = CompareCheckBox.IsChecked == true;
+            _draft.BuildCorruptorRom = CorruptorRomCheckBox.IsChecked == true;
             _draft.BuildNonMatching = NonMatchingCheckBox.IsChecked == true;
         }
         private void SetComboBoxValue(ComboBox comboBox, string value)

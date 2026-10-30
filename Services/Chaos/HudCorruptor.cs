@@ -88,15 +88,9 @@ internal sealed class HudCorruptor
                         break;
 
                     case 4: // 5. Strobe Stutter
-                        content = Regex.Replace(content, @"void render_hud\(([^)]*)\)[ \t]*\{", m => {
-                            return m.Value + "\n    if (gGlobalTimer & 4) return;";
-                        });
-                        content = Regex.Replace(content, @"void render_hud_mario_lives\(void\)[ \t]*\{", m => {
-                            return m.Value + "\n    if (gGlobalTimer & 8) return;";
-                        });
-                        content = Regex.Replace(content, @"void render_hud_coins\(void\)[ \t]*\{", m => {
-                            return m.Value + "\n    if (gGlobalTimer & 8) return;";
-                        });
+                        content = AddStrobeWrapper(content, "render_hud", 4);
+                        content = AddStrobeWrapper(content, "render_hud_mario_lives", 8);
+                        content = AddStrobeWrapper(content, "render_hud_coins", 8);
                         break;
                 }
 
@@ -107,4 +101,20 @@ internal sealed class HudCorruptor
                 throw new IOException($"Error corrupting HUD file {filePath}: {ex.Message}", ex);
             }
         }
+
+    private static string AddStrobeWrapper(string content, string function, int mask)
+    {
+        string pattern = $@"(?m)^([ \t]*)(static[ \t]+)?void[ \t]+{function}\([ \t]*(?:void)?[ \t]*\)[ \t]*\{{";
+        return Regex.Replace(content, pattern, m =>
+        {
+            string indent = m.Groups[1].Value;
+            string storage = m.Groups[2].Value;
+            string original = "chaos_strobe_original_" + function;
+            return $"{indent}static void {original}(void);\n" +
+                   $"{indent}{storage}void {function}(void) {{\n" +
+                   $"{indent}    if (gGlobalTimer & {mask}) return;\n" +
+                   $"{indent}    {original}();\n{indent}}}\n" +
+                   $"{indent}static void {original}(void) {{";
+        });
+    }
 }

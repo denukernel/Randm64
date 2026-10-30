@@ -36,6 +36,8 @@ internal sealed class ChaosEngine
                 new ChaosTextProcessor(plan.StageRoot, random, queue).Apply(staged, checkedProgress, token);
                 var files = new ChaosTargetCollector(plan.StageRoot, random, queue).Collect(staged, checkedProgress, token);
                 new ChaosFileProcessor(random, queue).Apply(files, staged, checkedProgress, token, plan.Diagnostics);
+                if (staged.RandomizeDl && staged.DlMode == 13 && staged.IntensityFor("display lists") > 0)
+                    ModerateFacelessPatch.Apply(plan.StageRoot, queue);
                 plan.Seal(token);
                 var paths = queue.FilesModified.Select(p => Path.Combine(_projectRoot, Path.GetRelativePath(plan.StageRoot, p))).ToArray();
                 queue.FilesModified.Clear(); queue.FilesModified.UnionWith(paths);
@@ -68,6 +70,7 @@ internal sealed class ChaosEngine
     {
         yield return "include";
         yield return "src";
+        if (o.RandomizeDl && o.DlMode == 13) { yield return "actors"; yield return "levels/castle_grounds"; }
         if (o.RandomizeSkybox || o.DlExclusion || ((o.TargetModels || o.RandomizeDl || o.RandomizeCollision) && o.SelectedLevel == "All Levels"))
         { yield return "levels"; yield return "leveleditor"; }
         else if (o.TargetModels || o.RandomizeDl || o.RandomizeCollision)
@@ -105,6 +108,7 @@ internal sealed class ChaosEngine
         foreach (var pair in o.IntensityOverrides)
             if (!ChaosTuning.Tools.Contains(pair.Key) || !double.IsFinite(pair.Value) || pair.Value < 0 || pair.Value > 500)
                 throw new InvalidDataException("invalid tool intensity: " + pair.Key);
+        if (o.RandomizeDl && (o.DlMode < 0 || o.DlMode > 13)) throw new InvalidDataException("unknown display list mode");
         o.MusicSettings.Validate();
         if (o.SelectedSfxModes.Any(m => m < 0 || m > SfxSampleEffects.Names.Length)) throw new InvalidDataException("unknown sound effect mode");
         if (o.ShuffleSounds && o.ExcludeSfx && (o.ExcludeInstruments || o.ShuffleSfxOnly))

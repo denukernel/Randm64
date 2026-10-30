@@ -153,3 +153,18 @@ Report reproducible problems through [GitHub Issues](https://github.com/denukern
 ## License
 
 See [LICENSE](LICENSE) for the MIT license and copyright notice. Third-party notices are retained under `ThirdParty/`.
+# Corruptor ROM build
+
+In Build SM64 ROM, select **Also build a 24 MiB ROM for corruptors**. After
+the normal N64 build, Randm64 builds a separate ROM with literal MIO0 actor and
+level payloads and places `sm64.<version>.corruptor.z64` and
+`sm64.<version>.corruptor.ranges.txt` beside the normal ROM. The report uses
+inclusive hexadecimal file offsets for Vinesauce ROM Corruptor, identifies
+actors by their source group, and excludes behavior scripts. Select one range
+at a time; actor groups may contain several models. The ranges can still
+contain display lists, collision, and other data that may cause crashes when
+corrupted. These literal streams require more temporary memory while loading
+than the original compressed streams, so runtime compatibility can vary by
+build and emulator. If the ROM does not fit in 24 MiB or the build cannot be
+validated, the corruptor build fails and the normal ROM remains available.
+

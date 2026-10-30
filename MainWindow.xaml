@@ -7,7 +7,7 @@
         mc:Ignorable="d"
         Title="Randm64" Height="600" Width="1000"
         Background="#1E1E1E" Foreground="#CCCCCC"
-        Icon="Assets/icon.png" Loaded="Window_Loaded">
+        Icon="Assets/icon.ico" Loaded="Window_Loaded">
     
     <Window.Resources>
         <Style TargetType="Button">

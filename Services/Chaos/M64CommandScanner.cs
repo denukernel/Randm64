@@ -6,7 +6,7 @@ using System.Linq;
 namespace Sm64DecompLevelViewer.Services.Chaos;
 
 internal enum M64ValueKind { Pitch, Velocity, Gate, Tempo, Volume, Pan, Reverb, PitchBend, Release, Instrument }
-internal sealed record M64Value(int Offset, M64ValueKind Kind, int Channel, int Bank, int Instrument, bool Shared = false);
+internal sealed record M64Value(int Offset, M64ValueKind Kind, int Channel, int Bank, int Instrument, bool Shared = false, bool Large = false);
 
 /// <summary>Conservative static walk of SM64's three script interpreters (src/audio/seqplayer.c).
 /// Unknown, dynamic and self-modifying flow is refused rather than guessed.</summary>
@@ -84,7 +84,7 @@ internal sealed class M64CommandScanner
 
     private void AddValue(int offset, State state, M64ValueKind kind)
     {
-        var value = new M64Value(offset, kind, state.Channel, state.Bank, state.Instrument);
+        var value = new M64Value(offset, kind, state.Channel, state.Bank, state.Instrument, Large: kind == M64ValueKind.Pitch && state.Large);
         if (_values.TryGetValue(offset, out var prior) && (prior.Shared || prior != value))
         {
             if (prior.Kind != kind) throw new InvalidDataException("M64 operand has conflicting types.");

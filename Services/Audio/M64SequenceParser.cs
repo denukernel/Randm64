@@ -42,7 +42,7 @@ namespace Sm64DecompLevelViewer.Services.Audio
             public int StartTick { get; set; }
         }
 
-        public List<M64Track> LoadM64(string filePath, byte[]? previewData = null)
+        public List<M64Track> LoadM64(string filePath, byte[]? previewData = null, bool strict = false)
         {
             var tracks = new List<M64Track>();
             byte[]? loadedData = null;
@@ -301,6 +301,7 @@ namespace Sm64DecompLevelViewer.Services.Audio
             }
             catch (Exception ex)
             {
+                if (strict) throw new InvalidDataException("M64 parsing failed: " + ex.Message, ex);
                 System.Windows.MessageBox.Show($"Error parsing M64:\n{ex.Message}\n\n{ex.StackTrace}", "M64 Parser Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             }
 
@@ -320,6 +321,14 @@ namespace Sm64DecompLevelViewer.Services.Audio
             // flag, and never restore stale .bak bytes over subsequent edits.
             _sequenceSaver ??= new M64SequenceSaver(null, [], [], 0);
             return _sequenceSaver.Save(filePath, tracks, Tempo, TempoMap);
+        }
+
+        internal M64SaveResult EncodeM64(List<M64Track> tracks, out byte[]? data, bool allowInheritedLarge = false)
+        {
+            data = null;
+            if (_loadFailed || _sequenceSaver == null)
+                return new M64SaveResult { Error = "The sequence could not be parsed completely." };
+            return _sequenceSaver.Encode(tracks, Tempo, TempoMap, out data, allowInheritedLarge);
         }
 
         private struct LoopState

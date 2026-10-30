@@ -10,6 +10,7 @@ internal sealed class DisplayListCorruptor
     public DisplayListCorruptor(Random random) { _random = random; }
         internal void CorruptDisplayListFile(string filePath, double intensity, int dlMode)
         {
+            if (dlMode == 13) return; // Dedicated camera/material patch runs after file transforms.
             try
             {
                 // Create backup first
@@ -20,14 +21,20 @@ internal sealed class DisplayListCorruptor
                 }
 
                 string content = File.ReadAllText(filePath);
-                double rate = (intensity / 500.0); // max rate 1.0 at 500%
+                double rate = Math.Clamp(intensity / 500.0, 0.0, 1.0);
+                if (rate == 0) return;
+                if (dlMode is 9 or 10)
+                {
+                    File.WriteAllText(filePath, MutateTriangles(content, rate, dlMode));
+                    return;
+                }
 
                 // Matches N64 Vtx structures: {{{x, y, z}, flag, {u, v}, {r, g, b, a}}}
                 var regex = new Regex(@"\{\{\{\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\s*\},\s*(\d+|0x[0-9a-fA-F]+),\s*\{\s*(-?\d+),\s*(-?\d+)\s*\},\s*\{\s*(\d+|0x[0-9a-fA-F]+|-?\d+),\s*(\d+|0x[0-9a-fA-F]+|-?\d+),\s*(\d+|0x[0-9a-fA-F]+|-?\d+),\s*(\d+|0x[0-9a-fA-F]+|-?\d+)\s*\}\s*\}\}");
 
                 string newContent = regex.Replace(content, m =>
                 {
-                    double effectiveRate = (dlMode == 7) ? 1.0 : (rate * 0.5);
+                    double effectiveRate = dlMode == 7 ? 1.0 : dlMode == 1 ? Math.Min(intensity / 100.0, 1.0) : rate * 0.5;
                     if (_random.NextDouble() >= effectiveRate) return m.Value; // scale rate
 
                     int x = int.Parse(m.Groups[1].Value);
@@ -67,6 +74,16 @@ internal sealed class DisplayListCorruptor
                         case 8: // Faceless Mario V2 (Castle Glow & Crystal Water)
                             u = 0;
                             v = 0;
+                            break;
+
+                        case 11: // Mirror texture coordinates
+                            u = -u;
+                            break;
+
+                        case 12: // Quantize texture coordinates
+                            int grid = Math.Max(1, (int)(32 + intensity * 2));
+                            u = (u / grid) * grid;
+                            v = (v / grid) * grid;
                             break;
 
                         case 2: // Normal Inversion
@@ -131,11 +148,6 @@ internal sealed class DisplayListCorruptor
                     // Inject clear lighting geometry mode inside Display Lists to achieve full Bowser boss level bright color glow
                     newContent = Regex.Replace(newContent, @"(static const Gfx [a-zA-Z0-9_]+\[\]\s*=\s*\{)", "$1\n    gsSPClearGeometryMode(G_LIGHTING),");
                 }
-                else if (dlMode == 1) // Faceless Mario (No UVs)
-                {
-                    // Enable Environment Mapping (Texture Coordinate Generation) to strip static UVs and force shifting textures/crystal reflections
-                    newContent = Regex.Replace(newContent, @"(static const Gfx [a-zA-Z0-9_]+\[\]\s*=\s*\{)", "$1\n    gsSPSetGeometryMode(G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR),");
-                }
                 else if (dlMode == 8) // Faceless Mario V2 (Castle Glow & Crystal Water)
                 {
                     // Enable Environment Mapping (Texture Coordinate Generation) to strip static UVs and force shifting textures/crystal reflections
@@ -177,4 +189,34 @@ internal sealed class DisplayListCorruptor
             }
         }
 
+    // Only literal triangle arguments are edited. Expressions and unsupported macros stay intact.
+    internal string MutateTriangles(string content, double rate, int mode)
+    {
+        if (rate <= 0) return content;
+        var pattern = new Regex(@"\bgsSP(?<count>1Triangle|2Triangles)\s*\(\s*(?<args>(?:[+-]?(?:0[xX][0-9a-fA-F]+|\d+)\s*,\s*){3}[+-]?(?:0[xX][0-9a-fA-F]+|\d+)(?:\s*,\s*(?:[+-]?(?:0[xX][0-9a-fA-F]+|\d+)\s*,\s*){3}[+-]?(?:0[xX][0-9a-fA-F]+|\d+))?)\s*\)");
+        string mask = Regex.Replace(content, @"//[^\r\n]*|/\*[\s\S]*?\*/|""(?:\\.|[^""\\])*""|'(?:\\.|[^'\\])*'", m => new string(' ', m.Length));
+        var result = new StringBuilder(content);
+        foreach (Match match in pattern.Matches(mask).Cast<Match>().Reverse())
+        {
+            string[] args = match.Groups["args"].Value.Split(',').Select(x => x.Trim()).ToArray();
+            int count = match.Groups["count"].Value == "1Triangle" ? 1 : 2;
+            if (args.Length != count * 4) continue;
+            var kept = new List<string[]>();
+            bool changed = false;
+            for (int i = 0; i < count; i++)
+            {
+                string[] triangle = args.Skip(i * 4).Take(4).ToArray();
+                bool selected = _random.NextDouble() < rate;
+                changed |= selected;
+                if (mode == 9 && selected) continue;
+                if (mode == 10 && selected) (triangle[1], triangle[2]) = (triangle[2], triangle[1]);
+                kept.Add(triangle);
+            }
+            if (!changed) continue;
+            string replacement = kept.Count == 0 ? "gsDPNoOp()" :
+                $"gsSP{(kept.Count == 1 ? "1Triangle" : "2Triangles")}({string.Join(", ", kept.SelectMany(t => t))})";
+            result.Remove(match.Index, match.Length).Insert(match.Index, replacement);
+        }
+        return result.ToString();
+    }
 }

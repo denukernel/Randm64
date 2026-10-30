@@ -58,7 +58,7 @@ internal sealed class ChaosFileProcessor
                             if (ext == ".m64")
                             {
                                 bool accumulate = _queue.IsRunning && _queue.IsAccumulating && _queue.FilesModified.Contains(file);
-                                new M64Corruptor(_random).CorruptFile(file, m64KeepStructure ? m64Modes : Array.Empty<int>(), Math.Clamp(options.IntensityFor("M64"), 0, 100), !m64KeepStructure, accumulate, options.MusicSettings, diagnostics);
+                                new M64Corruptor(_random, HarmonyBuilder.Apply).CorruptFile(file, m64KeepStructure ? m64Modes : Array.Empty<int>(), Math.Clamp(options.IntensityFor("M64"), 0, 100), !m64KeepStructure, accumulate, options.MusicSettings, diagnostics);
                                 if (_queue.IsRunning) _queue.FilesModified.Add(file);
                             }
                             else

@@ -9,7 +9,9 @@ namespace Sm64DecompLevelViewer.Services.Chaos;
 internal sealed class M64Corruptor
 {
     private readonly Random _random;
-    internal M64Corruptor(Random random) => _random = random;
+    private readonly Func<byte[], string, double, Random, M64MutationSettings, int[], byte[]>? _harmony;
+    internal M64Corruptor(Random random, Func<byte[], string, double, Random, M64MutationSettings, int[], byte[]>? harmony = null)
+    { _random = random; _harmony = harmony; }
 
     internal byte[] Mutate(byte[] source, string region, IEnumerable<int> selectedModes, double intensity, bool alienate = false, M64MutationSettings? settings = null, List<string>? diagnostics = null)
     {
@@ -18,8 +20,10 @@ internal sealed class M64Corruptor
         var modes = selectedModes.Distinct().ToArray();
         if (!alienate && modes.Length == 0)
             throw new InvalidDataException("Select at least one M64 corruption mode.");
-        if (modes.Any(m => m < 0 || m > 29 || m == 27))
+        if (modes.Any(m => m < 0 || m > 39 || m == 27))
             throw new InvalidDataException("Sequence Pointer Slider is disabled: moving script pointers can crash SM64's audio thread. Deselect it in this preset.");
+        if (!alienate && modes.Any(m => m is 38 or 39) && _harmony == null)
+            throw new InvalidDataException("The harmony encoder is unavailable.");
         settings ??= new M64MutationSettings();
         settings.Validate();
         var allValues = M64CommandScanner.Scan(source, region);
@@ -154,6 +158,46 @@ internal sealed class M64Corruptor
                         Apply(Kind(M64ValueKind.Gate), _ => 0);
                         // Keep the bank's ADSR/release rate; 255 does not mean infinite release.
                         break;
+                    case 30:
+                        foreach (var kind in new[] { M64ValueKind.Pitch, M64ValueKind.Velocity })
+                        foreach (var group in (kind == M64ValueKind.Pitch ? pitches : Kind(kind)).GroupBy(v => v.Channel))
+                        {
+                            var targets = group.Where(_ => Choose()).ToArray();
+                            var reversed = targets.Select(v => kind == M64ValueKind.Pitch ? data[v.Offset] & 63 : data[v.Offset]).Reverse().ToArray();
+                            for (int i = 0; i < targets.Length; i++)
+                                if (kind == M64ValueKind.Pitch) Pitch(targets[i], reversed[i]); else Set(targets[i], reversed[i]);
+                        }
+                        break;
+                    case 31:
+                        foreach (var group in pitches.GroupBy(v => v.Channel))
+                        {
+                            int root = data[group.First().Offset] & 63;
+                            foreach (var v in group) if (Choose()) Pitch(v, 2 * root - (data[v.Offset] & 63));
+                        }
+                        break;
+                    case 32:
+                        foreach (var group in pitches.GroupBy(v => v.Channel))
+                            foreach (var v in group.Where((_, i) => i % 2 == 1))
+                                if (Choose()) Pitch(v, (data[v.Offset] & 63) + 7);
+                        break;
+                    case 33:
+                        foreach (var group in pitches.GroupBy(v => v.Channel))
+                        {
+                            int index = 0;
+                            foreach (var v in group) { if (Choose()) Pitch(v, (data[v.Offset] & 63) + index % 12); index++; }
+                        }
+                        break;
+                    case 34:
+                        int[] pentatonic = { 0, 2, 4, 7, 9 };
+                        foreach (var v in pitches) if (Choose())
+                        {
+                            int p = data[v.Offset] & 63;
+                            Pitch(v, Enumerable.Range(0, 64).Where(n => pentatonic.Contains(n % 12)).MinBy(n => Math.Abs(n - p)));
+                        }
+                        break;
+                    case 35: Apply(Kind(M64ValueKind.Pan), v => 127 - Math.Min(127, (int)data[v.Offset])); break;
+                    case 36: Apply(Kind(M64ValueKind.Tempo), v => Math.Clamp(data[v.Offset] * 2, 48, 240)); break;
+                    case 37: Apply(Kind(M64ValueKind.Tempo), v => Math.Clamp(data[v.Offset] / 2, 48, 240)); break;
                     case 29:
                         int[] melody = { 0, 0, 1, 1, -2, -2, 1, 1, 0, 12, 0, 12, 1, 13, 1, 13, -2, 10, -2, 10, 1, 13, 1, 13 };
                         foreach (var group in pitches.GroupBy(v => v.Channel))
@@ -188,6 +232,9 @@ internal sealed class M64Corruptor
         var check = M64CommandScanner.Scan(data, region);
         if (!allValues.Select(v => (v.Offset, v.Kind)).SequenceEqual(check.Select(v => (v.Offset, v.Kind))))
             throw new InvalidDataException("Mutation changed M64 script layout; output rejected.");
+        if (!alienate && modes.Any(m => m is 38 or 39))
+            data = _harmony!(data, region, intensity, _random, settings,
+                modes.Where(m => m is 38 or 39).Order().Select(m => m == 38 ? 3 : -3).ToArray());
         return data;
 
         void SwapInstrument(M64Value value)
@@ -199,19 +246,21 @@ internal sealed class M64Corruptor
 
     internal static bool AppliesTo(int mode, M64Value v) => mode switch
     {
-        0 or 5 or 6 or 13 or 14 or 15 or 18 or 19 or 24 or 25 or 26 or 29 => v.Kind == M64ValueKind.Pitch && v.Instrument is >= 0 and < 127 && v.Bank >= 0,
-        1 or 21 => v.Kind == M64ValueKind.Tempo,
+        0 or 5 or 6 or 13 or 14 or 15 or 18 or 19 or 24 or 25 or 26 or 29 or 31 or 32 or 33 or 34 => v.Kind == M64ValueKind.Pitch && v.Instrument is >= 0 and < 127 && v.Bank >= 0,
+        1 or 21 or 36 or 37 => v.Kind == M64ValueKind.Tempo,
         2 => v.Kind == M64ValueKind.Instrument && v.Bank >= 0 && v.Instrument != 127,
         3 or 11 or 12 or 28 => v.Kind == M64ValueKind.Gate,
         4 or 16 => v.Kind == M64ValueKind.Velocity,
         7 => v.Kind == M64ValueKind.Volume && v.Channel >= 0,
-        8 => v.Kind == M64ValueKind.Pan,
+        8 or 35 => v.Kind == M64ValueKind.Pan,
         9 => v.Kind == M64ValueKind.Reverb,
         10 => v.Kind == M64ValueKind.PitchBend,
         17 => v.Kind == M64ValueKind.Volume,
         20 => v.Kind == M64ValueKind.Velocity && v.Instrument == 127,
         22 => v.Kind is M64ValueKind.Volume or M64ValueKind.Velocity,
         23 => v.Kind is M64ValueKind.Velocity or M64ValueKind.Gate,
+        30 => (v.Kind == M64ValueKind.Pitch && v.Instrument is >= 0 and < 127 && v.Bank >= 0) || v.Kind == M64ValueKind.Velocity,
+        38 or 39 => v.Kind == M64ValueKind.Pitch && v.Instrument >= 0,
         _ => false
     };
 

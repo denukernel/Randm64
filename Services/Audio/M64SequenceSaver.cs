@@ -86,7 +86,14 @@ internal sealed class M64SequenceSaver(byte[]? source, IReadOnlyList<M64ChannelS
     }
 
     public M64SaveResult Save(string path, List<M64Track> tracks, byte tempo, M64TempoMap tempoMap)
+        => SaveCore(path, tracks, tempo, tempoMap, out _, false);
+
+    internal M64SaveResult Encode(List<M64Track> tracks, byte tempo, M64TempoMap tempoMap, out byte[]? bytes, bool allowInheritedLarge = false)
+        => SaveCore(null, tracks, tempo, tempoMap, out bytes, allowInheritedLarge);
+
+    private M64SaveResult SaveCore(string? path, List<M64Track> tracks, byte tempo, M64TempoMap tempoMap, out byte[]? encoded, bool allowInheritedLarge)
     {
+        encoded = null;
         var result = new M64SaveResult();
         string? temporary = null;
         try
@@ -114,7 +121,7 @@ internal sealed class M64SequenceSaver(byte[]? source, IReadOnlyList<M64ChannelS
             }
             if (_expected != null && File.Exists(path) && !File.ReadAllBytes(path).SequenceEqual(_expected))
                 throw new InvalidOperationException("The M64 file changed outside this editor. Reload it before saving so those changes are preserved.");
-            result.OriginalSize = File.Exists(path) ? checked((int)new FileInfo(path).Length) : 0;
+            result.OriginalSize = path != null && File.Exists(path) ? checked((int)new FileInfo(path).Length) : source?.Length ?? 0;
             using var stream = new MemoryStream();
             using var writer = new BinaryWriter(stream);
             if (source != null)
@@ -147,13 +154,13 @@ internal sealed class M64SequenceSaver(byte[]? source, IReadOnlyList<M64ChannelS
                         bool preserveLayers = added != null;
                         var layers = preserveLayers && added!.Count == 0 ? new List<List<M64Note>>() : M64LayerPlanner.Split(added ?? notes);
                         (int Offset, List<int> Pointers) replacement;
-                        try { replacement = WriteReplacementChannel(writer, source, segment, layers.Count, track, old, preserveLayers); }
+                        try { replacement = WriteReplacementChannel(writer, source, segment, layers.Count, track, old, preserveLayers, requireLarge: !allowInheritedLarge); }
                         catch (LayerCapacityException)
                         {
                             // Reuse occupied slots only if the original layers contain
                             // fully understood note commands, without hidden effects.
                             layers = M64LayerPlanner.Split(notes);
-                            replacement = WriteReplacementChannel(writer, source, segment, layers.Count, track, old, false);
+                            replacement = WriteReplacementChannel(writer, source, segment, layers.Count, track, old, false, requireLarge: !allowInheritedLarge);
                         }
                         var pointers = new List<int>();
                         for (int l = 0; l < layers.Count; l++)
@@ -171,6 +178,15 @@ internal sealed class M64SequenceSaver(byte[]? source, IReadOnlyList<M64ChannelS
             if (stream.Length > ushort.MaxValue)
                 throw new InvalidOperationException("The saved sequence exceeds 16-bit M64 pointer capacity. No file was replaced.");
             byte[] bytes = stream.ToArray();
+            if (path == null)
+            {
+                encoded = bytes;
+                result.Success = true;
+                result.FileSize = bytes.Length;
+                result.ChannelMoves.AddRange(moves);
+                result.ChannelSources = channelSources;
+                return result;
+            }
             // Build everything first. A failed encoding must never truncate the target.
             string fullPath = Path.GetFullPath(path);
             string folder = Path.GetDirectoryName(fullPath)!;
@@ -355,7 +371,7 @@ internal sealed class M64SequenceSaver(byte[]? source, IReadOnlyList<M64ChannelS
             commands.Add(bytes);
         }
         if ((requireLarge && !large) || commands.Count == 0 || commands[^1][0] != 0xff)
-            throw new InvalidOperationException("This channel does not use a complete large-note script; it cannot safely be reconstructed.");
+            throw new InvalidOperationException($"Channel {segment.Channel} at 0x{segment.Offset:X} does not use a complete large-note script; it cannot safely be reconstructed.");
         if (preserveLayers && originalLayers.Count + layerCount > 4)
             throw new LayerCapacityException();
         if (!preserveLayers)

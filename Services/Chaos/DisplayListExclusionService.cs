@@ -16,13 +16,15 @@ internal static class DisplayListExclusionService
     private static readonly Regex SavedCall = new(@"/\* RANDM64_DL_EXCLUDED ([A-Za-z0-9+/=]+) \*/ (gsDPNoOp\(\)|gsSPEndDisplayList\(\))", RegexOptions.CultureInvariant);
     private sealed record Change(string Path, byte[] Before, byte[] After);
 
-    internal static (ChaosRunPlan Plan, DisplayListExclusionResult Result) Prepare(string root, int level, uint seed, bool includeBranches, CancellationToken token = default)
+    internal static (ChaosRunPlan Plan, DisplayListExclusionResult Result) Prepare(string root, int level, uint seed, bool includeBranches, CancellationToken token = default, int alternative = 0)
     {
         var plan = ChaosRunPlan.Create(root, token, ["include", "src", "actors", "levels"]);
         try
         {
             plan.SettingsJson = System.Text.Json.JsonSerializer.Serialize(new { Tool = "display-list exclusion", Level = level, Seed = seed, IncludeBranches = includeBranches });
-            var result = ApplyToStage(plan.StageRoot, level, seed, includeBranches, token);
+            var result = ApplyToStage(plan.StageRoot, alternative == 0 ? level : 0, seed, includeBranches, token);
+            if (alternative != 0) result = AlternativeExclusionService.ApplyToStage(plan.StageRoot, alternative, seed, token);
+            plan.SettingsJson = System.Text.Json.JsonSerializer.Serialize(new { Tool = "display-list exclusion", Level = level, Alternative = alternative, Seed = seed, IncludeBranches = includeBranches });
             plan.Seal(token);
             return (plan, result);
         }
@@ -41,6 +43,7 @@ internal static class DisplayListExclusionService
     internal static DisplayListExclusionResult ApplyToStage(string root, int level, uint seed, bool includeBranches, CancellationToken token = default)
     {
         if (level is < 0 or > 9) throw new ArgumentOutOfRangeException(nameof(level));
+        AlternativeExclusionService.RestoreStage(root, token);
         string gbi = Path.Combine(root, "include", "PR", "gbi.h");
         if (!File.Exists(gbi)) throw new InvalidDataException("SM64 include/PR/gbi.h was not found.");
         string header = File.ReadAllText(gbi);
@@ -178,7 +181,7 @@ internal static class DisplayListExclusionService
     }
 
     // Keep positions intact while masking comments, strings, characters and preprocessor directives.
-    private static string CodeMask(string source)
+    internal static string CodeMask(string source)
     {
         char[] code = source.ToCharArray();
         for (int i = 0; i < code.Length; i++)

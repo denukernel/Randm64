@@ -86,6 +86,8 @@ internal sealed class BuildWorkflow
             }
             _builtArtifact = new BuildArtifactLocator(profile, _settings).FindArtifactPath();
             if (_builtArtifact == null) throw new InvalidOperationException("make reported success, but the expected ROM/native executable was not found: " + artifact);
+            if (!pc && _settings.BuildCorruptorRom)
+                await BuildCorruptorRomAsync(profile, _builtArtifact);
             BuildToolState.Remember(_projectRoot);
             ToolchainChecks[cacheKey] = 0;
             BuildConfigurationState.RecordSuccess(profile, _settings);
@@ -109,6 +111,54 @@ internal sealed class BuildWorkflow
         {
             ReportLog($"> Total build: {total.Elapsed.TotalMilliseconds:F0} ms\n");
             _report(new BuildProgress(CanClose: true));
+        }
+    }
+
+    private async Task BuildCorruptorRomAsync(RepositoryBuildProfile profile, string originalRom)
+    {
+        if (_settings == null) throw new InvalidOperationException("Missing build settings.");
+        string tools = Path.Combine(AppContext.BaseDirectory, "Tools", "RomCorruptor");
+        string encoder = Path.Combine(tools, "literal_mio0.py");
+        string reporter = Path.Combine(tools, "write_ranges.py");
+        if (!File.Exists(encoder) || !File.Exists(reporter)) throw new FileNotFoundException("Corruptor build tools are missing from the application installation.");
+        string identity = BuildConfigurationState.Signature(profile, _settings) + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(encoder)));
+        string suffix = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity)))[..12].ToLowerInvariant();
+        string buildDir = "build/randm64-corruptor-" + _settings.BuildVersion + "-" + suffix;
+        string script = BuildProcessFactory.WslLocation(encoder).Path;
+        string reportScript = BuildProcessFactory.WslLocation(reporter).Path;
+        string target = buildDir + "/sm64." + _settings.BuildVersion + ".z64";
+        string map = buildDir + "/sm64." + _settings.BuildVersion + ".map";
+        string command = BuildCommandFactory.CreateMakeArguments(profile, _settings)
+            + " BUILD_DIR=" + BuildCommandFactory.Quote(buildDir)
+            + " COMPARE=0 MIO0TOOL=" + BuildCommandFactory.Quote("python3 " + BuildCommandFactory.Quote(script));
+        ReportLog("> Building separate 24 MiB corruptor ROM with literal MIO0 assets.\n");
+        _report(new BuildProgress(Status: "Building corruptor ROM..."));
+        var info = BuildProcessFactory.Create(_projectRoot, _settings, command);
+        int exit = _runProcess != null ? await _runProcess(info, ReportLog) : await RunProcessAsync(info, command);
+        if (exit != 0) throw new InvalidOperationException("Corruptor ROM build failed; the normal ROM is still available.");
+        string built = Path.Combine(_projectRoot, buildDir.Replace('/', Path.DirectorySeparatorChar), "sm64." + _settings.BuildVersion + ".z64");
+        string final = Path.Combine(Path.GetDirectoryName(originalRom)!, Path.GetFileNameWithoutExtension(originalRom) + ".corruptor.z64");
+        string report = Path.ChangeExtension(final, ".ranges.txt");
+        string staged = final + ".tmp";
+        string stagedReport = report + ".tmp";
+        File.Copy(built, staged, true);
+        try
+        {
+            string validation = "python3 " + BuildCommandFactory.Quote(reportScript) + " "
+                + BuildCommandFactory.Quote(BuildProcessFactory.WslLocation(staged).Path) + " "
+                + BuildCommandFactory.Quote(BuildProcessFactory.WslLocation(Path.Combine(_projectRoot, map.Replace('/', Path.DirectorySeparatorChar))).Path) + " "
+                + BuildCommandFactory.Quote(BuildProcessFactory.WslLocation(stagedReport).Path);
+            var validateInfo = BuildProcessFactory.Create(_projectRoot, _settings, validation);
+            int status = _runProcess != null ? await _runProcess(validateInfo, ReportLog) : await RunProcessAsync(validateInfo, validation);
+            if (status != 0) throw new InvalidOperationException("Corruptor ROM validation or range generation failed; the normal ROM is still available.");
+            File.Move(staged, final, true);
+            File.Move(stagedReport, report, true);
+            ReportLog($"> Corruptor ROM: {final}\n> Address ranges: {report}\n");
+        }
+        finally
+        {
+            if (File.Exists(staged)) File.Delete(staged);
+            if (File.Exists(stagedReport)) File.Delete(stagedReport);
         }
     }
 
