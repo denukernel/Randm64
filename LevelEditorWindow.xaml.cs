@@ -345,6 +345,8 @@ namespace Sm64DecompLevelViewer
                     ViewSettings_Changed(this, new RoutedEventArgs());
                     RefreshIntroActors();
                     MeshTool_Changed(this, new RoutedEventArgs());
+                    objectNavigationReady=true;
+                    if(pendingObjectNavigation is {} navigation) { pendingObjectNavigation=null; NavigateObject(navigation); }
                 });
 
                 renderer.Run();
@@ -533,6 +535,7 @@ namespace Sm64DecompLevelViewer
                         if (point.HasValue && focus) _renderer.FocusOnPoint(point.Value);
                     }, () => _renderer?.GetCameraTarget() ?? OpenTK.Mathematics.Vector3.Zero);
                 MeshDock.Child = _embeddedMeshEditor.CreateEmbeddedView();
+                _embeddedMeshEditor.DiagnosticHighlight+=points=>_renderer?.SetDiagnosticHighlight(points);
                 _embeddedMeshEditor.PlacementPickingChanged+=(enabled,excluded)=>
                 {
                     if(_renderer==null) return;

@@ -15,6 +15,7 @@ namespace Sm64DecompLevelViewer
         private readonly string _projectRoot;
         private string _samplesDir = string.Empty;
         private System.Media.SoundPlayer? _activePlayer;
+        private void SoundBanks_Click(object sender,RoutedEventArgs e) => new SoundBankInspectorWindow(_projectRoot) { Owner=this }.Show();
         private MemoryStream? _activeStream;
         private bool _busy;
 

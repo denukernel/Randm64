@@ -25,6 +25,7 @@ namespace Sm64DecompLevelViewer
         private List<M64Track> _sequenceTracks = new();
         private M64Track? _currentTrack;
         private string _activeM64Path = "";
+        private void SoundBanks_Click(object sender,RoutedEventArgs e) => new SoundBankInspectorWindow(_projectRoot,_activeM64Path) { Owner=this }.Show();
 
 
         private readonly MusicPlaybackCoordinator _playback;

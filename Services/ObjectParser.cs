@@ -225,11 +225,8 @@ public class ObjectParser
                 }
             }
 
-            var match = MacroObjectsPattern.Match(contentToSearch);
-            if (match.Success)
-            {
-                return match.Groups[1].Value.Trim();
-            }
+            var call = CSourceCalls.Read(contentToSearch,n=>n=="MACRO_OBJECTS").FirstOrDefault();
+            if (call!=null && call.Arguments.Count==1) return call.Argument(contentToSearch,0);
         }
         catch (Exception ex)
         {

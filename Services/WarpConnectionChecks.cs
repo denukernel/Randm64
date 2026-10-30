@@ -4,6 +4,11 @@ namespace Sm64DecompLevelViewer.Services;
 
 public static class WarpConnectionChecks
 {
+    public static string? DestinationProblem(WarpScriptDocument.Node node,IReadOnlyList<WarpScriptDocument.Node> destinations)
+    {
+        int matches=destinations.Count(other=>WarpScriptDocument.NodeKey(other.SourceArea)==WarpScriptDocument.NodeKey(node.DestArea) && WarpScriptDocument.NodeKey(other.Id)==WarpScriptDocument.NodeKey(node.DestNode));
+        return matches==1 ? null : matches==0 ? $"destination area {node.DestArea}, node {node.DestNode} was not found" : $"destination area {node.DestArea}, node {node.DestNode} is ambiguous";
+    }
     public static Dictionary<string,string> Levels(string root)
     {
         string file=Path.Combine(root,"include","level_defines.h");
@@ -30,8 +35,7 @@ public static class WarpConnectionChecks
                 destinations=string.Equals(Path.GetFullPath(target),Path.GetFullPath(Path.Combine(levelDirectory,"script.c")),StringComparison.OrdinalIgnoreCase) ? nodes : new WarpScriptDocument(target).Nodes;
                 cache[target]=destinations;
             }
-            if(!destinations.Any(other=>WarpScriptDocument.NodeKey(other.SourceArea)==WarpScriptDocument.NodeKey(node.DestArea) && WarpScriptDocument.NodeKey(other.Id)==WarpScriptDocument.NodeKey(node.DestNode)))
-                problems.Add(label+$"destination area {node.DestArea}, node {node.DestNode} was not found");
+            if(DestinationProblem(node,destinations) is {} problem) problems.Add(label+problem);
         }
         return problems.ToArray();
     }

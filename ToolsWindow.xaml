@@ -61,6 +61,12 @@
         </StackPanel>
         
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto"><UniformGrid Columns="3">
+            <Button Content="Star and objective editor" Click="Objectives_Click"/>
+            <Button Content="Visual warp map" Click="WarpMap_Click"/>
+            <Button Content="Collision diagnostics" Click="Diagnostics_Click"/>
+            <Button Content="Sound bank inspector" Click="SoundBanks_Click"/>
+            <Button Content="Project object search" Click="ObjectSearch_Click"/>
+            <Button Content="Source editor · code blocks" Click="SourceEditor_Click"/>
             <!-- Level Specific Tools -->
             <Button x:Name="MeshToolButton" IsEnabled="False" Click="LevelMeshEditor_Click" ToolTip="Edit level vertices, geometry, and collision meshes.">
                 <StackPanel>

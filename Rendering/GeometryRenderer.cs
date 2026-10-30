@@ -210,6 +210,7 @@ public partial class GeometryRenderer : GameWindow
 
     public void FocusOnPoint(Vector3 point)
     {
+        _frameLevelRequested=false;
         Vector3 currentOffset = _cameraPosition - _cameraTarget;
         if (currentOffset.LengthSquared < 10)
         {
@@ -491,9 +492,11 @@ public partial class GeometryRenderer : GameWindow
     }
 
     public void UploadObjectData() => _needsObjectUpload = true;
+    private Vector3[] diagnosticHighlight=Array.Empty<Vector3>();
+    public void SetDiagnosticHighlight(Vector3[] points) { diagnosticHighlight=points.ToArray(); _needsObjectUpload=true; }
     private void UploadObjectDataCore()
     {
-        if ((_objects == null || _objects.Count == 0) && (EditSplinePoints == null || EditSplinePoints.Count == 0) && !SelectedMeshPoint.HasValue)
+        if ((_objects == null || _objects.Count == 0) && (EditSplinePoints == null || EditSplinePoints.Count == 0) && !SelectedMeshPoint.HasValue && diagnosticHighlight.Length==0)
         {
             _objectVertexCount = 0;
             Console.WriteLine("No objects, splines, or selected mesh point to upload");
@@ -503,6 +506,13 @@ public partial class GeometryRenderer : GameWindow
         try
         {
             List<float> vertices = new List<float>();
+            var highlight=diagnosticHighlight;
+            if(highlight.Length==3)
+                foreach(int index in new[]{0,1,2,2,1,0})
+                {
+                    var p=highlight[index]+new Vector3(0,1,0);
+                    vertices.AddRange(new[]{p.X,p.Y,p.Z,1f,.2f,0f});
+                }
 
             if (_objects != null)
             {
@@ -756,7 +766,7 @@ public partial class GeometryRenderer : GameWindow
         }
 
         // Render objects (colored cubes)
-        if ((_showObjects || _selectedObjectIndex >= 0) && _objectVertexCount > 0)
+        if ((_showObjects || _selectedObjectIndex >= 0 || diagnosticHighlight.Length>0) && _objectVertexCount > 0)
         {
             GL.UseProgram(_objectShaderProgram);
             

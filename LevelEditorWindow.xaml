@@ -163,6 +163,9 @@
 
                 <TabItem Header="Tools">
                     <WrapPanel Margin="8,5">
+                        <Button Content="Objectives" Click="ObjectivesTool_Click" Style="{StaticResource RibbonButtonStyle}"/>
+                        <Button Content="Object search" Click="ObjectSearchTool_Click" Style="{StaticResource RibbonButtonStyle}"/>
+                        <Button Content="Code blocks" Click="SourceEditorTool_Click" Style="{StaticResource RibbonButtonStyle}"/>
                         <Button Click="ToolsDashboardButton_Click" ToolTip="Open standalone Tools Dashboard Window" Style="{StaticResource RibbonButtonStyle}">
                             <StackPanel>
                                 <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="20" Height="24" Margin="0,0,0,4" HorizontalAlignment="Center" Foreground="#007ACC"/>

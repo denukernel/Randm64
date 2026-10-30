@@ -200,6 +200,7 @@
                             
                             <TextBlock x:Name="ToolContextText" Text="Select a level in the levels tab for level tools" TextWrapping="Wrap" Foreground="#bbbbbb" Margin="0,0,0,10"/>
                             <Button Content="Text and dialogue editor" Click="TextEditorMain_Click" Padding="6" Margin="0,0,0,8" Background="#2d2d30" Foreground="White"/>
+                            <Button Content="Source editor · code blocks" Click="SourceEditorMain_Click" Padding="6" Margin="0,0,0,8" Background="#2d2d30" Foreground="White"/>
                             <!-- Standalone Dashboard Button -->
                             <Button Content="🛠️ Open Tools Dashboard" 
                                     Click="OpenToolsDashboard_Click"

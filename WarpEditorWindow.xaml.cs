@@ -18,6 +18,8 @@ namespace Sm64DecompLevelViewer
         private WarpScriptDocument? _document;
         private string _saved = "";
         public ObservableCollection<WarpScriptDocument.Node> Warps { get; } = new();
+        internal bool EditingLevel(string path) => string.Equals(Path.GetDirectoryName(_scriptPath),path,StringComparison.OrdinalIgnoreCase);
+        private void WarpMap_Click(object sender,RoutedEventArgs e) => new WarpMapWindow(Directory.GetParent(Directory.GetParent(Path.GetDirectoryName(_scriptPath)!)!.FullName)!.FullName) { Owner=this }.Show();
         public WarpEditorWindow(string levelPath, Action? reloadCallback, string? initialArea = null)
         {
             InitializeComponent(); _scriptPath = Path.Combine(levelPath, "script.c"); _reload = reloadCallback;

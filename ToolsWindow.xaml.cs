@@ -62,6 +62,17 @@ namespace Sm64DecompLevelViewer
             PaintingToolButton.IsEnabled = level != null && new Services.PaintingService().FindPaintingFile(level.LevelPath) != null;
         }
         private void TextEditor_Click(object sender, RoutedEventArgs e) => new TextEditorWindow(_projectRoot) { Owner = this }.Show();
+        private void Objectives_Click(object sender, RoutedEventArgs e) => new ProjectObjectBrowserWindow(_projectRoot,true,_activeLevelPath) { Owner=this }.Show();
+        private void WarpMap_Click(object sender,RoutedEventArgs e) => new WarpMapWindow(_projectRoot) { Owner=this }.Show();
+        private void SoundBanks_Click(object sender,RoutedEventArgs e) => new SoundBankInspectorWindow(_projectRoot) { Owner=this }.Show();
+        private void ObjectSearch_Click(object sender,RoutedEventArgs e) => new ProjectObjectBrowserWindow(_projectRoot) { Owner=this }.Show();
+        private void SourceEditor_Click(object sender,RoutedEventArgs e) => new SourceEditorWindow(_projectRoot) { Owner=this }.Show();
+        private void Diagnostics_Click(object sender,RoutedEventArgs e)
+        {
+            if(_activeLevelPath==null) { MessageBox.Show("Select a level first."); return; }
+            var window=new LevelMeshEditorWindow(_activeLevelPath,AreaPicker.SelectedItem as string ?? "Area 1",_projectRoot,_onReloadRequest ?? (()=>{})) { Owner=this };
+            window.ShowDiagnostics(); window.Show();
+        }
         private void PatchTools_Click(object sender, RoutedEventArgs e) => new PatchWindow(_projectRoot) { Owner = this }.Show();
         private void RomTools_Click(object sender, RoutedEventArgs e) => new RomAddressWindow(_projectRoot) { Owner = this }.Show();
 

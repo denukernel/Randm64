@@ -61,6 +61,7 @@
         <!-- Title Header -->
         <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
             <TextBlock Text="Source area:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <Button Content="Visual warp map" Click="WarpMap_Click" Margin="0,0,10,0"/>
             <ComboBox x:Name="SourceAreaCombo" Width="100" SelectionChanged="AreaFilter_Changed"/>
             <CheckBox x:Name="ShowAllAreas" Content="Show all areas" IsChecked="True" Checked="AreaFilter_Changed" Unchecked="AreaFilter_Changed" Foreground="White" Margin="12,0,0,0"/>
             <Button Content="Check destinations" Click="ValidateWarps_Click" Margin="12,0,0,0" Padding="8,4"/>

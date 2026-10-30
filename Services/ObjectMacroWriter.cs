@@ -47,7 +47,13 @@ internal static class ObjectMacroWriter
             if(call.Arguments.Count>4 && o.RY!=old.RY) replacements[4]=Yaw(o).ToString(CultureInfo.InvariantCulture);
             if(call.Arguments.Count>5 && (o.Params!=old.Params || o.RawParams!=old.Raw)) replacements[5]=Parameter(o);
         }
-        return CSourceCalls.ReplaceArguments(source,call,replacements);
+        string rewritten=CSourceCalls.ReplaceArguments(source,call,replacements);
+        if(call.Name=="OBJECT" && o.RawActs!=old.Acts && o.RawActs!=null)
+        {
+            int close=rewritten.LastIndexOf(')');
+            rewritten="OBJECT_WITH_ACTS"+rewritten["OBJECT".Length..close]+", "+o.RawActs+rewritten[close..];
+        }
+        return rewritten;
     }
     private static void ValidateObject(LevelObject o)
     {

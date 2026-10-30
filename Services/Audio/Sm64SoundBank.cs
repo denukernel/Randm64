@@ -17,6 +17,11 @@ public sealed class Sm64SoundBank(string projectRoot)
     {
         string path = Path.Combine(projectRoot, "sound", "sound_banks", bankId + ".json");
         if (!File.Exists(path)) return null;
+        return ResolveFromRoot(ReadResolvedBank(bankId,version),instrumentId,pitch);
+    }
+    private JsonElement ReadResolvedBank(string bankId,string version)
+    {
+        string path = Path.Combine(projectRoot, "sound", "sound_banks", bankId + ".json");
         string define = version.StartsWith("VERSION_", StringComparison.OrdinalIgnoreCase)
             ? version.ToUpperInvariant() : "VERSION_" + version.ToUpperInvariant();
         string cacheKey = path + "|" + define;
@@ -31,7 +36,10 @@ public sealed class Sm64SoundBank(string projectRoot)
             cached = (modified, resolved.RootElement.Clone());
             _banks[cacheKey] = cached;
         }
-        JsonElement root = cached.Root;
+        return cached.Root;
+    }
+    private Sm64Instrument? ResolveFromRoot(JsonElement root,byte instrumentId,byte pitch)
+    {
         if (!root.TryGetProperty("instruments", out var instruments)) return null;
         bool percussion = instrumentId == 127;
         JsonElement instrument;
@@ -83,6 +91,48 @@ public sealed class Sm64SoundBank(string projectRoot)
             percussion && instrument.TryGetProperty("pan", out var pan) ? (byte)Math.Clamp(pan.GetInt32(), 0, 127) : null,
             instrument.TryGetProperty("release_rate", out var release) ? (byte)release.GetInt32() : (byte)32,
             envelope.ToArray());
+    }
+
+    public IReadOnlyList<SoundBankInspectionEntry> Inspect(string bankId,string version="us")
+    {
+        JsonElement root=ReadResolvedBank(bankId,version);
+        var result=new List<SoundBankInspectionEntry>();
+        string path=Path.Combine(projectRoot,"sound","sound_banks",bankId+".json");
+        if(!root.TryGetProperty("instruments",out var instruments)) return new[]{new SoundBankInspectionEntry(-1,"unresolved","","","","","","",path,"Missing instruments object")};
+        string Text(JsonElement value,string key,string fallback="")=>value.ValueKind==JsonValueKind.Object && value.TryGetProperty(key,out var child) ? child.ToString() : fallback;
+        void Add(int id,string name,JsonElement instrument,bool percussion)
+        {
+            if(instrument.ValueKind!=JsonValueKind.Object) { result.Add(new(id,name,"","","","","","",path,"Unresolved or empty instrument slot")); return; }
+            int low=int.TryParse(Text(instrument,"normal_range_lo","0"),out int lo) ? lo : 0;
+            int high=int.TryParse(Text(instrument,"normal_range_hi","127"),out int hi) ? hi : 127;
+            string envelope=Text(instrument,"envelope");
+            if(root.TryGetProperty("envelopes",out var envelopes) && envelopes.TryGetProperty(envelope,out var points)) envelope+=" "+points.GetRawText();
+            foreach(var range in percussion ? new[]{("sound",$"drum semitone {id}")} : new[]{("sound_lo",$"0 to {low-1}"),("sound",$"{low} to {high}"),("sound_hi",$"{high+1} to 127")})
+            {
+                if(!instrument.TryGetProperty(range.Item1,out var sound) || sound.ValueKind==JsonValueKind.Null) continue;
+                string sample=sound.ValueKind==JsonValueKind.String ? sound.GetString()! : Text(sound,"sample");
+                string bank=Text(root,"sample_bank","instruments");
+                string samplePath=Path.Combine(projectRoot,"sound","samples",bank,sample+".aiff");
+                string warning="";
+                if(!File.Exists(samplePath))
+                {
+                    string fallback=Path.Combine(projectRoot,"sound","samples","instruments",sample+".aiff");
+                    if(File.Exists(fallback)) { samplePath=fallback; warning="Using instruments sample-bank fallback"; }
+                    else warning="Missing sample: "+samplePath;
+                }
+                if(sample.Length==0) warning="Unresolved sample assignment";
+                result.Add(new(id,name,range.Item2,samplePath,Text(sound,"tuning","0 (bank default)"),Text(instrument,"pan",percussion ? "unspecified" : "sequence pan"),envelope,Text(instrument,"release_rate","32"),path+" / instruments / "+name+" / "+range.Item1,warning));
+            }
+        }
+        if(root.TryGetProperty("instrument_list",out var list))
+            for(int i=0;i<list.GetArrayLength();i++)
+            {
+                string name=list[i].ValueKind==JsonValueKind.String ? list[i].GetString()! : "empty slot";
+                Add(i,name,instruments.TryGetProperty(name,out var instrument) ? instrument : default,false);
+            }
+        if(instruments.TryGetProperty("percussion",out var drums) || root.TryGetProperty("percussion",out drums))
+            if(drums.ValueKind==JsonValueKind.Array) for(int i=0;i<drums.GetArrayLength();i++) Add(i,"percussion["+i+"]",drums[i],true);
+        return result;
     }
 
     public static string GetVersionForSequence(string sequencePath)

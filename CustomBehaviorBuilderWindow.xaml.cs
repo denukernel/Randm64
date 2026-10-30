@@ -42,4 +42,5 @@ public partial class CustomBehaviorBuilderWindow : Window
         catch (System.Exception ex) { StatusTextBlock.Text = ex.Message; MessageBox.Show(ex.Message, "Behavior was not registered"); }
     }
     private void CancelButton_Click(object sender, RoutedEventArgs e) => Close();
+    private void SourceEditor_Click(object sender,RoutedEventArgs e) => new SourceEditorWindow(_projectRoot,"behaviors") { Owner=this }.Show();
 }

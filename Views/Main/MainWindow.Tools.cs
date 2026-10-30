@@ -14,6 +14,11 @@ using Sm64DecompLevelViewer.Services.Levels;
 namespace Sm64DecompLevelViewer;
 public partial class MainWindow
 {
+    private void SourceEditorMain_Click(object sender,RoutedEventArgs e)
+    {
+        if(string.IsNullOrWhiteSpace(_projectRootPath) || !Directory.Exists(_projectRootPath)) { StatusText.Text="Select a project folder first"; return; }
+        new SourceEditorWindow(_projectRootPath) { Owner=this }.Show();
+    }
     private void SoundReplacerButton_Click(object sender, RoutedEventArgs e)
     {
         if (string.IsNullOrEmpty(_projectRootPath) || !Directory.Exists(_projectRootPath))

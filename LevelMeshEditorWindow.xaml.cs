@@ -176,6 +176,7 @@ namespace Sm64DecompLevelViewer
             WaterBoxGrid.ItemsSource = WaterBoxes;
 
             LoadAreas(initialArea);
+            InitializeDiagnostics();
         }
 
         private void LoadAreas(string initialArea)
@@ -630,7 +631,7 @@ namespace Sm64DecompLevelViewer
             if (_isUpdatingUi) return;
             if (ColTriangleGrid.SelectedItem is ColTriangleViewModel selected)
             {
-                if (selected.V1 < ColVertices.Count && selected.V2 < ColVertices.Count && selected.V3 < ColVertices.Count)
+                if (selected.V1 >= 0 && selected.V2 >= 0 && selected.V3 >= 0 && selected.V1 < ColVertices.Count && selected.V2 < ColVertices.Count && selected.V3 < ColVertices.Count)
                 {
                     var v1 = ColVertices[selected.V1];
                     var v2 = ColVertices[selected.V2];

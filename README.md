@@ -24,6 +24,56 @@ Randm64 edits source projects. It does not import compiled ROM hacks as editable
 | Behavior Builder | Configure a custom object and review generated source before creating it. |
 | Chaos Engine | Apply configurable effects to supported game assets and source code, with presets and run reports. |
 | Build and Patch Tools | Configure repository builds, inspect build output, manage source patches, and translate supported ROM addresses. |
+| Star and Objective Editor | Inspect stock objective candidates, verify star parameter encoding against project source, edit supported star indices and act visibility, and navigate to related objects. |
+| Visual Warp Map | Browse declared level and area connections, inspect missing or ambiguous destinations, and open the existing warp editor. |
+| Collision Diagnostics | Inspect invalid indices, degenerate/duplicate/small triangles, steep surfaces, possible gaps, and differences from visual geometry. |
+| Sound Bank Inspector | Inspect regional instruments, percussion semitones, sample ranges, envelopes, tuning, release rates, and sample loops, including unresolved assets. |
+| Project Object Search | Search normal, macro, and special placements by behavior, model, preset, and raw parameters, with level, area, and type filters. |
+| Source Editor | Assemble draggable C blocks for Mario, Goddard, behaviors, camera, audio, menu, engine, and other project sources; preview and save scoped function hooks or manual source edits. |
+
+### Visual source editor
+
+Open **Source editor · code blocks** from the main tools panel or dashboard, **Code blocks** from the Level Editor, or **Code blocks** in the Behavior Builder. Choose a module, source file, and function. The module browser uses the selected project files, including Mario action files and `src/goddard/`; **all source** also includes project headers, level sources, and actor sources.
+
+Click a palette block to add it or drag it into the stack. Drop on a control block to nest inside it, on a statement to insert after it, or on the empty workspace to append at the root. Use **Nest**, **Outdent**, **Up**, **Down**, **Duplicate**, and **Delete** to arrange the stack. Selecting a block exposes its editable fields. Supported blocks include assignments, increments, multiplication, calls, conditions with an optional final else child, repeat/while loops, and local variables. Mario starters support health, vertical speed, and invincibility; the Goddard starter calls an existing `gd_printf` declaration.
+
+The default **Game code blocks** view displays and edits the selected existing function as nested colored blocks. Select a supported assignment, call, scalar declaration, condition, loop header, switch expression, or return to change its fields, then click **Update block**. Valid pending fields also apply when selecting another block or previewing. Edits replace the corresponding source span while preserving surrounding code, comments, other functions, and line endings.
+
+In this view the palette adds code directly to the existing function. Choose **after selected**, **before selected**, **inside selected**, or **function start**; function-start insertion follows leading local declarations. Drag a palette block onto a control block to insert inside it, or onto a statement to insert at the chosen position. An else palette block attaches to a selected if without an else. **Delete** removes the selected supported block. Single-statement control bodies are wrapped or replaced with empty braces when needed to retain their original branch association. New executable blocks use a separate scope; new scalar locals go in a declaration section. Unsafe declaration placement is rejected for IDO compatibility.
+
+Use **Undo game edit** and **Redo** before saving. Changes are staged in **Source text**, with no file write until **Preview block changes**, diff review, and **Save previewed changes**. Source-text edits also refresh the block view. Unknown C, regional/preprocessor sections, case labels, complex declarations, and generated-hook sections remain protected from direct block edits. Use **Source text** for unsupported C, or **My block program** to edit generated hooks. The hook program retains its own drag/reorder/nesting controls; **Save blocks** exports that reusable hook design rather than the game-source edits.
+
+Visual blocks create a managed section before the original function body, with the original body retained in its own declaration scope. Blocks can reference function parameters and globals visible at the insertion point; original function locals are inside the retained body. Loops execute in a single function call, rather than waiting across game frames. Generated declarations precede statements for C89/IDO compatibility, and generated uses of `sins` or `coss` add the math utility header.
+
+Use **Preview block changes**, review the diff, then **Save previewed changes**. **Source text** and **Preview source changes** support manual C and header editing. Saves keep first backups and reject external changes. Names, types, function declarations, and runtime behavior still require a game build and testing. The visual function browser uses the existing US/N64 source view when conditional brace layouts require it; ambiguous definitions and conditionals crossing function boundaries require the source-text view.
+
+Block metadata is stored with the generated section so saved hook programs reopen visually. Manually changed managed sections are protected from visual replacement. **Save blocks** and **Load blocks** use reusable `.randblocks.json` projects with relative target paths; they can be loaded in another compatible decomp tree. Direct game-code editing uses source spans rather than converting or regenerating the entire function as a hook program.
+
+```powershell
+dotnet run --project .\Tests\SourceBlocks\SourceBlocks.csproj -c Release
+dotnet run --project .\Tests\SourceBlocks\SourceBlocks.csproj -c Release -- '\\wsl.localhost\Ubuntu-20.04\root\sm64'
+```
+
+### Project inspection tools
+
+Open these tools from the Tools Dashboard. Objectives and object search are also available in the Level Editor; the warp map is available in the Warp Editor; sound banks are available in the Music and Sound Editors. Collision diagnostics appear in the mesh editor Diagnostics tab. When the mesh editor is embedded in the Level Editor, selecting a valid diagnostic frames and highlights its triangle in the viewport.
+
+Objective edits preserve the other behavior-parameter bytes and source expressions. Structured star fields require a recognized stock reward path and numeric parameters; custom or unverified behavior requirements remain source references. Star indices are zero-based (0 through 6). Shared source scripts can place the same object in several areas; the details panel identifies these shared placements. Close level editors using the same source before saving objective changes so pending object edits remain protected.
+
+The warp graph describes source connections rather than gameplay reachability. Select a connection to inspect it, use the existing warp editor to change it, and refresh after external edits. Middle-drag pans; ctrl-wheel and the zoom buttons change scale.
+
+Collision analysis is read-only. Defaults are one square world unit for small triangles, 38 degrees for steep upward-facing surfaces, and five world units for visual differences. These are editable inspection thresholds. Boundary edges and invisible collision can be intentional. Findings are discarded after table changes. Save pending visual vertex edits before comparing against saved visual geometry.
+
+Sound bank inspection is read-only and uses the existing regional conditional resolver. A sequence may list several banks; the first is its default. Raw sample preview plays at the file rate, without sequence pitch, envelopes, or effects. Missing samples remain visible with their bank metadata. Use All banks to return from a sequence mapping to the full bank list.
+
+Object search runs in the background and supports cancellation and refresh. Source versions are checked before navigation or objective saving; refresh stale results after editing source externally. Objects with unresolved coordinates open their source instead of framing a guessed location. Unavailable level geometry also falls back to the source viewer.
+
+Feature regression checks, including fixture windows and source-preserving objective saves:
+
+```powershell
+dotnet run --project .\Tests\ProjectFeatures\ProjectFeatures.csproj -c Release
+dotnet run --project .\Tests\ProjectFeatures\ProjectFeatures.csproj -c Release -- '\\wsl.localhost\Ubuntu-20.04\root\sm64'
+```
 
 ### Editor Gallery
 

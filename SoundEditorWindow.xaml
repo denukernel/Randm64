@@ -13,6 +13,7 @@
         <!-- Header -->
         <Border Grid.Row="0" Margin="0,0,0,12" BorderThickness="0,0,0,1" BorderBrush="#3F3F46" Padding="0,0,0,8">
             <StackPanel>
+                <Button Content="Sound bank inspector" Click="SoundBanks_Click" HorizontalAlignment="Left" Padding="8,4"/>
                 <TextBlock Text="🔊 SM64 Sound &amp; SFX Editor" FontSize="18" FontWeight="Bold" Foreground="#D45B0A"/>
                 <TextBlock Text="Browse extracted sample folders, inspect file metadata, preview and replace PCM samples." FontSize="11" Foreground="#CCCCCC" Margin="0,2,0,0"/>
                 <TextBlock Text="Filter sample filenames in this folder:" Foreground="#CCCCCC" Margin="0,8,0,0"/>

@@ -106,6 +106,7 @@
             <TextBlock MaxWidth="230" TextWrapping="Wrap" x:Name="StatusTextBlock" Text="Configure object name and model parameters." VerticalAlignment="Center" Foreground="#888888" FontStyle="Italic"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button Content="Preview sources" Click="PreviewButton_Click" Margin="0,0,10,0" Padding="8"/>
+                <Button Content="Code blocks" Click="SourceEditor_Click" Margin="0,0,10,0" Padding="8"/>
                 <Button Content="Create &amp; Register Behavior" Click="CreateBehavior_Click" Width="200" Margin="0,0,10,0"
                         Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0" Padding="8" FontWeight="Bold" Cursor="Hand"/>
                 <Button Content="Cancel" Click="CancelButton_Click" Width="80"
